@@ -39,7 +39,7 @@ final class ErrorRedactionTests: XCTestCase {
 
     func testProviderErrorMessagesNeverContainCredentialPlaceholders() {
         let credentials = Fixtures.makeCredentials()
-        let redactor = credentials.redactor
+        let redactor = ProviderCredentials.xtream(credentials).redactor
         let errors: [ProviderError] = [
             .invalidServerURL, .notAuthenticated, .unauthorized, .sessionExpired,
             .networkUnreachable, .timedOut, .serverError(status: 500),
