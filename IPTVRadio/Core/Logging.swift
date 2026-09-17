@@ -23,14 +23,15 @@ struct Redactor {
 
     init(secrets: [String]) {
         // Ignore trivial values so we do not mangle unrelated text.
-        secrets = secrets.filter { $0.count >= 4 }
-        self.secrets = secrets
+        self.secrets = secrets.filter { $0.count >= 4 }
     }
 
     init(credentials: ProviderCredentials?) {
         switch credentials {
         case let .xtream(cred):
             self.init(secrets: [cred.username, cred.password])
+        case let .m3u(cred):
+            self.init(secrets: [cred.url.absoluteString])
         case .none:
             self.init(secrets: [])
         }
