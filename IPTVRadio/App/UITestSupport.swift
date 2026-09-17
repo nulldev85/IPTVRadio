@@ -134,8 +134,10 @@ enum UITestSupport {
         case .nowPlaying:
             environment.library.injectForUITest(snapshot: makeSnapshot())
             environment.auth.authState = .active(uitestSession())
-            let station = makeSnapshot().siriusStations[0]
-            environment.playback.play(station, in: [station])
+            let snapshot = makeSnapshot()
+            let station = snapshot.siriusStations[0]
+            // Provide the full lineup so next/previous station switching works.
+            environment.playback.play(station, in: snapshot.allRadioStations)
         }
     }
 

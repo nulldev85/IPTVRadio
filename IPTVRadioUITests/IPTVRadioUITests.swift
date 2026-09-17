@@ -89,16 +89,23 @@ final class IPTVRadioUITests: XCTestCase {
         let miniPlayer = app.buttons["miniplayer.open"].firstMatch
         XCTAssertTrue(miniPlayer.waitForExistence(timeout: 8))
         miniPlayer.tap()
-        let done = app.buttons["nowplaying.done"]
-        if !done.waitForExistence(timeout: 8) {
-            XCTFail("Now playing sheet did not open. Hierarchy:\n\(app.debugDescription)")
+        let close = app.buttons["nowplaying.close"]
+        if !close.waitForExistence(timeout: 8) {
+            XCTFail("Now playing screen did not open or close control missing. Hierarchy:\n\(app.debugDescription)")
         }
         XCTAssertTrue(app.buttons["nowplaying.toggle"].exists)
         XCTAssertTrue(app.buttons["nowplaying.stop"].exists)
         XCTAssertTrue(app.buttons["nowplaying.sleepTimer"].exists)
 
-        // Stop playback and dismiss.
+        // Switching stations repeatedly works without leaving the player.
+        app.buttons["nowplaying.next"].tap()
+        XCTAssertTrue(app.buttons["nowplaying.toggle"].waitForExistence(timeout: 8))
+
+        // Stop playback, then dismiss with the always-visible control.
         app.buttons["nowplaying.stop"].tap()
-        done.tap()
+        close.tap()
+
+        // The user is returned to the station list with a persistent mini player.
+        XCTAssertTrue(app.buttons["miniplayer.open"].waitForExistence(timeout: 8))
     }
 }

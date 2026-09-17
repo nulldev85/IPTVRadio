@@ -126,8 +126,10 @@ final class NowPlayingManager {
 
     // MARK: Artwork
 
-    func loadArtwork(from url: URL?) {
-        guard let url else { return }
+    /// Loads remote artwork asynchronously and applies it to the lock screen
+    /// only if the station is still the active one. Never blocks playback.
+    func loadArtwork(for station: RadioStation) {
+        guard let url = station.logoURL else { return }
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -135,10 +137,17 @@ final class NowPlayingManager {
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode),
                       let image = UIImage(data: data) else { return }
+                // The station may have changed while the artwork was loading.
+                guard self.currentMetadata?.id == station.id else { return }
                 self.applyArtwork(image)
             } catch {
                 // Artwork is best-effort; failures are silent and non-fatal.
             }
         }
+    }
+
+    /// Test hook: current now-playing info dictionary.
+    var nowPlayingInfoForTesting: [String: Any]? {
+        infoCenter.nowPlayingInfo
     }
 }

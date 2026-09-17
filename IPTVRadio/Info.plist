@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  IPTV providers vary: many serve station artwork (stream_icon / tvg-logo)
+  and some serve streams over plain HTTP. App Transport Security blocks
+  those loads by default, which is why provider artwork would not appear.
+  Arbitrary loads are therefore enabled for user-configured provider
+  endpoints. HTTPS is still preferred and insecure portals are clearly
+  warned about at sign-in.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

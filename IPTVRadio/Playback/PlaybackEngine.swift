@@ -81,8 +81,10 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
         stopObserversForReload()
         hasReportedReady = false
         let item = AVPlayerItem(url: url)
-        // Prefer the audio track for radio; allows mixed-format HLS.
-        item.preferredForwardBufferDuration = 4
+        // The provider URL is handed to AVPlayer unchanged: no transcoding,
+        // recompression or rendition caps. AVPlayer picks the highest
+        // sustainable audio rendition the provider offers.
+        scheduleDiagnostics(for: url, item: item)
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             switch item.status {
             case .readyToPlay:
@@ -102,6 +104,38 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
             self?.onEnded?()
         }
         player.replaceCurrentItem(with: item)
+    }
+
+    /// Logs safe, non-secret stream diagnostics (type + bitrates) so degraded
+    /// audio can be attributed to the provider source on a real device.
+    /// SECURITY: the URL is never logged; only its file extension is used.
+    private func scheduleDiagnostics(for url: URL, item: AVPlayerItem) {
+        let streamExtension = url.pathExtension
+        Task { [weak self] in
+            // Give AVPlayer a few seconds to gather access-log data.
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard self != nil, item.error == nil else { return }
+            let events = (item.accessLog()?.events ?? []).map { event in
+                PlaybackDiagnostics.EventSample(
+                    indicatedBitrate: event.indicatedBitrate,
+                    observedBitrate: event.observedBitrate,
+                    averageAudioBitrate: event.averageAudioBitrate,
+                    numberOfMediaRequests: event.numberOfMediaRequests
+                )
+            }
+            let tracks = item.tracks.map { track in
+                PlaybackDiagnostics.TrackSample(
+                    mediaType: track.mediaType.rawValue,
+                    estimatedDataRate: Double(track.estimatedDataRate)
+                )
+            }
+            let summary = PlaybackDiagnostics.summary(
+                streamExtension: streamExtension,
+                events: events,
+                tracks: tracks
+            )
+            AppLogger.playback.info("Stream diagnostics (redacted): \(summary, privacy: .public)")
+        }
     }
 
     func play() {
@@ -444,7 +478,7 @@ final class PlaybackEngine: ObservableObject {
         if let station = state.station {
             state = .playing(station)
             nowPlaying.update(state: state, buffering: false)
-            nowPlaying.loadArtwork(from: station.logoURL)
+            nowPlaying.loadArtwork(for: station)
         }
     }
 

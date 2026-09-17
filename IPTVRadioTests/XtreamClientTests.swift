@@ -102,6 +102,11 @@ final class XtreamClientTests: XCTestCase {
         XCTAssertTrue(stations.contains { $0.name.contains("SiriusXM Hits 1") })
         XCTAssertFalse(stations.contains { $0.name == "Action Movies HD" })
         XCTAssertEqual(vm.siriusStations.count, 3)
+        // Provider artwork (stream_icon) must be retained on the station.
+        XCTAssertEqual(
+            stations.first { $0.name.contains("SiriusXM Hits 1") }?.logoURL?.absoluteString,
+            "https://logo.example/hits1.png"
+        )
     }
 }
 

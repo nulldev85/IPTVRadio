@@ -92,7 +92,8 @@ struct StationArtwork: View {
                     .aspectRatio(contentMode: .fill)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             } else {
-                Image(systemName: "music.note")
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: size * 0.38))
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
             }

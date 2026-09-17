@@ -19,17 +19,30 @@ struct NowPlayingView: View {
             }
             .navigationTitle("Now Playing")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .accessibilityIdentifier("nowplaying.done")
-                }
-            }
         }
+        // The sheet stays swipe-to-dismissable; the drag indicator plus the
+        // always-visible in-body Close control (below) guarantee a reliable
+        // way back that does not depend on the system navigation bar.
+        .presentationDragIndicator(.visible)
     }
 
     private func content(for station: RadioStation) -> some View {
         VStack(spacing: 24) {
+            // Explicit close control rendered in the view body so dismissal
+            // never depends on the system navigation bar rendering.
+            HStack {
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Label("Close", systemImage: "xmark.circle.fill")
+                        .font(.headline)
+                        .labelStyle(.titleAndIcon)
+                }
+                .accessibilityIdentifier("nowplaying.close")
+                .accessibilityLabel("Close now playing screen")
+            }
+
             StationArtwork(logoURL: station.logoURL, size: 220)
                 .padding(.top, 12)
 

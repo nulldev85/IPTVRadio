@@ -284,7 +284,7 @@ struct PrivacyNoticeView: View {
 
                 Text("Secure connections")
                     .font(.headline)
-                Text("HTTPS is preferred. If your provider only offers an unencrypted HTTP endpoint, the app clearly warns you before you continue.")
+                Text("HTTPS is preferred. If your provider only offers an unencrypted HTTP endpoint, the app clearly warns you before you continue. Because providers differ, connections to provider-supplied HTTP endpoints (including artwork servers) are allowed; the app still warns you whenever an insecure portal is detected.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

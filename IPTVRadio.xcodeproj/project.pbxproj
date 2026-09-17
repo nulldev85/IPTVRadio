@@ -426,6 +426,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = IPTVRadio/Info.plist;
 				IPTVRADIO_BUNDLE_IDENTIFIER = "com.example.IPTVRadio";
 				INFOPLIST_KEY_CFBundleDisplayName = "IPTV Radio";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
@@ -457,6 +458,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = IPTVRadio/Info.plist;
 				IPTVRADIO_BUNDLE_IDENTIFIER = "com.example.IPTVRadio";
 				INFOPLIST_KEY_CFBundleDisplayName = "IPTV Radio";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
