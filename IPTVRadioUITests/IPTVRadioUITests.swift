@@ -86,7 +86,7 @@ final class IPTVRadioUITests: XCTestCase {
             XCTFail("Mini player not visible. Hierarchy:\n\(app.debugDescription)")
         }
 
-        let miniPlayer = app.descendants(matching: .any)["miniplayer.open"].firstMatch
+        let miniPlayer = app.buttons["miniplayer.open"].firstMatch
         XCTAssertTrue(miniPlayer.waitForExistence(timeout: 8))
         miniPlayer.tap()
         let done = app.buttons["nowplaying.done"]

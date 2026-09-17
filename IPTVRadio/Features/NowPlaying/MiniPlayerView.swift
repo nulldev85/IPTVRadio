@@ -10,19 +10,29 @@ struct MiniPlayerView: View {
         Group {
             if let station = playback.state.station {
                 HStack(spacing: 12) {
-                    StationArtwork(logoURL: station.logoURL, size: 44)
+                    Button {
+                        showNowPlaying = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            StationArtwork(logoURL: station.logoURL, size: 44)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(station.name)
-                            .font(.subheadline.weight(.medium))
-                            .lineLimit(1)
-                        Text(stateDescription)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(station.name)
+                                    .font(.subheadline.weight(.medium))
+                                    .lineLimit(1)
+                                Text(stateDescription)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+
+                            Spacer(minLength: 4)
+                        }
                     }
-
-                    Spacer(minLength: 8)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("miniplayer.open")
+                    .accessibilityLabel("Open now playing screen")
+                    .accessibilityHint("Opens the full now playing controls")
 
                     if playback.state.isBusy {
                         ProgressView().controlSize(.small)
@@ -34,7 +44,7 @@ struct MiniPlayerView: View {
                         Image(systemName: iconName)
                             .font(.title3)
                     }
-                    .accessibilityLabel(iconName == "play.fill" ? "Play" : iconName == "pause.fill" ? "Pause" : "Retry")
+                    .accessibilityLabel(toggleAccessibilityLabel)
                     .accessibilityIdentifier("miniplayer.toggle")
 
                     Button {
@@ -49,15 +59,10 @@ struct MiniPlayerView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(.bar)
-                .contentShape(Rectangle())
-                .onTapGesture { showNowPlaying = true }
-                .accessibilityIdentifier("miniplayer.open")
-                .accessibilityAddTraits(.isButton)
-                .accessibilityHint("Opens the now playing screen")
-                .sheet(isPresented: $showNowPlaying) {
-                    NowPlayingView()
-                }
             }
+        }
+        .sheet(isPresented: $showNowPlaying) {
+            NowPlayingView()
         }
         .animation(.easeInOut(duration: 0.2), value: playback.state.station?.id)
     }
@@ -69,6 +74,15 @@ struct MiniPlayerView: View {
         case .failed: return "arrow.clockwise"
         case .paused, .stopped: return "play.fill"
         default: return "play.fill"
+        }
+    }
+
+    private var toggleAccessibilityLabel: String {
+        switch playback.state {
+        case .playing: return "Pause"
+        case .loading: return "Retry"
+        case .failed: return "Retry"
+        default: return "Play"
         }
     }
 
