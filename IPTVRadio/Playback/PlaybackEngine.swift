@@ -125,7 +125,7 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
             }
             let tracks = item.asset.tracks.map { track in
                 PlaybackDiagnostics.TrackSample(
-                    mediaType: track.mediaType,
+                    mediaType: track.mediaType.rawValue,
                     estimatedDataRate: Double(track.estimatedDataRate)
                 )
             }
