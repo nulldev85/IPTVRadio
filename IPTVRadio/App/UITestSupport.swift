@@ -7,17 +7,9 @@ struct MockHTTPClient: HTTPClient {
         let url = request.url?.absoluteString ?? ""
         let body: String
         if url.contains("get_live_categories") {
-            body = #"[
-                {"category_id": "1", "category_name": "SiriusXM", "parent_id": 0},
-                {"category_id": "2", "category_name": "Music Radio", "parent_id": 0},
-                {"category_id": "3", "category_name": "Talk Radio", "parent_id": 0}
-            ]"#
+            body = #"[{"category_id": "1", "category_name": "SiriusXM", "parent_id": 0},{"category_id": "2", "category_name": "Music Radio", "parent_id": 0},{"category_id": "3", "category_name": "Talk Radio", "parent_id": 0}]"#
         } else if url.contains("get_live_streams") {
-            body = #"[
-                {"num": 1, "name": "SiriusXM Hits 1", "stream_type": "live", "stream_id": "8020", "category_id": "1"},
-                {"num": 2, "name": "SiriusXM Octane", "stream_type": "live", "stream_id": "8021", "category_id": "1"},
-                {"num": 3, "name": "Jazz Cafe Radio", "stream_type": "live", "stream_id": "9002", "category_id": "2"}
-            ]"#
+            body = #"[{"num": 1, "name": "SiriusXM Hits 1", "stream_type": "live", "stream_id": "8020", "category_id": "1"},{"num": 2, "name": "SiriusXM Octane", "stream_type": "live", "stream_id": "8021", "category_id": "1"},{"num": 3, "name": "Jazz Cafe Radio", "stream_type": "live", "stream_id": "9002", "category_id": "2"}]"#
         } else {
             body = #"{"user_info": {"auth": 1, "status": "Active", "exp_date": "4102444800"}, "server_info": {"url": "demo.example.net", "port": "80", "https_port": "443"}}"#
         }
