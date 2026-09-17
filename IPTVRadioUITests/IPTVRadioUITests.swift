@@ -81,7 +81,10 @@ final class IPTVRadioUITests: XCTestCase {
 
         // Mini player visible with the playing station.
         XCTAssertTrue(app.staticTexts["SiriusXM Hits 1"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["miniplayer.toggle"].exists)
+        let toggle = app.buttons["miniplayer.toggle"]
+        if !toggle.waitForExistence(timeout: 8) {
+            XCTFail("Mini player not visible. Hierarchy:\n\(app.debugDescription)")
+        }
 
         let miniPlayer = app.descendants(matching: .any)["miniplayer.open"].firstMatch
         XCTAssertTrue(miniPlayer.waitForExistence(timeout: 8))

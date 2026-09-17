@@ -52,7 +52,8 @@ final class AuthViewModel: ObservableObject {
             do {
                 try await credentials.save(CredentialsStore.StoredCredentials(xtream: xtream, m3uURL: nil))
             } catch {
-                AppLogger.persistence.error("Keychain save failed")
+                // Privacy-safe: error descriptions contain no credential material.
+                AppLogger.app.error("Sign-in storage failure: \(String(describing: error), privacy: .public)")
                 return .failure(.malformedResponse("Could not store credentials securely."))
             }
             settings.authMode = .xtream

@@ -53,7 +53,10 @@ final class AppEnvironment: ObservableObject {
             : JSONFileStore()
         favorites = FavoritesStore(fileStore: fileStore)
         history = HistoryStore(fileStore: fileStore)
-        credentials = CredentialsStore()
+        // UI tests must never touch the real Keychain.
+        credentials = uitestMode
+            ? CredentialsStore(secrets: MemorySecretStore())
+            : CredentialsStore()
         connectivity = ConnectivityMonitor()
         cache = StationCache(fileStore: fileStore)
         httpClient = uitestMode

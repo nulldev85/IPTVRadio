@@ -1,5 +1,26 @@
 import Foundation
 
+/// In-memory secret store used in UI-test mode (never the real Keychain).
+final class MemorySecretStore: SecretStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String: Data] = [:]
+
+    func saveData(_ data: Data, account: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        storage[account] = data
+    }
+
+    func loadData(account: String) throws -> Data? {
+        lock.lock(); defer { lock.unlock() }
+        return storage[account]
+    }
+
+    func deleteData(account: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        storage.removeValue(forKey: account)
+    }
+}
+
 /// Mock HTTP client used in UI-test mode so no network is touched.
 /// Answers the three Xtream endpoints with embedded fixture data.
 struct MockHTTPClient: HTTPClient {
