@@ -63,9 +63,7 @@ final class M3UParserTests: XCTestCase {
     }
 
     func testURLWithQueryParamsPreserved() {
-        let text = #"#EXTINF:-1,Query Station
-        https://example.org/stream?id=42&type=aac
-        "#
+        let text = #"#EXTINF:-1,Query Station"# + "\n" + "https://example.org/stream?id=42&type=aac\n"
         let items = M3UParser.parse(text)
         XCTAssertEqual(items[0].url.query, "id=42&type=aac")
     }

@@ -39,6 +39,7 @@ final class NowPlayingManager {
         guard !registered else { return }
         registered = true
 
+        let commandCenter = MPRemoteCommandCenter.shared()
         let dispatchOnMain: (NowPlayingCommand) -> Void = { command in
             Task { @MainActor in dispatch(command) }
         }
