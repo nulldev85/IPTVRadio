@@ -261,7 +261,7 @@ jobs:
 
       # ---------------------- TestFlight upload (optional) -------------------
       - name: Upload to TestFlight
-        if: steps.ipa.conclusion == 'success' && secrets.APP_STORE_CONNECT_API_KEY_ID != ''
+        if: steps.ipa.conclusion == 'success'
         env:
           API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
