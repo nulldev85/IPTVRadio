@@ -185,7 +185,7 @@ jobs:
       # ------------------- Signed device IPA (optional) ----------------------
       - name: Import signing certificate and profile
         id: signing
-        if: env.SIGNING_SECRETS_PRESENT == 'true' && (github.event_name != 'workflow_dispatch' || inputs.attempt_signed_build)
+        if: env.SIGNING_SECRETS_PRESENT == 'true' && (github.event_name != 'workflow_dispatch' || github.event.inputs.attempt_signed_build == 'true')
         run: |
           ./scripts/import-signing.sh \
             --team-id "$IOS_TEAM_ID" \
