@@ -32,9 +32,13 @@ final class IPTVRadioUITests: XCTestCase {
         // Return key submits via onSubmit; fall back to the button if needed.
         if !app.buttons["Radio"].waitForExistence(timeout: 10),
            app.buttons["login.submit"].exists {
+            app.swipeUp()
             app.buttons["login.submit"].tap()
         }
-        XCTAssertTrue(app.buttons["Radio"].waitForExistence(timeout: 10))
+        let radioTab = app.buttons["Radio"]
+        if !radioTab.waitForExistence(timeout: 10) {
+            XCTFail("Radio tab not found after sign-in. Hierarchy:\n\(app.debugDescription)")
+        }
     }
 
     func testBrowseShowsStationsAndCategories() throws {
@@ -83,7 +87,9 @@ final class IPTVRadioUITests: XCTestCase {
         XCTAssertTrue(miniPlayer.waitForExistence(timeout: 8))
         miniPlayer.tap()
         let done = app.buttons["nowplaying.done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 8), "Now playing screen should open")
+        if !done.waitForExistence(timeout: 8) {
+            XCTFail("Now playing sheet did not open. Hierarchy:\n\(app.debugDescription)")
+        }
         XCTAssertTrue(app.buttons["nowplaying.toggle"].exists)
         XCTAssertTrue(app.buttons["nowplaying.stop"].exists)
         XCTAssertTrue(app.buttons["nowplaying.sleepTimer"].exists)
