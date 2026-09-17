@@ -45,7 +45,7 @@ security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
 security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 security import "$CERT_PATH" -P "$APPLE_CERT_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
 security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
-security list-keychain -d user -s "$KEYCHAIN_PATH" "$(security default-keychain | awk -F'[\" ]+' '{print $2}' || true)"
+security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
 
 PROFILE_UUID=$(security cms -D -i "$PROFILE_PATH" 2>/dev/null | plutil -extract UUID raw -o - - || true)
 if [ -z "$PROFILE_UUID" ]; then
