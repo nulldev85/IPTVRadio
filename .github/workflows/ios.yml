@@ -162,6 +162,7 @@ jobs:
       - name: Build unsigned simulator app (diagnostic)
         run: |
           set -o pipefail
+          mkdir -p "$LOG_DIR"
           rm -rf build/Simulator
           xcodebuild build \
             -project "$PROJECT_PATH" \
