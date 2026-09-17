@@ -17,6 +17,7 @@ struct IPTVRadioApp: App {
                 .environmentObject(environment)
                 .environmentObject(environment.playback)
                 .environmentObject(environment.library)
+                .environmentObject(environment.auth)
                 .environmentObject(environment.settings)
                 .environmentObject(environment.favorites)
                 .environmentObject(environment.history)
