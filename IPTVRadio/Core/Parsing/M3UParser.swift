@@ -24,14 +24,17 @@ enum M3UParser {
         if cleaned.hasPrefix("\u{FEFF}") {
             cleaned.removeFirst()
         }
+        // Normalize CRLF/CR to LF (Swift's "\n" Character split never matches CRLF graphemes).
+        cleaned = cleaned
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
         var items: [M3UItem] = []
         var pendingMetadata: (name: String, group: String, tvgID: String?, tvgName: String?, logo: URL?, duration: Double?)?
         var pendingGroup: String?
 
         var iterator = cleaned.split(separator: "\n", omittingEmptySubsequences: false).makeIterator()
         while let rawLine = iterator.next() {
-            var line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            if line.hasSuffix("\r") { line.removeLast() }
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
 
             if line.hasPrefix("#EXTINF") {

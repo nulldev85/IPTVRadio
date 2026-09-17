@@ -36,7 +36,7 @@ struct RadioDetectionRules: Codable, Hashable {
             "radio", "fm", "am ", "siriusxm", "sirius xm", "sirius", "sxm", "hits",
             "country", "rock", "pop", "jazz", "blues", "classical", "hip hop", "rap",
             "reggae", "latin", "dance", "electronic", "edm", "metal", "punk", "oldies",
-            "gospel", "talk", "news", "sports radio", "classics", "top 40", "ac",
+            "gospel", "talk", "news", "sports radio", "classics", "top 40",
             "christian", "k-pop", "kpop", "salsa", "cumbia", "banda", "reggaeton",
             "musica", "música", "smooth", "swing", "opera", "trance", "house",
         ],

@@ -364,7 +364,8 @@ final class PlaybackEngine: ObservableObject {
 
     private func scheduleRetry(station: RadioStation) {
         cancelWatchdog()
-        let policy = RetryPolicy(maxAttempts: settings.retryLimit + 1)
+        // retryLimit = number of automatic retries after the initial attempt.
+        let policy = RetryPolicy(maxAttempts: settings.retryLimit)
         switch policy.nextAction(afterAttempts: retryAttempts) {
         case .retryAfterDelay(let delay):
             retryAttempts += 1

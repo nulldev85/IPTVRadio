@@ -98,6 +98,8 @@ struct LoginView: View {
                 .accessibilityIdentifier("login.username")
             SecureField("Password", text: $password)
                 .textContentType(.password)
+                .submitLabel(.go)
+                .onSubmit(signIn)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("login.password")
         }

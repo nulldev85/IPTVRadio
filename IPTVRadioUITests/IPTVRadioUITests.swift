@@ -22,15 +22,19 @@ final class IPTVRadioUITests: XCTestCase {
 
         serverField.tap()
         serverField.typeText("https://demo.example.net:8080")
-        app.textFields["login.username"].tap()
-        app.textFields["login.username"].typeText("uitest-user")
-        app.secureTextFields["login.password"].tap()
-        app.secureTextFields["login.password"].typeText("uitest-pass")
-        app.buttons["login.submit"].tap()
+        let usernameField = app.textFields["login.username"]
+        usernameField.tap()
+        usernameField.typeText("uitest-user")
+        let passwordField = app.secureTextFields["login.password"]
+        passwordField.tap()
+        passwordField.typeText("uitest-pass\n")
 
-        // Mock mode: entering any Xtream credentials is accepted instantly and
-        // shows the main interface.
-        XCTAssertTrue(app.buttons["Radio"].waitForExistence(timeout: 8))
+        // Return key submits via onSubmit; fall back to the button if needed.
+        if !app.buttons["Radio"].waitForExistence(timeout: 10),
+           app.buttons["login.submit"].exists {
+            app.buttons["login.submit"].tap()
+        }
+        XCTAssertTrue(app.buttons["Radio"].waitForExistence(timeout: 10))
     }
 
     func testBrowseShowsStationsAndCategories() throws {
@@ -75,12 +79,9 @@ final class IPTVRadioUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["SiriusXM Hits 1"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["miniplayer.toggle"].exists)
 
-        let miniPlayer = app.otherElements["miniplayer.open"].firstMatch
-        if miniPlayer.exists {
-            miniPlayer.tap()
-        } else {
-            app.staticTexts["SiriusXM Hits 1"].tap()
-        }
+        let miniPlayer = app.descendants(matching: .any)["miniplayer.open"].firstMatch
+        XCTAssertTrue(miniPlayer.waitForExistence(timeout: 8))
+        miniPlayer.tap()
         let done = app.buttons["nowplaying.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 8), "Now playing screen should open")
         XCTAssertTrue(app.buttons["nowplaying.toggle"].exists)

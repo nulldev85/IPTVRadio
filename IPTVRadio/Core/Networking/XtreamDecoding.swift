@@ -31,8 +31,13 @@ enum Lenient {
     }
 
     static func url(_ raw: String?) -> URL? {
-        guard let raw, !raw.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
-        return URL(string: raw.trimmingCharacters(in: .whitespaces))
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty,
+              let url = URL(string: trimmed),
+              let scheme = url.scheme, !scheme.isEmpty,
+              url.host != nil else { return nil }
+        return url
     }
 }
 
