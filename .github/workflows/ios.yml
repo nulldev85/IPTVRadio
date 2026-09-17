@@ -183,6 +183,45 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      # ------------------- Unsigned device IPA (iPhoneOS SDK) ----------------
+      # Built with the iPhoneOS SDK and signing disabled. This IPA is unsigned:
+      # it must be re-signed (e.g. with NullSign) before it can run on a device.
+      - name: Build unsigned device app (iPhoneOS SDK)
+        run: |
+          set -o pipefail
+          mkdir -p "$LOG_DIR"
+          rm -rf build/device build/ipa-staging
+          xcodebuild \
+            -project IPTVRadio.xcodeproj \
+            -scheme IPTVRadio \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build \
+            | tee "$LOG_DIR/xcodebuild-device.log"
+
+          DEVICE_APP="build/device/Build/Products/Release-iphoneos/IPTVRadio.app"
+          test -d "$DEVICE_APP" || { echo "::error::Device app not found at $DEVICE_APP"; exit 1; }
+          echo "Verified device app exists at $DEVICE_APP"
+
+          mkdir -p build/ipa-staging/Payload
+          cp -R "$DEVICE_APP" build/ipa-staging/Payload/IPTVRadio.app
+          cd build/ipa-staging
+          zip -qry "$GITHUB_WORKSPACE/build/IPTVRadio-unsigned-device.ipa" Payload
+          test -f "$GITHUB_WORKSPACE/build/IPTVRadio-unsigned-device.ipa"
+
+      - name: Upload unsigned device IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPTVRadio-unsigned-device-ipa
+          path: build/IPTVRadio-unsigned-device.ipa
+          retention-days: 30
+          if-no-files-found: error
+
       # ------------------- Signed device IPA (optional) ----------------------
       - name: Import signing certificate and profile
         id: signing
