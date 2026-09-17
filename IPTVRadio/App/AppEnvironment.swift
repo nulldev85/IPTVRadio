@@ -76,7 +76,7 @@ final class AppEnvironment: ObservableObject {
         )
         auth = AuthViewModel(credentials: credentials, settings: settings)
 
-        if uitestMode, let scenario {
+        if uitestMode, let scenario = uitestScenario {
             UITestSupport.configure(
                 environment: self,
                 scenario: scenario

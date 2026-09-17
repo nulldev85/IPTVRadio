@@ -10,7 +10,7 @@ enum ProviderCredentials: Hashable, Codable {
         case let .xtream(cred):
             return Redactor(secrets: [cred.username, cred.password])
         case let .m3u(cred):
-            return Redactor(secrets: cred.url.absoluteString)
+            return Redactor(secrets: [cred.url.absoluteString])
         }
     }
 }
