@@ -50,11 +50,26 @@ final class MockAudioPlayer: AudioPlayerControlling {
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
     var onEnded: (() -> Void)?
+    var onDiagnostics: ((PlaybackDiagnostics.Snapshot) -> Void)?
 
-    func load(url: URL) {
+    func load(url: URL, usesDirectSource: Bool) {
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             self?.onReady?()
+            self?.onDiagnostics?(
+                PlaybackDiagnostics.Snapshot(
+                    streamExtension: url.pathExtension.isEmpty ? "m3u8" : url.pathExtension,
+                    usesDirectSource: usesDirectSource,
+                    indicatedBitrate: 256_000,
+                    observedBitrate: 240_000,
+                    averageAudioBitrate: 128_000,
+                    codec: "AAC",
+                    sampleRate: 44_100,
+                    channelCount: 2,
+                    numberOfMediaRequests: 1,
+                    capturedAt: Date()
+                )
+            )
         }
     }
 
@@ -70,6 +85,11 @@ enum UITestScenario: String {
     case search = "UITestSearch"
     case favorites = "UITestFavorites"
     case nowPlaying = "UITestNowPlaying"
+    /// Playback starts already in a failed state (cellular blocked, which
+    /// fails synchronously) so tests can verify the Close control stays
+    /// visible and hittable when the player is showing an error, not just
+    /// while playing.
+    case nowPlayingError = "UITestNowPlayingError"
 }
 
 enum UITestSupport {
@@ -137,6 +157,17 @@ enum UITestSupport {
             let snapshot = makeSnapshot()
             let station = snapshot.siriusStations[0]
             // Provide the full lineup so next/previous station switching works.
+            environment.playback.play(station, in: snapshot.allRadioStations)
+        case .nowPlayingError:
+            environment.library.injectForUITest(snapshot: makeSnapshot())
+            environment.auth.authState = .active(uitestSession())
+            let snapshot = makeSnapshot()
+            let station = snapshot.siriusStations[0]
+            // Cellular-blocked fails synchronously inside beginPlayback, so
+            // the state is deterministically .failed before the UI test
+            // ever inspects it — no timing race with the mock player.
+            environment.settings.cellularAllowed = false
+            environment.connectivity.isCellular = true
             environment.playback.play(station, in: snapshot.allRadioStations)
         }
     }

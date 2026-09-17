@@ -15,6 +15,11 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
     var logoURL: URL?
     var tvgID: String?
     var source: Source
+    /// Non-secret playback diagnostic: whether the provider's own
+    /// `direct_source` (or, for M3U, the playlist's literal URL) was used
+    /// unmodified rather than a `/live/` endpoint the app constructed.
+    /// Optional so older cached snapshots without this field still decode.
+    var usesDirectSource: Bool?
 
     init(
         name: String,
@@ -22,7 +27,8 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
         groupTitle: String = "",
         logoURL: URL? = nil,
         tvgID: String? = nil,
-        source: Source
+        source: Source,
+        usesDirectSource: Bool? = nil
     ) {
         self.id = StationIdentifier.make(source: source, url: streamURL, name: name)
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -31,6 +37,7 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
         self.logoURL = logoURL
         self.tvgID = tvgID
         self.source = source
+        self.usesDirectSource = usesDirectSource
     }
 }
 
@@ -74,6 +81,7 @@ struct RawChannel: Hashable, Sendable {
     var tvgID: String?
     var source: RadioStation.Source
     var categoryID: String?
+    var usesDirectSource: Bool
 
     init(
         name: String,
@@ -82,7 +90,8 @@ struct RawChannel: Hashable, Sendable {
         logoURL: URL? = nil,
         tvgID: String? = nil,
         source: RadioStation.Source,
-        categoryID: String? = nil
+        categoryID: String? = nil,
+        usesDirectSource: Bool = false
     ) {
         self.name = name
         self.url = url
@@ -91,6 +100,7 @@ struct RawChannel: Hashable, Sendable {
         self.tvgID = tvgID
         self.source = source
         self.categoryID = categoryID
+        self.usesDirectSource = usesDirectSource
     }
 }
 

@@ -42,6 +42,30 @@ final class RadioDetectionTests: XCTestCase {
         XCTAssertFalse(verdict.isRadio)
     }
 
+    /// Xtream providers commonly serve pure-audio "radio" entries over a
+    /// ".ts" (MPEG transport stream) passthrough endpoint to avoid the
+    /// bitrate loss of HLS transcoding. ".ts" must not be treated as a
+    /// video signal for this source, or picking that endpoint for quality
+    /// would make the station disappear from detection.
+    func testXtreamTransportStreamExtensionNotPenalizedAsVideo() {
+        let verdict = detector.classify(channel("Unknown Stream 42", group: "Whatever", path: "/live/testuser/testpass/42.ts"))
+        XCTAssertTrue(verdict.isRadio, "A .ts Xtream endpoint alone should qualify, same as .m3u8 does")
+    }
+
+    /// The same extension in an M3U playlist still names a real file and
+    /// commonly indicates a recorded TV file, so it keeps the video penalty.
+    func testM3UTransportStreamExtensionStillPenalizedAsVideo() {
+        let verdict = detector.classify(
+            RawChannel(
+                name: "Random Stream",
+                url: URL(string: "https://edge.example.net/movies/42.ts")!,
+                group: "Whatever",
+                source: .m3u
+            )
+        )
+        XCTAssertFalse(verdict.isRadio)
+    }
+
     func testTVGIDRadioHintNotSufficientAlone() {
         let verdict = detector.classify(channel("The Mix 88", group: "General", path: "/live/88.stream", tvg: "radio-mix-88"))
         // TVG hint (+1) alone stays below the minimum score of 2.

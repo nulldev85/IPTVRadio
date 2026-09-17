@@ -7,42 +7,77 @@ struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showSleepTimerSheet = false
+    @State private var showDiagnostics = false
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let station = playback.state.station {
-                    content(for: station)
-                } else {
-                    EmptyStateView(title: "Nothing playing", message: "Pick a station to start listening.")
-                }
+        // No NavigationStack, toolbar or nav bar: the Close/Diagnostics bar
+        // below is a plain view pinned via safeAreaInset, so dismissal never
+        // depends on system chrome that could fail to render or scroll away.
+        Group {
+            if let station = playback.state.station {
+                content(for: station)
+            } else {
+                EmptyStateView(title: "Nothing playing", message: "Pick a station to start listening.")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(.systemBackground))
             }
-            .navigationTitle("Now Playing")
-            .navigationBarTitleDisplayMode(.inline)
+        }
+        // safeAreaInset composites topBar as a sibling layer above the main
+        // content and pushes that content down to make room for it, so no
+        // artwork, gradient, loading state or future overlay can ever be
+        // drawn on top of it. It is present in every branch above, in every
+        // playback state, unconditionally.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            topBar
         }
         // The sheet stays swipe-to-dismissable; the drag indicator plus the
-        // always-visible in-body Close control (below) guarantee a reliable
-        // way back that does not depend on the system navigation bar.
+        // always-visible topBar Close control guarantee a reliable way back
+        // that does not depend on the system navigation bar.
         .presentationDragIndicator(.visible)
+    }
+
+    /// Always-visible Close/Diagnostics bar. Rendered via safeAreaInset (see
+    /// `body`) so it sits above artwork/gradients/loading views with a high
+    /// zIndex as belt-and-suspenders, and naturally respects the top safe
+    /// area since it is not wrapped in `.ignoresSafeArea()`.
+    private var topBar: some View {
+        HStack {
+            Text("Now Playing")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("nowplaying.header")
+
+            Spacer()
+
+            Button {
+                showDiagnostics = true
+            } label: {
+                Image(systemName: "waveform.circle.fill")
+                    .font(.title2)
+            }
+            .accessibilityLabel("Playback diagnostics")
+            .accessibilityIdentifier("nowplaying.diagnostics")
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+            }
+            .accessibilityLabel("Close now playing screen")
+            .accessibilityIdentifier("nowplaying.close")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(Color(.systemBackground))
+        .zIndex(1000)
+        .sheet(isPresented: $showDiagnostics) {
+            PlaybackDiagnosticsSheet()
+        }
     }
 
     private func content(for station: RadioStation) -> some View {
         VStack(spacing: 24) {
-            // Explicit close control rendered in the view body so dismissal
-            // never depends on the system navigation bar rendering.
-            HStack {
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Label("Close", systemImage: "xmark.circle.fill")
-                        .font(.headline)
-                        .labelStyle(.titleAndIcon)
-                }
-                .accessibilityIdentifier("nowplaying.close")
-                .accessibilityLabel("Close now playing screen")
-            }
-
             StationArtwork(logoURL: station.logoURL, size: 220)
                 .padding(.top, 12)
 

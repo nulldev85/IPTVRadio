@@ -51,6 +51,50 @@ final class PlaybackDiagnosticsTests: XCTestCase {
         XCTAssertTrue(summary.contains("qualityDeterminedBySource"))
     }
 
+    func testSnapshotCarriesCodecAndDirectSourceFlag() {
+        let snapshot = PlaybackDiagnostics.snapshot(
+            streamExtension: "ts",
+            usesDirectSource: true,
+            events: [
+                PlaybackDiagnostics.EventSample(
+                    indicatedBitrate: 320_000,
+                    observedBitrate: 310_000,
+                    averageAudioBitrate: 320_000,
+                    numberOfMediaRequests: 3
+                )
+            ],
+            tracks: [
+                PlaybackDiagnostics.TrackSample(
+                    mediaType: "soun",
+                    estimatedDataRate: 320_000,
+                    codec: "MP3",
+                    sampleRate: 44_100,
+                    channelCount: 2
+                )
+            ]
+        )
+        XCTAssertEqual(snapshot.streamExtension, "ts")
+        XCTAssertTrue(snapshot.usesDirectSource)
+        XCTAssertEqual(snapshot.codec, "MP3")
+        XCTAssertEqual(snapshot.sampleRate, 44_100)
+        XCTAssertEqual(snapshot.channelCount, 2)
+        XCTAssertEqual(snapshot.indicatedBitrate, 320_000)
+        XCTAssertEqual(snapshot.observedBitrate, 310_000)
+    }
+
+    func testSnapshotDefaultsUnknownExtensionAndMissingTrack() {
+        let snapshot = PlaybackDiagnostics.snapshot(
+            streamExtension: "",
+            usesDirectSource: false,
+            events: [],
+            tracks: []
+        )
+        XCTAssertEqual(snapshot.streamExtension, "unknown")
+        XCTAssertFalse(snapshot.usesDirectSource)
+        XCTAssertNil(snapshot.codec)
+        XCTAssertNil(snapshot.indicatedBitrate)
+    }
+
     func testSummaryIgnoresVideoTracksAndZeroBitrates() {
         let summary = PlaybackDiagnostics.summary(
             streamExtension: "",

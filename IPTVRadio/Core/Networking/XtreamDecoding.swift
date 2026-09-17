@@ -64,6 +64,7 @@ struct XtreamCodingKey: CodingKey {
     static let epgChannelID = XtreamCodingKey(stringValue: "epg_channel_id")
     static let categoryID = XtreamCodingKey(stringValue: "category_id")
     static let directSource = XtreamCodingKey(stringValue: "direct_source")
+    static let containerExtension = XtreamCodingKey(stringValue: "container_extension")
     static let categoryIDAlt = XtreamCodingKey(stringValue: "category_id")
 }
 
@@ -163,6 +164,12 @@ struct XtreamLiveStream: Decodable, Equatable {
     var epgChannelID: String?
     var categoryID: String?
     var directSource: String?
+    /// Provider-declared container for this specific stream (e.g. "ts",
+    /// "m3u8", "mp3"). Some Xtream panels transcode `/live/….m3u8` to a
+    /// fixed, often low, audio bitrate while `.ts` is served as a direct
+    /// passthrough of the source feed — so this field, not a hardcoded
+    /// extension, should decide which endpoint format is requested.
+    var containerExtension: String?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: XtreamCodingKey.self)
@@ -174,6 +181,7 @@ struct XtreamLiveStream: Decodable, Equatable {
         epgChannelID = Lenient.string(c, .epgChannelID)
         categoryID = Lenient.string(c, .categoryID)
         directSource = Lenient.string(c, .directSource)
+        containerExtension = Lenient.string(c, .containerExtension)
     }
 }
 

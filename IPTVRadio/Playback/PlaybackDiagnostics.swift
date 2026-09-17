@@ -18,6 +18,62 @@ enum PlaybackDiagnostics {
     struct TrackSample {
         let mediaType: String?
         let estimatedDataRate: Double?
+        let codec: String?
+        let sampleRate: Double?
+        let channelCount: Int?
+
+        init(
+            mediaType: String?,
+            estimatedDataRate: Double?,
+            codec: String? = nil,
+            sampleRate: Double? = nil,
+            channelCount: Int? = nil
+        ) {
+            self.mediaType = mediaType
+            self.estimatedDataRate = estimatedDataRate
+            self.codec = codec
+            self.sampleRate = sampleRate
+            self.channelCount = channelCount
+        }
+    }
+
+    /// Live, UI-facing snapshot shown in the in-app diagnostics panel.
+    /// SECURITY: never carries a URL, username, password or token — only
+    /// format/codec/bitrate figures and whether a direct source was used.
+    struct Snapshot: Equatable {
+        var streamExtension: String
+        var usesDirectSource: Bool
+        var indicatedBitrate: Double?
+        var observedBitrate: Double?
+        var averageAudioBitrate: Double?
+        var codec: String?
+        var sampleRate: Double?
+        var channelCount: Int?
+        var numberOfMediaRequests: Int?
+        var capturedAt: Date
+    }
+
+    static func snapshot(
+        streamExtension: String,
+        usesDirectSource: Bool,
+        events: [EventSample],
+        tracks: [TrackSample],
+        capturedAt: Date = Date()
+    ) -> Snapshot {
+        let last = events.last
+        let audioTrack = tracks.first { $0.mediaType == "soun" }
+        return Snapshot(
+            streamExtension: streamExtension.isEmpty ? "unknown" : streamExtension,
+            usesDirectSource: usesDirectSource,
+            indicatedBitrate: last?.indicatedBitrate,
+            observedBitrate: last?.observedBitrate,
+            averageAudioBitrate: last?.averageAudioBitrate,
+            codec: audioTrack?.codec,
+            sampleRate: audioTrack?.sampleRate,
+            channelCount: audioTrack?.channelCount,
+            numberOfMediaRequests: last?.numberOfMediaRequests,
+            capturedAt: capturedAt
+        )
     }
 
     static func summary(

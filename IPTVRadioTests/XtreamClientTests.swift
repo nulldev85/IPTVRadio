@@ -108,6 +108,81 @@ final class XtreamClientTests: XCTestCase {
             "https://logo.example/hits1.png"
         )
     }
+
+    /// The provider's own direct_source URL — usually the unmodified
+    /// source feed — must be preferred over the app's constructed /live/
+    /// endpoint, and the station must record that it was used.
+    @MainActor
+    func testLibraryServicePrefersDirectSourceAndFlagsIt() async {
+        let (service, vm) = await makeLibraryServiceHarness()
+        await vm.refresh()
+        XCTAssertEqual(vm.state, .loaded)
+        let station = vm.siriusStations.first { $0.name == "SXM Faction Talk" }
+        // The provider's own http direct_source is upgraded to https because
+        // the portal itself is https (see upgradeToHTTPSIfPossible).
+        XCTAssertEqual(station?.streamURL.absoluteString, "https://edge.example.net:8042/radio/faction.m3u8")
+        XCTAssertEqual(station?.usesDirectSource, true)
+        _ = service
+    }
+
+    /// When there is no direct_source, a provider-declared container_extension
+    /// (e.g. "ts") must decide the endpoint format instead of a hardcoded
+    /// ".m3u8" — many Xtream panels transcode .m3u8 to a fixed, lower audio
+    /// bitrate while other containers are passed through unmodified.
+    @MainActor
+    func testLibraryServiceUsesProviderContainerExtensionWhenNoDirectSource() async {
+        let streamsJSON = #"""
+        [{"num": 1, "name": "SiriusXM Test Channel", "stream_type": "radio", "stream_id": "7001", "category_id": "1", "direct_source": "", "container_extension": "ts"}]
+        """#
+        let (_, vm) = await makeLibraryServiceHarness(streams: streamsJSON)
+        await vm.refresh()
+        XCTAssertEqual(vm.state, .loaded)
+        let station = vm.siriusStations.first { $0.name == "SiriusXM Test Channel" }
+        XCTAssertEqual(station?.streamURL.pathExtension, "ts")
+        XCTAssertEqual(station?.usesDirectSource, false)
+    }
+
+    /// An unrecognized/malformed container_extension must never build a
+    /// broken URL; the app falls back to the known-good default.
+    @MainActor
+    func testLibraryServiceIgnoresUnknownContainerExtension() async {
+        let streamsJSON = #"""
+        [{"num": 1, "name": "SiriusXM Test Channel", "stream_type": "radio", "stream_id": "7002", "category_id": "1", "direct_source": "", "container_extension": "<script>"}]
+        """#
+        let (_, vm) = await makeLibraryServiceHarness(streams: streamsJSON)
+        await vm.refresh()
+        XCTAssertEqual(vm.state, .loaded)
+        let station = vm.siriusStations.first { $0.name == "SiriusXM Test Channel" }
+        XCTAssertEqual(station?.streamURL.pathExtension, "m3u8")
+    }
+
+    func testSanitizedContainerExtensionOnlyAllowsKnownFormats() {
+        XCTAssertEqual(LibraryService.sanitizedContainerExtension("TS"), "ts")
+        XCTAssertEqual(LibraryService.sanitizedContainerExtension(" m3u8 "), "m3u8")
+        XCTAssertNil(LibraryService.sanitizedContainerExtension("exe"))
+        XCTAssertNil(LibraryService.sanitizedContainerExtension(nil))
+        XCTAssertNil(LibraryService.sanitizedContainerExtension(""))
+    }
+
+    @MainActor
+    private func makeLibraryServiceHarness(
+        streams: String = Fixtures.liveStreamsJSON
+    ) async -> (LibraryService, LibraryViewModel) {
+        let defaults = makeIsolatedDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("lib-test-\(UUID().uuidString)")
+        let service = LibraryService(cache: StationCache(fileStore: JSONFileStore(directory: temp)))
+        let store = MemorySecretStore()
+        let credentials = CredentialsStore(secrets: store)
+        try? await credentials.save(CredentialsStore.StoredCredentials(xtream: Fixtures.makeCredentials(), m3uURL: nil))
+        let vm = LibraryViewModel(
+            libraryService: service,
+            settings: settings,
+            credentials: credentials,
+            httpClient: MockHTTP.xtreamClient(streams: streams)
+        )
+        return (service, vm)
+    }
 }
 
 /// In-memory secret store for tests; never touches the real Keychain.

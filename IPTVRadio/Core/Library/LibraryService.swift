@@ -40,13 +40,21 @@ final class LibraryService: ObservableObject {
                 uniqueKeysWithValues: rawCategories.map { ($0.categoryID, ChannelCategory(id: $0.categoryID, name: $0.categoryName)) }
             )
 
-            // Prefer the protocol that successfully served the API calls.
+            // Prefer the provider's own direct_source URL when it supplies one
+            // (it is usually the unmodified source feed). Otherwise construct
+            // the /live/ endpoint using the container the provider declared
+            // for this stream (container_extension), not a hardcoded format —
+            // many Xtream panels transcode .m3u8 to a fixed, lower audio
+            // bitrate while other containers (e.g. .ts) are passed through.
             var rawChannels: [RawChannel] = streams.map { stream in
                 let url: URL
+                var usesDirect = false
                 if let direct = Lenient.url(stream.directSource), stream.directSource?.isEmpty == false {
                     url = upgradeToHTTPSIfPossible(direct, base: client.baseURL)
+                    usesDirect = true
                 } else {
-                    url = client.streamURL(streamID: stream.streamID)
+                    let format = Self.sanitizedContainerExtension(stream.containerExtension) ?? "m3u8"
+                    url = client.streamURL(streamID: stream.streamID, format: format)
                 }
                 let group = categoriesByID[stream.categoryID ?? ""]?.name ?? ""
                 return RawChannel(
@@ -56,7 +64,8 @@ final class LibraryService: ObservableObject {
                     logoURL: Lenient.url(stream.streamIcon),
                     tvgID: stream.epgChannelID,
                     source: .xtream,
-                    categoryID: stream.categoryID
+                    categoryID: stream.categoryID,
+                    usesDirectSource: usesDirect
                 )
             }
 
@@ -99,7 +108,10 @@ final class LibraryService: ObservableObject {
                     group: item.groupTitle,
                     logoURL: item.logoURL,
                     tvgID: item.tvgID,
-                    source: .m3u
+                    source: .m3u,
+                    // An M3U playlist has no separate transcoded endpoint: the
+                    // listed URL is always the exact, unmodified source.
+                    usesDirectSource: true
                 )
             }
             let detector = RadioStationDetector(rules: rules)
@@ -140,5 +152,15 @@ final class LibraryService: ObservableObject {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.scheme = "https"
         return components?.url ?? url
+    }
+
+    /// Only a known-safe set of extensions is honored; anything else falls
+    /// back to the default so a malformed provider value can't build a
+    /// broken endpoint.
+    static func sanitizedContainerExtension(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let allowed: Set<String> = ["m3u8", "ts", "mp3", "aac"]
+        return allowed.contains(trimmed) ? trimmed : nil
     }
 }

@@ -7,14 +7,17 @@ final class StubAudioPlayer: AudioPlayerControlling {
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
     var onEnded: (() -> Void)?
+    var onDiagnostics: ((PlaybackDiagnostics.Snapshot) -> Void)?
 
     private(set) var loadedURLs: [URL] = []
+    private(set) var loadedDirectSourceFlags: [Bool] = []
     private(set) var playCount = 0
     private(set) var pauseCount = 0
     private(set) var stopCount = 0
 
-    func load(url: URL) {
+    func load(url: URL, usesDirectSource: Bool) {
         loadedURLs.append(url)
+        loadedDirectSourceFlags.append(usesDirectSource)
     }
 
     func play() { playCount += 1 }
@@ -164,6 +167,29 @@ final class PlaybackEngineTests: XCTestCase {
             XCTFail("Expected cellular failure, got \(engine.state)")
         }
         XCTAssertEqual(player.loadedURLs.count, 0)
+    }
+
+    /// The engine must tell the player whether the provider's own direct
+    /// source URL is in use, so the in-app diagnostics panel can show it
+    /// without needing to inspect the URL itself.
+    @MainActor
+    func testUsesDirectSourceFlagPassedToPlayer() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        let direct = RadioStation(
+            name: "Direct Station",
+            streamURL: URL(string: "https://edge.example.net/direct/stream.mp3")!,
+            source: .xtream,
+            usesDirectSource: true
+        )
+        let constructed = RadioStation(
+            name: "Constructed Station",
+            streamURL: URL(string: "https://edge.example.net/live/x.ts")!,
+            source: .xtream,
+            usesDirectSource: false
+        )
+        engine.play(direct)
+        engine.play(constructed)
+        XCTAssertEqual(player.loadedDirectSourceFlags, [true, false])
     }
 
     @MainActor

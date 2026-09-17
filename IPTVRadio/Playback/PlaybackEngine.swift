@@ -1,5 +1,7 @@
 import Foundation
 import AVFoundation
+import CoreMedia
+import AudioToolbox
 import MediaPlayer
 
 // MARK: - Playback state model
@@ -40,7 +42,8 @@ protocol AudioPlayerControlling: AnyObject {
     var onReady: (() -> Void)? { get set }
     var onFailure: ((String) -> Void)? { get set }
     var onEnded: (() -> Void)? { get set }
-    func load(url: URL)
+    var onDiagnostics: ((PlaybackDiagnostics.Snapshot) -> Void)? { get set }
+    func load(url: URL, usesDirectSource: Bool)
     func play()
     func pause()
     func stop()
@@ -51,12 +54,14 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
     var onEnded: (() -> Void)?
+    var onDiagnostics: ((PlaybackDiagnostics.Snapshot) -> Void)?
 
     private let player = AVPlayer()
     private var statusObservation: NSKeyValueObservation?
     private var rateObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var hasReportedReady = false
+    private var diagnosticsGeneration = 0
 
     var underlyingPlayer: AVPlayer { player }
 
@@ -77,14 +82,14 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
     }
 
-    func load(url: URL) {
+    func load(url: URL, usesDirectSource: Bool) {
         stopObserversForReload()
         hasReportedReady = false
         let item = AVPlayerItem(url: url)
         // The provider URL is handed to AVPlayer unchanged: no transcoding,
         // recompression or rendition caps. AVPlayer picks the highest
         // sustainable audio rendition the provider offers.
-        scheduleDiagnostics(for: url, item: item)
+        scheduleDiagnostics(for: url, item: item, usesDirectSource: usesDirectSource)
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             switch item.status {
             case .readyToPlay:
@@ -106,35 +111,89 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
         player.replaceCurrentItem(with: item)
     }
 
-    /// Logs safe, non-secret stream diagnostics (type + bitrates) so degraded
-    /// audio can be attributed to the provider source on a real device.
+    /// Logs safe, non-secret stream diagnostics (type + bitrates + codec) so
+    /// degraded audio can be attributed to the provider source on a real
+    /// device, and republishes the same data for the in-app diagnostics
+    /// panel. Repeats periodically so the panel reflects live conditions
+    /// (bitrate ramp-up, reconnects) rather than a single early sample.
     /// SECURITY: the URL is never logged; only its file extension is used.
-    private func scheduleDiagnostics(for url: URL, item: AVPlayerItem) {
+    private func scheduleDiagnostics(for url: URL, item: AVPlayerItem, usesDirectSource: Bool) {
+        diagnosticsGeneration += 1
+        let generation = diagnosticsGeneration
         let streamExtension = url.pathExtension
         Task { [weak self] in
-            // Give AVPlayer a few seconds to gather access-log data.
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            guard self != nil, item.error == nil else { return }
-            let events = (item.accessLog()?.events ?? []).map { event in
-                PlaybackDiagnostics.EventSample(
-                    indicatedBitrate: event.indicatedBitrate,
-                    observedBitrate: event.observedBitrate,
-                    averageAudioBitrate: event.averageAudioBitrate,
-                    numberOfMediaRequests: event.numberOfMediaRequests
+            // Give AVPlayer a moment to start gathering access-log data.
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            while let self, !Task.isCancelled, self.diagnosticsGeneration == generation, item.error == nil {
+                let events = (item.accessLog()?.events ?? []).map { event in
+                    PlaybackDiagnostics.EventSample(
+                        indicatedBitrate: event.indicatedBitrate,
+                        observedBitrate: event.observedBitrate,
+                        averageAudioBitrate: event.averageAudioBitrate,
+                        numberOfMediaRequests: event.numberOfMediaRequests
+                    )
+                }
+                let tracks = item.asset.tracks.map { track -> PlaybackDiagnostics.TrackSample in
+                    let audioDetails = Self.audioDetails(for: track)
+                    return PlaybackDiagnostics.TrackSample(
+                        mediaType: track.mediaType.rawValue,
+                        estimatedDataRate: Double(track.estimatedDataRate),
+                        codec: audioDetails?.codec,
+                        sampleRate: audioDetails?.sampleRate,
+                        channelCount: audioDetails?.channelCount
+                    )
+                }
+                let snapshot = PlaybackDiagnostics.snapshot(
+                    streamExtension: streamExtension,
+                    usesDirectSource: usesDirectSource,
+                    events: events,
+                    tracks: tracks
                 )
-            }
-            let tracks = item.asset.tracks.map { track in
-                PlaybackDiagnostics.TrackSample(
-                    mediaType: track.mediaType.rawValue,
-                    estimatedDataRate: Double(track.estimatedDataRate)
+                let summary = PlaybackDiagnostics.summary(
+                    streamExtension: streamExtension,
+                    events: events,
+                    tracks: tracks
                 )
+                AppLogger.playback.info("Stream diagnostics (redacted): \(summary, privacy: .public)")
+                self.onDiagnostics?(snapshot)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
-            let summary = PlaybackDiagnostics.summary(
-                streamExtension: streamExtension,
-                events: events,
-                tracks: tracks
-            )
-            AppLogger.playback.info("Stream diagnostics (redacted): \(summary, privacy: .public)")
+        }
+    }
+
+    /// Reads codec, sample rate and channel count directly from the audio
+    /// track's format description — never from the URL or provider metadata.
+    private static func audioDetails(for track: AVAssetTrack) -> (codec: String, sampleRate: Double, channelCount: Int)? {
+        guard track.mediaType == .audio,
+              let description = track.formatDescriptions.first else { return nil }
+        let formatDescription = description as! CMFormatDescription
+        guard let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else { return nil }
+        return (
+            codec: codecName(for: asbd.pointee.mFormatID),
+            sampleRate: asbd.pointee.mSampleRate,
+            channelCount: Int(asbd.pointee.mChannelsPerFrame)
+        )
+    }
+
+    private static func codecName(for formatID: AudioFormatID) -> String {
+        switch formatID {
+        case kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2,
+             kAudioFormatMPEG4AAC_LD, kAudioFormatMPEG4AAC_ELD:
+            return "AAC"
+        case kAudioFormatMPEGLayer3:
+            return "MP3"
+        case kAudioFormatLinearPCM:
+            return "PCM"
+        case kAudioFormatAC3:
+            return "AC3"
+        default:
+            let bytes = [
+                UInt8((formatID >> 24) & 0xff), UInt8((formatID >> 16) & 0xff),
+                UInt8((formatID >> 8) & 0xff), UInt8(formatID & 0xff),
+            ]
+            let scalars = bytes.compactMap { $0 >= 32 && $0 < 127 ? UnicodeScalar($0) : nil }
+            let string = String(String.UnicodeScalarView(scalars)).trimmingCharacters(in: .whitespaces)
+            return string.isEmpty ? "Unknown" : string
         }
     }
 
@@ -150,6 +209,7 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
         player.pause()
         player.replaceCurrentItem(with: nil)
         stopObserversForReload()
+        diagnosticsGeneration += 1
     }
 
     private func stopObserversForReload() {
@@ -170,6 +230,14 @@ protocol AudioSessionControlling: AnyObject {
 }
 
 final class AVAudioSessionAdapter: AudioSessionControlling {
+    /// AUDIO QUALITY: category .playback + mode .default is output-only, so
+    /// iOS can never route through the telephone-quality Bluetooth HFP
+    /// profile — that only happens for categories that record audio
+    /// (.playAndRecord/.record) or that explicitly opt in with
+    /// .allowBluetooth. A connected Bluetooth accessory always gets the
+    /// high-quality A2DP profile here. No mixer, tap, EQ, time-pitch or
+    /// voice-processing unit sits in this path — the audio session is
+    /// configured once and AVPlayer renders directly to the output route.
     func activateForPlayback() throws {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playback, mode: .default, options: [])
@@ -211,6 +279,9 @@ final class PlaybackEngine: ObservableObject {
     @Published private(set) var isBuffering = false
     @Published private(set) var sleepTimerDeadline: Date?
     @Published private(set) var currentRouteDescription: String = "Device"
+    /// Live, non-secret diagnostics for the in-app panel. Reset on every new
+    /// load so it never shows stale data from a previous station.
+    @Published private(set) var diagnostics: PlaybackDiagnostics.Snapshot?
 
     /// The list used for next/previous navigation.
     var queue: [RadioStation] = []
@@ -305,6 +376,7 @@ final class PlaybackEngine: ObservableObject {
         try? audioSession.deactivate()
         state = .stopped(state.station)
         nowPlaying.clear()
+        diagnostics = nil
         sleepTimer?.invalidate()
         sleepTimer = nil
         sleepTimerDeadline = nil
@@ -360,6 +432,7 @@ final class PlaybackEngine: ObservableObject {
 
         state = .loading(station)
         isBuffering = true
+        diagnostics = nil
         nowPlaying.update(state: state, buffering: true)
 
         do {
@@ -368,7 +441,7 @@ final class PlaybackEngine: ObservableObject {
             AppLogger.playback.error("Audio session activation failed")
         }
 
-        player.load(url: station.streamURL)
+        player.load(url: station.streamURL, usesDirectSource: station.usesDirectSource ?? false)
         startWatchdog(station: station)
     }
 
@@ -429,7 +502,8 @@ final class PlaybackEngine: ObservableObject {
     private func beginPlaybackInternal(_ station: RadioStation) {
         state = .loading(station)
         isBuffering = true
-        player.load(url: station.streamURL)
+        diagnostics = nil
+        player.load(url: station.streamURL, usesDirectSource: station.usesDirectSource ?? false)
         startWatchdog(station: station)
     }
 
@@ -466,6 +540,16 @@ final class PlaybackEngine: ObservableObject {
                 MainActor.assumeIsolated(endHandler)
             } else {
                 Task { @MainActor in endHandler() }
+            }
+        }
+        player.onDiagnostics = { [weak self] snapshot in
+            guard let self else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self.diagnostics = snapshot
+                }
+            } else {
+                Task { @MainActor in self.diagnostics = snapshot }
             }
         }
     }

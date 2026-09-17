@@ -54,6 +54,17 @@ final class XtreamDecodingTests: XCTestCase {
         XCTAssertEqual(streams.first?.streamID, "12345")
     }
 
+    func testDecodeLiveStreamsReadsContainerExtension() throws {
+        let json = #"[{"name": "Radio Test", "stream_id": "1", "stream_type": "radio", "container_extension": "ts"}]"#
+        let streams = try XtreamDecoder.decodeLiveStreams(Data(json.utf8))
+        XCTAssertEqual(streams.first?.containerExtension, "ts")
+    }
+
+    func testDecodeLiveStreamsMissingContainerExtensionIsNil() throws {
+        let streams = try XtreamDecoder.decodeLiveStreams(Data(Fixtures.liveStreamsJSON.utf8))
+        XCTAssertNil(streams.first?.containerExtension)
+    }
+
     // MARK: Session mapping
 
     func testSessionInfoPrefersHTTPS() throws {

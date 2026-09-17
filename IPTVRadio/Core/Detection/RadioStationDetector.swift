@@ -32,9 +32,21 @@ struct RadioStationDetector: Sendable {
         // Name signals.
         if containsAny(name, rules.radioNameKeywords) { score += 2 }
 
-        // Extension signals.
-        if rules.audioExtensions.contains(pathExtension), !pathExtension.isEmpty { score += 3 }
-        if rules.videoExtensions.contains(pathExtension), !pathExtension.isEmpty { score -= 4 }
+        // Extension signals. For an Xtream `/live/` entry the extension is
+        // the transport container the app requested for stream quality (see
+        // container_extension handling in LibraryService), not a reliable
+        // audio/video signal: many providers serve pure-audio radio over
+        // ".ts" (transport stream) passthrough. Treat that combination as
+        // the audio-safe signal it is for Xtream, same as ".m3u8" already
+        // was, while still penalizing ".ts" for M3U playlists, where it
+        // typically names a genuine recorded TV file.
+        let isXtreamAudioTransportStream = channel.source == .xtream && pathExtension == "ts"
+        if rules.audioExtensions.contains(pathExtension) || isXtreamAudioTransportStream, !pathExtension.isEmpty {
+            score += 3
+        }
+        if rules.videoExtensions.contains(pathExtension), !pathExtension.isEmpty, !isXtreamAudioTransportStream {
+            score -= 4
+        }
 
         // Xtream often marks radio channels with stream metadata via tvg id.
         if tvg.contains("radio") { score += 1 }
@@ -78,7 +90,8 @@ struct RadioStationDetector: Sendable {
                 groupTitle: group,
                 logoURL: channel.logoURL,
                 tvgID: channel.tvgID,
-                source: channel.source
+                source: channel.source,
+                usesDirectSource: channel.usesDirectSource
             )
             if verdict.isSirius {
                 sirius.append(station)
