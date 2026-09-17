@@ -17,35 +17,42 @@ final class NowPlayingManagerTests: XCTestCase {
         )
     }
 
-    private func makeManager() -> NowPlayingManager {
-        MockURLProtocol.requestHandler = { request in
-            let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
-                UIColor.systemRed.setFill()
-                context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
-            }
-            return (200, image.pngData() ?? Data())
-        }
+    private func makeManager(artworkData: @escaping () -> Data = { Data() }) -> NowPlayingManager {
+        MockURLProtocol.requestHandler = { _ in (200, artworkData()) }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
         return NowPlayingManager(artworkSession: URLSession(configuration: config))
     }
 
+    private func testImageData() -> Data {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+            UIColor.systemRed.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        return image.pngData() ?? Data()
+    }
+
     func testArtworkAppliesWhenStationStillActive() async throws {
-        let manager = makeManager()
+        let manager = makeManager(artworkData: testImageData)
         defer { manager.clear() }
         let station = makeStation("a", withLogo: true)
 
         manager.update(state: .playing(station))
         manager.loadArtwork(for: station)
-        try await Task.sleep(nanoseconds: 1_000_000_000)
 
+        // Wait for the async load to finish.
+        for _ in 0..<30 where manager.lastArtworkOutcome == .none {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        XCTAssertEqual(manager.lastArtworkOutcome, .applied)
+        XCTAssertEqual(manager.lastAppliedArtworkStationID, station.id)
         let info = manager.nowPlayingInfoForTesting
-        XCTAssertNotNil(info?[MPMediaItemPropertyArtwork], "Artwork should be applied for the active station")
         XCTAssertEqual(info?[MPMediaItemPropertyTitle] as? String, "Station a")
     }
 
     func testStaleArtworkIsNotAppliedAfterStationChange() async throws {
-        let manager = makeManager()
+        let manager = makeManager(artworkData: testImageData)
         defer { manager.clear() }
         let withLogo = makeStation("a", withLogo: true)
         let withoutLogo = makeStation("b", withLogo: false)
@@ -53,16 +60,19 @@ final class NowPlayingManagerTests: XCTestCase {
         manager.update(state: .playing(withoutLogo))
         // Artwork for the previous station arrives after the switch.
         manager.loadArtwork(for: withLogo)
-        try await Task.sleep(nanoseconds: 1_000_000_000)
 
-        XCTAssertNil(manager.nowPlayingInfoForTesting?[MPMediaItemPropertyArtwork],
-                     "Stale artwork must not be applied to a different station")
+        for _ in 0..<30 where manager.lastArtworkOutcome == .none {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        XCTAssertEqual(manager.lastArtworkOutcome, .skippedForStaleStation)
+        XCTAssertNil(manager.lastAppliedArtworkStationID)
         // Station metadata for the new station is still present.
         XCTAssertEqual(manager.nowPlayingInfoForTesting?[MPMediaItemPropertyTitle] as? String, "Station b")
     }
 
     func testStationChangeDropsPreviousArtwork() {
-        let manager = makeManager()
+        let manager = makeManager(artworkData: testImageData)
         defer { manager.clear() }
         let a = makeStation("a", withLogo: true)
         let b = makeStation("b", withLogo: false)
@@ -70,8 +80,9 @@ final class NowPlayingManagerTests: XCTestCase {
         manager.update(state: .playing(a))
         manager.update(state: .playing(b))
 
-        XCTAssertNil(manager.nowPlayingInfoForTesting?[MPMediaItemPropertyArtwork],
+        XCTAssertNil(manager.lastAppliedArtworkStationID,
                      "Switching stations must not keep the previous artwork")
+        XCTAssertEqual(manager.lastArtworkOutcome, .none)
         XCTAssertEqual(manager.currentMetadata?.id, b.id)
     }
 
@@ -91,5 +102,26 @@ final class NowPlayingManagerTests: XCTestCase {
         manager.loadArtwork(for: station)
         try await Task.sleep(nanoseconds: 600_000_000)
         XCTAssertEqual(requestCount, 0, "No artwork request should be made without a logo URL")
+        XCTAssertEqual(manager.lastArtworkOutcome, .none)
+    }
+
+    func testFailedArtworkLoadIsReportedAndNonFatal() async throws {
+        MockURLProtocol.requestHandler = { _ in (404, Data()) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let manager = NowPlayingManager(artworkSession: URLSession(configuration: config))
+        defer { manager.clear() }
+
+        let station = makeStation("d", withLogo: true)
+        manager.update(state: .playing(station))
+        manager.loadArtwork(for: station)
+
+        for _ in 0..<30 where manager.lastArtworkOutcome == .none {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        XCTAssertEqual(manager.lastArtworkOutcome, .failed)
+        // Playback metadata is unaffected.
+        XCTAssertEqual(manager.nowPlayingInfoForTesting?[MPMediaItemPropertyTitle] as? String, "Station d")
     }
 }

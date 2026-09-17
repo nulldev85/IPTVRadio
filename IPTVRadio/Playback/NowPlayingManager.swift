@@ -15,11 +15,23 @@ enum NowPlayingCommand {
 /// Owns lock-screen/Control Center integration: remote commands and
 /// now-playing metadata (title, artist, artwork, live flag).
 final class NowPlayingManager {
+    /// Tracks the outcome of the most recent artwork load attempt so tests
+    /// can verify behavior without depending on MPNowPlayingInfoCenter
+    /// round-tripping artwork through its info dictionary.
+    enum ArtworkOutcome: Equatable {
+        case none
+        case applied
+        case skippedForStaleStation
+        case failed
+    }
+
     private let infoCenter = MPNowPlayingInfoCenter.default()
     private let commandCenter = MPRemoteCommandCenter.shared()
     private let artworkSession: URLSession
     private let metadataLock = NSLock()
     private var metadata: RadioStation?
+    private(set) var lastArtworkOutcome: ArtworkOutcome = .none
+    private(set) var lastAppliedArtworkStationID: String?
     /// Remote commands are process-global; register only once.
     private static let registrationLock = NSLock()
     private static var registered = false
@@ -89,6 +101,9 @@ final class NowPlayingManager {
         }
         metadataLock.lock()
         metadata = station
+        // Station changed: previously applied artwork is stale until it loads again.
+        lastAppliedArtworkStationID = nil
+        lastArtworkOutcome = .none
         metadataLock.unlock()
 
         var info: [String: Any] = [
@@ -104,16 +119,22 @@ final class NowPlayingManager {
         infoCenter.nowPlayingInfo = info
     }
 
-    func applyArtwork(_ image: UIImage) {
+    private func applyArtwork(_ image: UIImage, for station: RadioStation) {
         let item = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        metadataLock.lock()
+        defer { metadataLock.unlock() }
         var info = infoCenter.nowPlayingInfo ?? [:]
         info[MPMediaItemPropertyArtwork] = item
         infoCenter.nowPlayingInfo = info
+        lastAppliedArtworkStationID = station.id
+        lastArtworkOutcome = .applied
     }
 
     func clear() {
         metadataLock.lock()
         metadata = nil
+        lastAppliedArtworkStationID = nil
+        lastArtworkOutcome = .none
         metadataLock.unlock()
         infoCenter.nowPlayingInfo = nil
     }
@@ -136,14 +157,26 @@ final class NowPlayingManager {
                 let (data, response) = try await self.artworkSession.data(from: url)
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode),
-                      let image = UIImage(data: data) else { return }
+                      let image = UIImage(data: data) else {
+                    self.setOutcome(.failed)
+                    return
+                }
                 // The station may have changed while the artwork was loading.
-                guard self.currentMetadata?.id == station.id else { return }
-                self.applyArtwork(image)
+                guard self.currentMetadata?.id == station.id else {
+                    self.setOutcome(.skippedForStaleStation)
+                    return
+                }
+                self.applyArtwork(image, for: station)
             } catch {
-                // Artwork is best-effort; failures are silent and non-fatal.
+                self.setOutcome(.failed)
             }
         }
+    }
+
+    private func setOutcome(_ outcome: ArtworkOutcome) {
+        metadataLock.lock()
+        defer { metadataLock.unlock() }
+        lastArtworkOutcome = outcome
     }
 
     /// Test hook: current now-playing info dictionary.

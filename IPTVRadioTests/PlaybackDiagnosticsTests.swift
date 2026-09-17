@@ -8,7 +8,7 @@ final class PlaybackDiagnosticsTests: XCTestCase {
             events: [
                 PlaybackDiagnostics.EventSample(
                     indicatedBitrate: 256_000,
-                    observedBitrate: 240_500,
+                    observedBitrate: 240_700,
                     averageAudioBitrate: 128_000,
                     numberOfMediaRequests: 5
                 )
