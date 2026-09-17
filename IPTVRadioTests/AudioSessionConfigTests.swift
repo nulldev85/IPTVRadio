@@ -15,7 +15,7 @@ final class AudioSessionConfigTests: XCTestCase {
         XCTAssertEqual(session.category, .playback, "Category must be .playback for full-quality A2DP/Bluetooth output")
         XCTAssertEqual(session.mode, .default, "Mode must stay .default; voice-chat modes force telephone-quality audio")
         XCTAssertTrue(session.categoryOptions.isEmpty, "No special options (ducking/measure/voice-processing) should be set")
-        XCTAssertFalse(session.isBluetoothInputAvailable == true && session.category == .playAndRecord)
+        XCTAssertNotEqual(session.mode, .voiceChat)
     }
 
     func testDeactivationStopsPlaybackSession() throws {
