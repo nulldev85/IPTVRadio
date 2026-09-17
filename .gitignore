@@ -1,0 +1,21 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcuserstate
+*.ipa
+*.xcarchive
+*.dSYM.zip
+TestResults.xcresult
+
+# Signing material — NEVER commit these
+*.p12
+*.p8
+*.cer
+*.mobileprovision
+*.pem
+
+# OS/editor
+.DS_Store
+Thumbs.db

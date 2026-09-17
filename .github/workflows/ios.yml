@@ -1,0 +1,275 @@
+name: iOS Build and Delivery
+
+# Builds, tests, and (when signing secrets are configured) exports a signed IPA.
+# Without signing secrets the workflow still compiles, tests, and uploads an
+# UNSIGNED SIMULATOR build for diagnostics. An unsigned simulator build cannot
+# be installed on a physical iPhone.
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      export_method:
+        description: "IPA export method (ad-hoc | app-store | development | enterprise)"
+        required: false
+        default: "ad-hoc"
+      attempt_signed_build:
+        description: "Attempt signed IPA build (requires signing secrets)"
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  PROJECT_PATH: "IPTVRadio.xcodeproj"
+  SCHEME: "IPTVRadio"
+  SIMULATOR_NAME: "iPhone 16"
+  DERIVED_DATA: "build/DerivedData"
+  LOG_DIR: "build/logs"
+  # Signing inputs are read exclusively from repository secrets. Never hardcode
+  # certificates, profiles, keys, or credentials in this file.
+  IOS_BUNDLE_IDENTIFIER: ${{ secrets.IOS_BUNDLE_IDENTIFIER }}
+  IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+  IOS_EXPORT_METHOD: ${{ github.event.inputs.export_method || secrets.IOS_EXPORT_METHOD || 'ad-hoc' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Compile + unit tests + UI tests on a simulator.
+  # Runs for every push and pull request.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Build and Test (simulator)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: ./scripts/select-xcode.sh
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available | grep "$SIMULATOR_NAME" || true
+
+      - name: Run unit and UI tests
+        run: |
+          set -o pipefail
+          mkdir -p "$LOG_DIR"
+          rm -rf build/TestResults.xcresult
+          xcodebuild test \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -destination "platform=iOS Simulator,name=$SIMULATOR_NAME" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath build/TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee "$LOG_DIR/xcodebuild-test.log"
+
+      - name: Summarize test results
+        if: always()
+        run: |
+          if [ -d build/TestResults.xcresult ]; then
+            xcrun xcresulttool get test-results summary --path build/TestResults.xcresult > "$LOG_DIR/test-summary.json" || true
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            build/TestResults.xcresult
+            build/logs
+          retention-days: 30
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # Secret hygiene scan: fail the build if obvious credential material is
+  # committed or if logging statements could leak secrets.
+  # ---------------------------------------------------------------------------
+  security-scan:
+    name: Credential-leak scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan repository for committed secrets
+        run: |
+          set -e
+          status=0
+          # Certificate/profile material must never be committed.
+          if find . -path ./.git -prune -o \( -name "*.p12" -o -name "*.pem" -o -name "*.p8" -o -name "*.cer" -o -name "*.mobileprovision" \) -print | grep -q .; then
+            echo "::error::Signing material found in repository. Remove it and use GitHub Actions secrets."
+            status=1
+          fi
+          # Base64-encoded P12 blobs committed as constants.
+          if grep -RInE "MII[A-Za-z0-9+/]{80,}" --include="*.swift" --include="*.yml" . | grep -v "Tests/" | grep -q .; then
+            echo "::error::Possible embedded base64 certificate found."
+            status=1
+          fi
+          exit $status
+
+      - name: Scan for unsafe logging of credentials
+        run: |
+          set -e
+          # No print()/dump debugging of request URLs or credentials.
+          if grep -RInE '(print|NSLog|os_log|Logger)\(' IPTVRadio --include="*.swift" | grep -viE 'redact|AppLogger\.' ; then
+            echo "::warning::Review raw print/log statements in app sources."
+          fi
+          # Network layer must never log request URLs wholesale.
+          if grep -RInE 'log.*(absoluteString|\.url\b)|url.*log' IPTVRadio/Core/Networking --include="*.swift"; then
+            echo "::error::Possible URL logging in the networking layer. Xtream URLs embed credentials."
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Package step. Produces:
+  #   - an unsigned SIMULATOR build artifact (always, diagnostic only)
+  #   - a signed, installable IPA (only when signing secrets are configured)
+  # ---------------------------------------------------------------------------
+  build:
+    name: Package App
+    needs: [test, security-scan]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      SIGNING_SECRETS_PRESENT: ${{ secrets.APPLE_CERT_P12_BASE64 != '' && secrets.APPLE_PROVISIONING_PROFILE_BASE64 != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: ./scripts/select-xcode.sh
+
+      - name: Build unsigned simulator app (diagnostic)
+        run: |
+          set -o pipefail
+          rm -rf build/Simulator
+          xcodebuild build \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -derivedDataPath build/Simulator \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee "$LOG_DIR/xcodebuild-simulator.log"
+          cd build/Simulator/Build/Products/Release-iphonesimulator
+          zip -qr "$GITHUB_WORKSPACE/build/IPTVRadio-unsigned-simulator.zip" IPTVRadio.app
+
+      - name: Upload unsigned simulator build
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPTVRadio-unsigned-simulator-build
+          path: build/IPTVRadio-unsigned-simulator.zip
+          retention-days: 30
+          if-no-files-found: error
+
+      # ------------------- Signed device IPA (optional) ----------------------
+      - name: Import signing certificate and profile
+        id: signing
+        if: env.SIGNING_SECRETS_PRESENT == 'true' && (github.event_name != 'workflow_dispatch' || inputs.attempt_signed_build)
+        run: |
+          ./scripts/import-signing.sh \
+            --team-id "$IOS_TEAM_ID" \
+            --profile-name "${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}" \
+            --certificate-identity "${{ secrets.IOS_SIGNING_CERTIFICATE_IDENTITY || 'Apple Distribution' }}"
+
+      - name: Archive and export signed IPA
+        id: ipa
+        if: steps.signing.conclusion == 'success'
+        run: |
+          ./scripts/export-ipa.sh \
+            --bundle-id "$IOS_BUNDLE_IDENTIFIER" \
+            --team-id "$IOS_TEAM_ID" \
+            --export-method "$IOS_EXPORT_METHOD" \
+            --profile-name "${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}"
+
+      - name: Upload signed IPA
+        if: steps.ipa.conclusion == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPTVRadio-signed-ipa
+          path: |
+            build/export/*.ipa
+            build/ExportOptions.plist
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload XCArchive
+        if: steps.ipa.conclusion == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPTVRadio-xcarchive
+          path: build/IPTVRadio.xcarchive
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Clean up signing material
+        if: always() && steps.signing.conclusion == 'success'
+        run: ./scripts/cleanup-signing.sh
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build/logs
+          retention-days: 30
+          if-no-files-found: warn
+
+      # ---------------------- GitHub Release (tags only) ---------------------
+      - name: Create GitHub Release with IPA
+        if: startsWith(github.ref, 'refs/tags/v') && steps.ipa.conclusion == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          IPA=$(find build/export -name "*.ipa" | head -n 1)
+          gh release create "$TAG" \
+            --title "IPTV Radio $TAG" \
+            --notes "Signed device IPA for authorized installations. See docs/INSTALL.md." \
+            "$IPA" "build/IPTVRadio-unsigned-simulator.zip#IPTVRadio-simulator-unsigned.zip"
+
+      - name: Create GitHub Release (unsigned diagnostic only)
+        if: startsWith(github.ref, 'refs/tags/v') && steps.ipa.conclusion != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "IPTV Radio $TAG" \
+            --notes "UNSIGNED diagnostic build for the iOS SIMULATOR only. It cannot be installed on a physical iPhone. Configure signing secrets to produce a signed IPA." \
+            "build/IPTVRadio-unsigned-simulator.zip"
+
+      # ---------------------- TestFlight upload (optional) -------------------
+      - name: Upload to TestFlight
+        if: steps.ipa.conclusion == 'success' && secrets.APP_STORE_CONNECT_API_KEY_ID != ''
+        env:
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+        run: |
+          IPA=$(find build/export -name "*.ipa" | head -n 1)
+          ./scripts/upload-testflight.sh "$IPA"
+
+  # ---------------------------------------------------------------------------
+  # PR validation only needs compile+tests (handled by `test`) so nothing extra.
+  # ---------------------------------------------------------------------------

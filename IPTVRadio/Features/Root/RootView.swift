@@ -1,0 +1,42 @@
+import SwiftUI
+
+/// Root switch: login when signed out, tabs when signed in.
+struct RootView: View {
+    @EnvironmentObject private var environment: AppEnvironment
+    @EnvironmentObject private var auth: AuthViewModel
+    @EnvironmentObject private var library: LibraryViewModel
+    @EnvironmentObject private var playback: PlaybackEngine
+
+    var body: some View {
+        Group {
+            switch auth.authState {
+            case .unknown:
+                LaunchLoadingView()
+            case .loggedOut, .expired:
+                LoginView()
+            case .active:
+                MainTabView()
+                    .task {
+                        if library.state == .idle {
+                            await library.refresh()
+                        }
+                    }
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: auth.authState)
+    }
+}
+
+struct LaunchLoadingView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "dot.radiowaves.left.and.right")
+                .font(.system(size: 48))
+                .foregroundStyle(Color.accentColor)
+            ProgressView()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
+        .accessibilityLabel(Text("Loading"))
+    }
+}
