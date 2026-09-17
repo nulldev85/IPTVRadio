@@ -1,4 +1,4 @@
-import Foundation
+import XCTest
 @testable import IPTVRadio
 
 /// URLProtocol-based mock so network-dependent code is fully testable.
