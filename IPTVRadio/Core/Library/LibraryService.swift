@@ -156,8 +156,10 @@ final class LibraryService: ObservableObject {
 
     /// Only a known-safe set of extensions is honored; anything else falls
     /// back to the default so a malformed provider value can't build a
-    /// broken endpoint.
-    static func sanitizedContainerExtension(_ raw: String?) -> String? {
+    /// broken endpoint. Pure/stateless, so it stays `nonisolated` and
+    /// callable synchronously (including from non-actor test code) despite
+    /// LibraryService itself being `@MainActor`.
+    nonisolated static func sanitizedContainerExtension(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let allowed: Set<String> = ["m3u8", "ts", "mp3", "aac"]
