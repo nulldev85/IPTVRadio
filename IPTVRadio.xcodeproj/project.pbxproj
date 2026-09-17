@@ -29,9 +29,22 @@
 		AA00000000000000000000PR3 /* IPTVRadioUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = IPTVRadioUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AA00000000000000000000EX1 /* Exceptions for "IPTVRadio" folder in "IPTVRadio" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AA00000000000000000000T01 /* IPTVRadio */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AA00000000000000000000G01 /* IPTVRadio */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AA00000000000000000000EX1 /* Exceptions for "IPTVRadio" folder in "IPTVRadio" target */,
+			);
 			path = IPTVRadio;
 			sourceTree = "<group>";
 		};
