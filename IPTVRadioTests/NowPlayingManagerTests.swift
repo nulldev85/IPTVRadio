@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import MediaPlayer
 @testable import IPTVRadio
 
 @MainActor
