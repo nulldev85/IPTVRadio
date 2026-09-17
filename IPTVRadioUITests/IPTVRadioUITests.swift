@@ -217,8 +217,18 @@ final class IPTVRadioUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["diagnostics.value.codec"].waitForExistence(timeout: 8))
         XCTAssertEqual(app.staticTexts["diagnostics.value.codec"].label, "AAC")
-        XCTAssertEqual(app.staticTexts["diagnostics.value.channels"].label, "2 (stereo)")
         XCTAssertEqual(app.staticTexts["diagnostics.value.sampleRate"].label, "44.1 kHz")
+
+        // The panel is a List that opens at the .medium detent, so later
+        // rows (e.g. "Channels") can start below the fold and are not yet
+        // materialized in the accessibility tree — scroll until visible
+        // rather than assuming everything fits on screen at once.
+        let channelsValue = app.staticTexts["diagnostics.value.channels"]
+        for _ in 0..<5 where !channelsValue.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(channelsValue.waitForExistence(timeout: 4), "Channels row never scrolled into view. Hierarchy:\n\(app.debugDescription)")
+        XCTAssertEqual(channelsValue.label, "2 (stereo)")
 
         // SECURITY: never a URL, username or password anywhere on the panel.
         let fullDescription = app.debugDescription
