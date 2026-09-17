@@ -30,6 +30,7 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
         self.groupTitle = groupTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         self.logoURL = logoURL
         self.tvgID = tvgID
+        self.source = source
     }
 }
 
