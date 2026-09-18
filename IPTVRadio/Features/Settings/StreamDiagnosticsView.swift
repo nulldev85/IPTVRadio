@@ -22,6 +22,7 @@ struct StreamDiagnosticsView: View {
                     if let audioFormat = diagnostics.audioFormat {
                         LabeledContent("Audio format", value: audioFormat)
                     }
+                    LabeledContent("Song info from stream", value: diagnostics.songInfoFromStream ? "Received" : "Not provided")
                     LabeledContent("Audio-only rendition", value: audioOnlyValue(diagnostics))
                     if let variants = diagnostics.availableVariants, variants > 0 {
                         LabeledContent("Variants in stream", value: "\(variants)")

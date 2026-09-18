@@ -339,6 +339,7 @@ final class PlaybackEngine: ObservableObject {
     private let probeCache: HLSProbeCache
     private let candidateCache: PlaybackCandidateCache
     private let artworkLookup: ArtworkLookupService
+    private let endpointResolver: StreamEndpointResolving
 
     private var watchdogTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
@@ -364,6 +365,10 @@ final class PlaybackEngine: ObservableObject {
     private let stallTimeout: TimeInterval
     /// Online song-artwork lookup for streams with text-only metadata.
     private var artworkLookupTask: Task<Void, Never>?
+    /// Resolved (redirect-followed) audio endpoints, keyed by original URL.
+    private var resolvedURLs: [String: URL] = [:]
+    /// True once the stream itself provided song metadata (ID3).
+    private var receivedSongInfoFromStream = false
 
     init(
         player: AudioPlayerControlling = AVAudioPlayerAdapter(),
@@ -376,6 +381,7 @@ final class PlaybackEngine: ObservableObject {
         probeCache: HLSProbeCache = HLSProbeCache(),
         candidateCache: PlaybackCandidateCache = PlaybackCandidateCache(),
         artworkLookup: ArtworkLookupService? = nil,
+        endpointResolver: StreamEndpointResolving = StreamRedirectResolver(),
         stallTimeout: TimeInterval = 12
     ) {
         self.player = player
@@ -389,6 +395,7 @@ final class PlaybackEngine: ObservableObject {
         self.probeCache = probeCache
         self.candidateCache = candidateCache
         self.artworkLookup = artworkLookup ?? ArtworkLookupService(http: http)
+        self.endpointResolver = endpointResolver
         self.stallTimeout = stallTimeout
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
@@ -422,6 +429,7 @@ final class PlaybackEngine: ObservableObject {
         activePlaybackURL = nil
         lastFormatFailure = nil
         playbackStartedAt = nil
+        receivedSongInfoFromStream = false
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
         artworkLookupTask = nil
@@ -468,6 +476,7 @@ final class PlaybackEngine: ObservableObject {
         activePlaybackURL = nil
         lastFormatFailure = nil
         playbackStartedAt = nil
+        receivedSongInfoFromStream = false
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
         artworkLookupTask = nil
@@ -561,9 +570,36 @@ final class PlaybackEngine: ObservableObject {
             load(candidate: cached.audioOnlyURL ?? candidate, probe: cached, station: station)
             return
         }
-        // .ts and other non-manifest candidates have nothing to probe.
+        // .ts and other non-manifest candidates have nothing to probe, but
+        // audio-only endpoints commonly redirect in ways AVPlayer refuses
+        // (CFNetwork error 311). Resolve those redirects ourselves and hand
+        // AVPlayer the final URL; the whole point is to reach the provider's
+        // tiny audio-only stream instead of its multi-megabit video stream.
         guard candidate.pathExtension.lowercased() == "m3u8" else {
-            load(candidate: candidate, probe: nil, station: station)
+            if isAudioOnlyEndpoint(candidate),
+               let cachedResolution = resolvedURLs[candidate.absoluteString] {
+                load(candidate: cachedResolution, probe: nil, station: station)
+                return
+            }
+            guard isAudioOnlyEndpoint(candidate) else {
+                load(candidate: candidate, probe: nil, station: station)
+                return
+            }
+            resolveTask?.cancel()
+            resolveTask = Task { [weak self] in
+                guard let self else { return }
+                let resolved = await self.endpointResolver.resolveFinalURL(for: candidate)
+                guard !Task.isCancelled,
+                      self.wantsPlayback,
+                      self.state.station?.id == station.id else { return }
+                if let resolved, resolved != candidate {
+                    self.resolvedURLs[candidate.absoluteString] = resolved
+                    AppLogger.playback.info("Resolved a redirected audio endpoint")
+                    self.load(candidate: resolved, probe: nil, station: station)
+                } else {
+                    self.load(candidate: candidate, probe: nil, station: station)
+                }
+            }
             return
         }
 
@@ -596,6 +632,12 @@ final class PlaybackEngine: ObservableObject {
     private func currentCandidateURL(for station: RadioStation) -> URL {
         guard candidateIndex < streamCandidates.count else { return station.streamURL }
         return streamCandidates[candidateIndex]
+    }
+
+    /// True for unambiguously audio-only endpoints (mp3/aac family).
+    private func isAudioOnlyEndpoint(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ext == "mp3" || ext == "aac" || ext == "aacp" || ext == "m4a"
     }
 
     /// True while there are further formats to try after the current one.
@@ -808,13 +850,15 @@ final class PlaybackEngine: ObservableObject {
             manifestChecked: probe != nil,
             availableVariants: probe?.variantCount,
             audioFormat: sample.audioFormat,
-            lastFormatFailure: lastFormatFailure
+            lastFormatFailure: lastFormatFailure,
+            songInfoFromStream: receivedSongInfoFromStream
         )
     }
 
     /// Song metadata (artist/title/artwork) arriving from the stream.
     private func handleMetadataUpdate(_ update: StreamMetadataUpdate) {
         guard let station = state.station else { return }
+        receivedSongInfoFromStream = true
         let metadata = NowPlayingMetadata(
             title: update.title,
             artist: update.artist,

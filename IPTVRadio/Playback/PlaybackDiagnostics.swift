@@ -85,6 +85,8 @@ struct StreamDiagnostics: Equatable {
     var audioFormat: String?
     /// Why the previously tried stream format failed (URLs scrubbed).
     var lastFormatFailure: String?
+    /// True when the stream itself provided song info (ID3 metadata).
+    var songInfoFromStream: Bool
 
     /// Best available single bitrate figure for compact display. Observed
     /// bitrate is intentionally excluded: it reflects the recent download
