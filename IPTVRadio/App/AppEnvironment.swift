@@ -13,7 +13,10 @@ enum AuthState: Equatable {
 enum AppEnvironmentFactory {
     @MainActor
     static func makeEnvironment(processArguments arguments: [String]) -> AppEnvironment {
-        if arguments.contains("-UITestMock") {
+        // UI tests pass launch arguments explicitly. The unit-test host also
+        // runs this app; detect XCTest so tests get a deterministic
+        // environment (in-memory secrets, mocked network, no real playback).
+        if arguments.contains("-UITestMock") || NSClassFromString("XCTestCase") != nil {
             let scenario = UITestSupport.scenario(from: arguments)
             return AppEnvironment(
                 uitestMode: true,

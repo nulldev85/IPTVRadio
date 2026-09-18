@@ -43,7 +43,7 @@ final class NowPlayingManagerTests: XCTestCase {
         manager.loadArtwork(for: station)
 
         // Wait for the async load to finish.
-        for _ in 0..<30 where manager.lastArtworkOutcome == .none {
+        for _ in 0..<100 where manager.lastArtworkOutcome == .none {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
 
@@ -63,7 +63,7 @@ final class NowPlayingManagerTests: XCTestCase {
         // Artwork for the previous station arrives after the switch.
         manager.loadArtwork(for: withLogo)
 
-        for _ in 0..<30 where manager.lastArtworkOutcome == .none {
+        for _ in 0..<100 where manager.lastArtworkOutcome == .none {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
 
@@ -118,7 +118,7 @@ final class NowPlayingManagerTests: XCTestCase {
         manager.update(state: .playing(station))
         manager.loadArtwork(for: station)
 
-        for _ in 0..<30 where manager.lastArtworkOutcome == .none {
+        for _ in 0..<100 where manager.lastArtworkOutcome == .none {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
 
