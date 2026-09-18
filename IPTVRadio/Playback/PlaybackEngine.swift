@@ -233,6 +233,11 @@ final class PlaybackEngine: ObservableObject {
     private var notificationObservers: [NSObjectProtocol] = []
     private var wantsPlayback = false
     private var pendingStation: RadioStation?
+    /// Stream format candidates for the current station (primary first).
+    private var streamCandidates: [URL] = []
+    private var candidateIndex = 0
+    /// True once the current candidate has actually played successfully.
+    private var candidatePlayedSuccessfully = false
 
     init(
         player: AudioPlayerControlling = AVAudioPlayerAdapter(),
@@ -272,6 +277,9 @@ final class PlaybackEngine: ObservableObject {
         wantsPlayback = true
         retryAttempts = 0
         pendingStation = station
+        streamCandidates = station.streamCandidates
+        candidateIndex = 0
+        candidatePlayedSuccessfully = false
         beginPlayback(station)
         history.record(station)
     }
@@ -303,7 +311,9 @@ final class PlaybackEngine: ObservableObject {
         cancelRetry()
         player.stop()
         try? audioSession.deactivate()
-        state = .stopped(state.station)
+        // Clearing the station (nil) also removes the mini player so the user
+        // always regains the full UI after an explicit stop.
+        state = .stopped(nil)
         nowPlaying.clear()
         sleepTimer?.invalidate()
         sleepTimer = nil
@@ -368,12 +378,30 @@ final class PlaybackEngine: ObservableObject {
             AppLogger.playback.error("Audio session activation failed")
         }
 
-        player.load(url: station.streamURL)
+        loadCurrentCandidate(station)
+    }
+
+    /// Loads the currently selected stream candidate (format) for the station.
+    private func loadCurrentCandidate(_ station: RadioStation) {
+        let url = currentCandidateURL(for: station)
+        player.load(url: url)
         startWatchdog(station: station)
     }
 
+    private func currentCandidateURL(for station: RadioStation) -> URL {
+        guard candidateIndex < streamCandidates.count else { return station.streamURL }
+        return streamCandidates[candidateIndex]
+    }
+
+    /// True while there are further formats to try after the current one.
+    private var hasFurtherCandidates: Bool {
+        candidateIndex + 1 < streamCandidates.count
+    }
+
     private func startWatchdog(station: RadioStation) {
-        let timeout = max(3, settings.streamTimeout)
+        let base = max(3, settings.streamTimeout)
+        // Probe alternative formats quickly; use the full timeout on the last one.
+        let timeout = hasFurtherCandidates ? min(base, 8) : base
         watchdogTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             guard !Task.isCancelled else { return }
@@ -383,17 +411,34 @@ final class PlaybackEngine: ObservableObject {
 
     private func watchdogFired(station: RadioStation) {
         guard state.isBusy, wantsPlayback else { return }
-        AppLogger.playback.error("Stream timed out; scheduling retry")
-        scheduleRetry(station: station)
+        AppLogger.playback.error("Stream timed out; trying next option")
+        handleStreamProblem(station)
     }
 
     private func handlePlayerFailure(_ message: String) {
         guard let station = state.station ?? pendingStation else { return }
         if wantsPlayback {
-            scheduleRetry(station: station)
+            handleStreamProblem(station)
         } else {
             state = .failed(redactor.redact(message), station)
         }
+    }
+
+    /// Called whenever the current stream candidate fails or stalls. While
+    /// alternative formats remain, the next one is tried immediately;
+    /// otherwise the normal backoff retry logic runs.
+    private func handleStreamProblem(_ station: RadioStation) {
+        cancelWatchdog()
+        if !candidatePlayedSuccessfully, hasFurtherCandidates {
+            candidateIndex += 1
+            AppLogger.playback.info("Trying alternative stream format \(candidateIndex + 1) of \(streamCandidates.count)")
+            state = .loading(station)
+            isBuffering = true
+            nowPlaying.update(state: state, buffering: true)
+            loadCurrentCandidate(station)
+            return
+        }
+        scheduleRetry(station: station)
     }
 
     private func scheduleRetry(station: RadioStation) {
@@ -429,8 +474,7 @@ final class PlaybackEngine: ObservableObject {
     private func beginPlaybackInternal(_ station: RadioStation) {
         state = .loading(station)
         isBuffering = true
-        player.load(url: station.streamURL)
-        startWatchdog(station: station)
+        loadCurrentCandidate(station)
     }
 
     private func configurePlayerCallbacks() {
@@ -459,7 +503,7 @@ final class PlaybackEngine: ObservableObject {
             let endHandler = {
                 // Live streams should not end; treat as a dropped connection.
                 if let station = self.state.station, self.wantsPlayback {
-                    self.scheduleRetry(station: station)
+                    self.handleStreamProblem(station)
                 }
             }
             if Thread.isMainThread {
@@ -475,7 +519,9 @@ final class PlaybackEngine: ObservableObject {
         cancelRetry()
         retryAttempts = 0
         isBuffering = false
+        candidatePlayedSuccessfully = true
         if let station = state.station {
+            AppLogger.playback.info("Stream ready (format \(self.candidateIndex + 1) of \(max(self.streamCandidates.count, 1)))")
             state = .playing(station)
             nowPlaying.update(state: state, buffering: false)
             nowPlaying.loadArtwork(for: station)

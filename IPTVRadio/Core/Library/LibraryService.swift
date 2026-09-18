@@ -40,23 +40,48 @@ final class LibraryService: ObservableObject {
                 uniqueKeysWithValues: rawCategories.map { ($0.categoryID, ChannelCategory(id: $0.categoryID, name: $0.categoryName)) }
             )
 
-            // Prefer the protocol that successfully served the API calls.
+            // Prefer the protocol that successfully served the API calls, and
+            // prefer the provider's original stream over any transcoded variant.
+            //
+            // Audio quality note: Xtream panels commonly transcode the `.m3u8`
+            // (HLS) endpoint to a low-bitrate audio rendition while the `.ts`
+            // endpoint carries the original stream. Most IPTV players use the
+            // original `.ts` format, so it is tried first with `.m3u8` as an
+            // automatic runtime fallback.
             var rawChannels: [RawChannel] = streams.map { stream in
-                let url: URL
-                if let direct = Lenient.url(stream.directSource), stream.directSource?.isEmpty == false {
-                    url = upgradeToHTTPSIfPossible(direct, base: client.baseURL)
-                } else {
-                    url = client.streamURL(streamID: stream.streamID)
+                var candidates: [URL] = []
+
+                // 1) Provider-declared direct source (HTTPS preferred, plain
+                //    HTTP kept as a fallback for hosts without TLS).
+                if let directString = stream.directSource, !directString.isEmpty,
+                   let direct = Lenient.url(directString), isPlayable(direct) {
+                    let upgraded = upgradeToHTTPSIfPossible(direct, base: client.baseURL)
+                    candidates.append(upgraded)
+                    if upgraded != direct {
+                        candidates.append(direct)
+                    }
                 }
+
+                // 2) Original MPEG-TS stream as delivered by the panel.
+                candidates.append(client.streamURL(streamID: stream.streamID, format: "ts"))
+
+                // 3) HLS manifest as a compatibility fallback.
+                candidates.append(client.streamURL(streamID: stream.streamID, format: "m3u8"))
+
+                var seen = Set<String>()
+                let unique = candidates.filter { seen.insert($0.absoluteString).inserted }
+                let primary = unique.first ?? client.streamURL(streamID: stream.streamID)
+
                 let group = categoriesByID[stream.categoryID ?? ""]?.name ?? ""
                 return RawChannel(
                     name: stream.name,
-                    url: url,
+                    url: primary,
                     group: group,
                     logoURL: Lenient.url(stream.streamIcon),
                     tvgID: stream.epgChannelID,
                     source: .xtream,
-                    categoryID: stream.categoryID
+                    categoryID: stream.categoryID,
+                    alternativeURLs: Array(unique.dropFirst())
                 )
             }
 
@@ -140,5 +165,11 @@ final class LibraryService: ObservableObject {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.scheme = "https"
         return components?.url ?? url
+    }
+
+    /// Only http/https URLs can be played by AVPlayer.
+    private func isPlayable(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
     }
 }

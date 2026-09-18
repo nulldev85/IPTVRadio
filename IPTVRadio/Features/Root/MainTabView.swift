@@ -1,29 +1,45 @@
 import SwiftUI
 
 /// Main tab layout: Radio (SiriusXM-focused), Browse, Search, Library, Settings.
+///
+/// The mini player is attached to each tab's content rather than the TabView
+/// itself, so it always sits *above* the tab bar and can never cover or replace
+/// the navigation controls. The full player is presented once, here, rather
+/// than from inside the bottom inset.
 struct MainTabView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var library: LibraryViewModel
 
+    @State private var showNowPlaying = false
+
     var body: some View {
         TabView {
-            RadioHomeView()
+            tabContent { RadioHomeView() }
                 .tabItem { Label("Radio", systemImage: "dot.radiowaves.left.and.right") }
 
-            BrowseView()
+            tabContent { BrowseView() }
                 .tabItem { Label("Browse", systemImage: "square.grid.2x2") }
 
-            SearchView()
+            tabContent { SearchView() }
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
 
-            LibraryTabView()
+            tabContent { LibraryTabView() }
                 .tabItem { Label("Library", systemImage: "heart.text.square") }
 
-            SettingsView()
+            tabContent { SettingsView() }
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            MiniPlayerView()
+        .sheet(isPresented: $showNowPlaying) {
+            NowPlayingView()
         }
+    }
+
+    /// Wraps tab content with the persistent mini player.
+    @ViewBuilder
+    private func tabContent<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                MiniPlayerView(onOpen: { showNowPlaying = true })
+            }
     }
 }

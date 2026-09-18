@@ -107,6 +107,21 @@ final class XtreamClientTests: XCTestCase {
             stations.first { $0.name.contains("SiriusXM Hits 1") }?.logoURL?.absoluteString,
             "https://logo.example/hits1.png"
         )
+
+        // Stream format candidates: original MPEG-TS first, HLS as fallback,
+        // so playback quality matches the provider's source stream.
+        let hits = stations.first { $0.name.contains("SiriusXM Hits 1") }
+        XCTAssertEqual(hits?.streamCandidates.first?.pathExtension, "ts")
+        XCTAssertTrue(hits?.streamCandidates.contains { $0.pathExtension == "m3u8" } ?? false)
+
+        // Provider-declared direct sources keep priority and are offered with
+        // an HTTPS upgrade plus the original HTTP URL as fallback.
+        let faction = stations.first { $0.name == "SXM Faction Talk" }
+        XCTAssertEqual(
+            faction?.streamCandidates.first?.absoluteString,
+            "https://edge.example.net:8042/radio/faction.m3u8"
+        )
+        XCTAssertTrue(faction?.streamCandidates.contains { $0.absoluteString.hasPrefix("http://") } ?? false)
     }
 }
 

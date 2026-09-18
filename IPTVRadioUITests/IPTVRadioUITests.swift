@@ -86,8 +86,14 @@ final class IPTVRadioUITests: XCTestCase {
             XCTFail("Mini player not visible. Hierarchy:\n\(app.debugDescription)")
         }
 
+        // Tab navigation must remain usable while a station is playing.
+        app.buttons["Browse"].tap()
+        XCTAssertTrue(app.buttons["browse.category.SiriusXM"].waitForExistence(timeout: 8),
+                      "Tab bar must remain reachable during playback")
+        app.buttons["Radio"].tap()
+        XCTAssertTrue(app.buttons["miniplayer.open"].waitForExistence(timeout: 8))
+
         let miniPlayer = app.buttons["miniplayer.open"].firstMatch
-        XCTAssertTrue(miniPlayer.waitForExistence(timeout: 8))
         miniPlayer.tap()
         let close = app.buttons["nowplaying.close"]
         if !close.waitForExistence(timeout: 8) {
@@ -101,11 +107,16 @@ final class IPTVRadioUITests: XCTestCase {
         app.buttons["nowplaying.next"].tap()
         XCTAssertTrue(app.buttons["nowplaying.toggle"].waitForExistence(timeout: 8))
 
-        // Stop playback, then dismiss with the always-visible control.
-        app.buttons["nowplaying.stop"].tap()
+        // Dismiss with the always-visible control; playback continues in the
+        // persistent mini player.
         close.tap()
-
-        // The user is returned to the station list with a persistent mini player.
         XCTAssertTrue(app.buttons["miniplayer.open"].waitForExistence(timeout: 8))
+
+        // Explicit Stop clears the mini player entirely so the full UI (and
+        // tab bar) is always recoverable without restarting the app.
+        app.buttons["miniplayer.stop"].tap()
+        XCTAssertTrue(app.buttons["miniplayer.open"].waitForNonExistence(timeout: 8),
+                      "Stopping must clear the mini player")
+        XCTAssertTrue(app.buttons["Browse"].waitForExistence(timeout: 8))
     }
 }

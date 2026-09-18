@@ -15,6 +15,19 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
     var logoURL: URL?
     var tvgID: String?
     var source: Source
+    /// Extra stream formats for the same station, tried in order if the
+    /// primary URL fails (e.g. original MPEG-TS vs transcoded HLS).
+    var alternativeStreamURLs: [URL]?
+
+    /// All candidate URLs, primary first, de-duplicated.
+    var streamCandidates: [URL] {
+        var seen = Set<String>()
+        var urls: [URL] = []
+        for url in [streamURL] + (alternativeStreamURLs ?? []) where seen.insert(url.absoluteString).inserted {
+            urls.append(url)
+        }
+        return urls
+    }
 
     init(
         name: String,
@@ -22,7 +35,8 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
         groupTitle: String = "",
         logoURL: URL? = nil,
         tvgID: String? = nil,
-        source: Source
+        source: Source,
+        alternativeStreamURLs: [URL]? = nil
     ) {
         self.id = StationIdentifier.make(source: source, url: streamURL, name: name)
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -31,6 +45,7 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
         self.logoURL = logoURL
         self.tvgID = tvgID
         self.source = source
+        self.alternativeStreamURLs = alternativeStreamURLs
     }
 }
 
@@ -74,6 +89,8 @@ struct RawChannel: Hashable, Sendable {
     var tvgID: String?
     var source: RadioStation.Source
     var categoryID: String?
+    /// Additional stream formats to try if `url` fails (primary first).
+    var alternativeURLs: [URL]
 
     init(
         name: String,
@@ -82,7 +99,8 @@ struct RawChannel: Hashable, Sendable {
         logoURL: URL? = nil,
         tvgID: String? = nil,
         source: RadioStation.Source,
-        categoryID: String? = nil
+        categoryID: String? = nil,
+        alternativeURLs: [URL] = []
     ) {
         self.name = name
         self.url = url
@@ -91,6 +109,7 @@ struct RawChannel: Hashable, Sendable {
         self.tvgID = tvgID
         self.source = source
         self.categoryID = categoryID
+        self.alternativeURLs = alternativeURLs
     }
 }
 

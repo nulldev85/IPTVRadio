@@ -84,11 +84,9 @@ final class PlaybackEngineTests: XCTestCase {
         player.simulateReady()
         engine.stop()
         XCTAssertEqual(player.stopCount, 1)
-        if case .stopped(let stopped) = engine.state {
-            XCTAssertEqual(stopped?.id, s.id)
-        } else {
-            XCTFail("Expected stopped state, got \(engine.state)")
-        }
+        // Stop fully clears the station so the mini player goes away and the
+        // user always regains the full interface.
+        XCTAssertEqual(engine.state, .stopped(nil))
     }
 
     @MainActor
@@ -177,5 +175,69 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(player.loadedURLs.count, 2)
         player.simulateReady()
         XCTAssertEqual(engine.state, .playing(s))
+    }
+
+    // MARK: Stream format candidates
+
+    @MainActor
+    func testAlternativeStreamFormatTriedBeforeRetries() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let primary = URL(string: "https://edge.example.net/live/a.ts")!
+        let fallback = URL(string: "https://edge.example.net/live/a.m3u8")!
+        let s = RadioStation(
+            name: "Multi Format",
+            streamURL: primary,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [fallback]
+        )
+
+        engine.play(s)
+        XCTAssertEqual(engine.state, .loading(s))
+        XCTAssertEqual(player.loadedURLs, [primary])
+
+        // The primary format fails; the next format must load immediately,
+        // without consuming the retry budget.
+        player.simulateFailure("ts failed")
+        XCTAssertEqual(player.loadedURLs, [primary, fallback])
+        XCTAssertEqual(engine.state, .loading(s))
+
+        player.simulateReady()
+        XCTAssertEqual(engine.state, .playing(s))
+    }
+
+    @MainActor
+    func testAllCandidatesExhaustedBeforeFailing() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let primary = URL(string: "https://edge.example.net/live/b.ts")!
+        let fallback = URL(string: "https://edge.example.net/live/b.m3u8")!
+        let s = RadioStation(
+            name: "Both Fail",
+            streamURL: primary,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [fallback]
+        )
+
+        engine.play(s)
+        player.simulateFailure("ts failed")
+        XCTAssertEqual(player.loadedURLs, [primary, fallback])
+
+        // Both formats failed and there is no retry budget: surface the error.
+        player.simulateFailure("hls failed too")
+        if case .failed = engine.state {
+            // expected
+        } else {
+            XCTFail("Expected failed state, got \(engine.state)")
+        }
+    }
+
+    @MainActor
+    func testStationWithoutAlternativesBehavesAsBefore() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let s = station("single")
+        engine.play(s)
+        XCTAssertEqual(player.loadedURLs, [s.streamURL])
+        XCTAssertEqual(s.streamCandidates, [s.streamURL])
     }
 }

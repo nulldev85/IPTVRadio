@@ -1,17 +1,19 @@
 import SwiftUI
 import AVKit
 
-/// Compact mini player docked above the tab bar.
+/// Compact mini player shown above the tab bar while a station is loaded.
+/// Owns no presentation state: opening the full player is delegated upward.
 struct MiniPlayerView: View {
     @EnvironmentObject private var playback: PlaybackEngine
-    @State private var showNowPlaying = false
+
+    let onOpen: () -> Void
 
     var body: some View {
         Group {
             if let station = playback.state.station {
                 HStack(spacing: 12) {
                     Button {
-                        showNowPlaying = true
+                        onOpen()
                     } label: {
                         HStack(spacing: 12) {
                             StationArtwork(logoURL: station.logoURL, size: 44)
@@ -60,9 +62,6 @@ struct MiniPlayerView: View {
                 .padding(.vertical, 8)
                 .background(.bar)
             }
-        }
-        .sheet(isPresented: $showNowPlaying) {
-            NowPlayingView()
         }
         .animation(.easeInOut(duration: 0.2), value: playback.state.station?.id)
     }
