@@ -3,10 +3,9 @@ import AVFoundation
 @testable import IPTVRadio
 
 final class StreamMetadataParserTests: XCTestCase {
-    private func id3Item(key: String, value: Any) -> AVMetadataItem {
+    private func id3Item(_ identifier: AVMetadataIdentifier, value: Any) -> AVMetadataItem {
         let item = AVMutableMetadataItem()
-        item.keySpace = .id3
-        item.key = key as NSString
+        item.identifier = identifier
         item.value = value as AnyObject
         return item
     }
@@ -14,9 +13,9 @@ final class StreamMetadataParserTests: XCTestCase {
     func testParsesTitleArtistAndArtwork() throws {
         let artworkData = Data([0x89, 0x50, 0x4E, 0x47])
         let items: [AVMetadataItem] = [
-            id3Item(key: "TIT2", value: "Killing in the Name" as NSString),
-            id3Item(key: "TPE1", value: "Rage Against the Machine" as NSString),
-            id3Item(key: "APIC", value: artworkData as NSData),
+            id3Item(.id3MetadataTitleDescription, value: "Killing in the Name" as NSString),
+            id3Item(.id3MetadataLeadPerformer, value: "Rage Against the Machine" as NSString),
+            id3Item(.id3MetadataAttachedPicture, value: artworkData as NSData),
         ]
 
         let update = try XCTUnwrap(StreamMetadataParser.parse(items: items))
@@ -27,7 +26,7 @@ final class StreamMetadataParserTests: XCTestCase {
 
     func testSplitsArtistAndTitleWhenOnlyTitlePresent() throws {
         let items: [AVMetadataItem] = [
-            id3Item(key: "TIT2", value: "Daft Punk - Around the World" as NSString),
+            id3Item(.id3MetadataTitleDescription, value: "Daft Punk - Around the World" as NSString),
         ]
         let update = try XCTUnwrap(StreamMetadataParser.parse(items: items))
         XCTAssertEqual(update.artist, "Daft Punk")
@@ -36,14 +35,14 @@ final class StreamMetadataParserTests: XCTestCase {
 
     func testReturnsNilWhenNothingRecognized() {
         let items: [AVMetadataItem] = [
-            id3Item(key: "TALB", value: "Some Album" as NSString),
+            id3Item(.id3MetadataAlbumTitle, value: "Some Album" as NSString),
         ]
         XCTAssertNil(StreamMetadataParser.parse(items: items))
     }
 
     func testIgnoresEmptyValues() {
         let items: [AVMetadataItem] = [
-            id3Item(key: "TIT2", value: "" as NSString),
+            id3Item(.id3MetadataTitleDescription, value: "" as NSString),
         ]
         XCTAssertNil(StreamMetadataParser.parse(items: items))
     }
@@ -51,7 +50,7 @@ final class StreamMetadataParserTests: XCTestCase {
     func testArtworkOnlyUpdateIsValid() throws {
         let artworkData = Data([0xFF, 0xD8, 0xFF])
         let items: [AVMetadataItem] = [
-            id3Item(key: "APIC", value: artworkData as NSData),
+            id3Item(.id3MetadataAttachedPicture, value: artworkData as NSData),
         ]
         let update = try XCTUnwrap(StreamMetadataParser.parse(items: items))
         XCTAssertNil(update.title)
