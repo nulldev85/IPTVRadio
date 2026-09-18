@@ -87,10 +87,20 @@ struct SettingsView: View {
             .accessibilityLabel("Auto-retry attempts")
             .accessibilityValue("\(settings.retryLimit) attempts")
             SleepTimerStatusRow()
+            Picker("Stream format", selection: $settings.streamFormatPreference) {
+                ForEach(StreamFormatPreference.allCases) { preference in
+                    Text(preference.label).tag(preference)
+                }
+            }
+            .accessibilityIdentifier("settings.streamFormat")
+            NavigationLink("Stream diagnostics") {
+                StreamDiagnosticsView()
+            }
+            .accessibilityIdentifier("settings.streamDiagnostics")
         } header: {
             Text("Playback")
         } footer: {
-            Text("Background audio, lock-screen controls and automatic reconnection are always active.")
+            Text("Background audio, lock-screen controls and automatic reconnection are always active. If audio quality sounds low, compare the Stream format options — providers differ in which format carries the original stream.")
         }
     }
 

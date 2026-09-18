@@ -40,6 +40,7 @@ protocol AudioPlayerControlling: AnyObject {
     var onReady: (() -> Void)? { get set }
     var onFailure: ((String) -> Void)? { get set }
     var onEnded: (() -> Void)? { get set }
+    var onDiagnostics: ((StreamDiagnosticsSample) -> Void)? { get set }
     func load(url: URL)
     func play()
     func pause()
@@ -51,11 +52,13 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
     var onEnded: (() -> Void)?
+    var onDiagnostics: ((StreamDiagnosticsSample) -> Void)?
 
     private let player = AVPlayer()
     private var statusObservation: NSKeyValueObservation?
     private var rateObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
+    private var diagnosticsTask: Task<Void, Never>?
     private var hasReportedReady = false
 
     var underlyingPlayer: AVPlayer { player }
@@ -106,35 +109,42 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
         player.replaceCurrentItem(with: item)
     }
 
-    /// Logs safe, non-secret stream diagnostics (type + bitrates) so degraded
-    /// audio can be attributed to the provider source on a real device.
-    /// SECURITY: the URL is never logged; only its file extension is used.
+    /// Collects safe, non-secret stream diagnostics (type + bitrates) and
+    /// publishes them after a few seconds, refreshing periodically while the
+    /// item is current. SECURITY: the URL is never used; only its extension.
     private func scheduleDiagnostics(for url: URL, item: AVPlayerItem) {
         let streamExtension = url.pathExtension
-        Task { [weak self] in
+        diagnosticsTask?.cancel()
+        diagnosticsTask = Task { [weak self] in
             // Give AVPlayer a few seconds to gather access-log data.
             try? await Task.sleep(nanoseconds: 4_000_000_000)
-            guard self != nil, item.error == nil else { return }
-            let events = (item.accessLog()?.events ?? []).map { event in
-                PlaybackDiagnostics.EventSample(
-                    indicatedBitrate: event.indicatedBitrate,
-                    observedBitrate: event.observedBitrate,
-                    averageAudioBitrate: event.averageAudioBitrate,
-                    numberOfMediaRequests: event.numberOfMediaRequests
+            var didLog = false
+            while !Task.isCancelled {
+                guard let self, self.player.currentItem === item, item.error == nil else { return }
+                let sample = PlaybackDiagnostics.makeSample(
+                    streamExtension: streamExtension,
+                    events: (item.accessLog()?.events ?? []).map { event in
+                        PlaybackDiagnostics.EventSample(
+                            indicatedBitrate: event.indicatedBitrate,
+                            observedBitrate: event.observedBitrate,
+                            averageAudioBitrate: event.averageAudioBitrate,
+                            numberOfMediaRequests: event.numberOfMediaRequests
+                        )
+                    },
+                    tracks: item.asset.tracks.map { track in
+                        PlaybackDiagnostics.TrackSample(
+                            mediaType: track.mediaType.rawValue,
+                            estimatedDataRate: Double(track.estimatedDataRate)
+                        )
+                    }
                 )
+                if !didLog {
+                    AppLogger.playback.info("Stream diagnostics (redacted): \(PlaybackDiagnostics.summary(for: sample), privacy: .public)")
+                    didLog = true
+                }
+                self.onDiagnostics?(sample)
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
             }
-            let tracks = item.asset.tracks.map { track in
-                PlaybackDiagnostics.TrackSample(
-                    mediaType: track.mediaType.rawValue,
-                    estimatedDataRate: Double(track.estimatedDataRate)
-                )
-            }
-            let summary = PlaybackDiagnostics.summary(
-                streamExtension: streamExtension,
-                events: events,
-                tracks: tracks
-            )
-            AppLogger.playback.info("Stream diagnostics (redacted): \(summary, privacy: .public)")
         }
     }
 
@@ -155,6 +165,8 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
     private func stopObserversForReload() {
         statusObservation?.invalidate()
         statusObservation = nil
+        diagnosticsTask?.cancel()
+        diagnosticsTask = nil
         if let endObserver {
             NotificationCenter.default.removeObserver(endObserver)
             self.endObserver = nil
@@ -211,6 +223,9 @@ final class PlaybackEngine: ObservableObject {
     @Published private(set) var isBuffering = false
     @Published private(set) var sleepTimerDeadline: Date?
     @Published private(set) var currentRouteDescription: String = "Device"
+    /// Live stream diagnostics for the active station (visible in-app because
+    /// builds are installed from CI artifacts without console access).
+    @Published private(set) var streamDiagnostics: StreamDiagnostics?
 
     /// The list used for next/previous navigation.
     var queue: [RadioStation] = []
@@ -280,6 +295,7 @@ final class PlaybackEngine: ObservableObject {
         streamCandidates = station.streamCandidates
         candidateIndex = 0
         candidatePlayedSuccessfully = false
+        streamDiagnostics = nil
         beginPlayback(station)
         history.record(station)
     }
@@ -315,6 +331,7 @@ final class PlaybackEngine: ObservableObject {
         // always regains the full UI after an explicit stop.
         state = .stopped(nil)
         nowPlaying.clear()
+        streamDiagnostics = nil
         sleepTimer?.invalidate()
         sleepTimer = nil
         sleepTimerDeadline = nil
@@ -498,6 +515,16 @@ final class PlaybackEngine: ObservableObject {
                 Task { @MainActor in self.handlePlayerFailure(message) }
             }
         }
+        player.onDiagnostics = { [weak self] sample in
+            guard let self else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self.handleDiagnosticsSample(sample)
+                }
+            } else {
+                Task { @MainActor in self.handleDiagnosticsSample(sample) }
+            }
+        }
         player.onEnded = { [weak self] in
             guard let self else { return }
             let endHandler = {
@@ -512,6 +539,22 @@ final class PlaybackEngine: ObservableObject {
                 Task { @MainActor in endHandler() }
             }
         }
+    }
+
+    private func handleDiagnosticsSample(_ sample: StreamDiagnosticsSample) {
+        guard let station = state.station else { return }
+        streamDiagnostics = StreamDiagnostics(
+            stationName: station.name,
+            formatIndex: candidateIndex + 1,
+            formatCount: max(streamCandidates.count, 1),
+            streamType: sample.streamExtension,
+            indicatedBitrate: sample.indicatedBitrate,
+            observedBitrate: sample.observedBitrate,
+            averageAudioBitrate: sample.averageAudioBitrate,
+            audioTrackDataRate: sample.audioTrackDataRate,
+            mediaRequests: sample.mediaRequests,
+            updatedAt: Date()
+        )
     }
 
     private func handleReady() {

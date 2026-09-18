@@ -22,7 +22,12 @@ final class LibraryService: ObservableObject {
 
     // MARK: Xtream fetch
 
-    func refresh(credentials: XtreamCredentials, http: HTTPClient, rules: RadioDetectionRules) async -> LibraryRefreshResult {
+    func refresh(
+        credentials: XtreamCredentials,
+        http: HTTPClient,
+        rules: RadioDetectionRules,
+        formatPreference: StreamFormatPreference = .automatic
+    ) async -> LibraryRefreshResult {
         do {
             let client = try XtreamClient(credentials: credentials, http: http)
             let session = try await client.authenticate()
@@ -46,8 +51,9 @@ final class LibraryService: ObservableObject {
             // Audio quality note: Xtream panels commonly transcode the `.m3u8`
             // (HLS) endpoint to a low-bitrate audio rendition while the `.ts`
             // endpoint carries the original stream. Most IPTV players use the
-            // original `.ts` format, so it is tried first with `.m3u8` as an
-            // automatic runtime fallback.
+            // original `.ts` format, so it is tried first (configurable) with
+            // the other format as an automatic runtime fallback.
+            let orderedFormats: [String] = formatPreference == .hlsFirst ? ["m3u8", "ts"] : ["ts", "m3u8"]
             var rawChannels: [RawChannel] = streams.map { stream in
                 var candidates: [URL] = []
 
@@ -62,11 +68,10 @@ final class LibraryService: ObservableObject {
                     }
                 }
 
-                // 2) Original MPEG-TS stream as delivered by the panel.
-                candidates.append(client.streamURL(streamID: stream.streamID, format: "ts"))
-
-                // 3) HLS manifest as a compatibility fallback.
-                candidates.append(client.streamURL(streamID: stream.streamID, format: "m3u8"))
+                // 2) Native format first, compatibility format as fallback.
+                for format in orderedFormats {
+                    candidates.append(client.streamURL(streamID: stream.streamID, format: format))
+                }
 
                 var seen = Set<String>()
                 let unique = candidates.filter { seen.insert($0.absoluteString).inserted }

@@ -7,6 +7,7 @@ final class StubAudioPlayer: AudioPlayerControlling {
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
     var onEnded: (() -> Void)?
+    var onDiagnostics: ((StreamDiagnosticsSample) -> Void)?
 
     private(set) var loadedURLs: [URL] = []
     private(set) var playCount = 0
@@ -239,5 +240,62 @@ final class PlaybackEngineTests: XCTestCase {
         engine.play(s)
         XCTAssertEqual(player.loadedURLs, [s.streamURL])
         XCTAssertEqual(s.streamCandidates, [s.streamURL])
+    }
+
+    // MARK: Stream diagnostics
+
+    @MainActor
+    func testStreamDiagnosticsPublishedForActiveStation() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        let primary = URL(string: "https://edge.example.net/live/d.ts")!
+        let fallback = URL(string: "https://edge.example.net/live/d.m3u8")!
+        let s = RadioStation(
+            name: "Diag Station",
+            streamURL: primary,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [fallback]
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        XCTAssertNil(engine.streamDiagnostics, "Diagnostics are cleared on play")
+
+        player.onDiagnostics?(StreamDiagnosticsSample(
+            streamExtension: "ts",
+            indicatedBitrate: 128_000,
+            observedBitrate: 120_000,
+            averageAudioBitrate: 128_000,
+            audioTrackDataRate: 130_000,
+            mediaRequests: 2
+        ))
+
+        let diagnostics = engine.streamDiagnostics
+        XCTAssertEqual(diagnostics?.stationName, "Diag Station")
+        XCTAssertEqual(diagnostics?.formatIndex, 1)
+        XCTAssertEqual(diagnostics?.formatCount, 2)
+        XCTAssertEqual(diagnostics?.streamType, "ts")
+        XCTAssertEqual(diagnostics?.averageAudioBitrate, 128_000)
+        XCTAssertEqual(diagnostics?.mediaRequests, 2)
+    }
+
+    @MainActor
+    func testStopClearsStreamDiagnostics() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        let s = station("diag-stop")
+        engine.play(s)
+        player.simulateReady()
+        player.onDiagnostics?(StreamDiagnosticsSample(
+            streamExtension: "m3u8",
+            indicatedBitrate: 64_000,
+            observedBitrate: nil,
+            averageAudioBitrate: nil,
+            audioTrackDataRate: nil,
+            mediaRequests: 1
+        ))
+        XCTAssertNotNil(engine.streamDiagnostics)
+
+        engine.stop()
+        XCTAssertNil(engine.streamDiagnostics)
     }
 }

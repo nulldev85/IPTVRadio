@@ -1,5 +1,32 @@
 import Foundation
 
+/// User-selectable stream format order. Lets users A/B test audio quality on
+/// device, since providers differ in which format carries the original stream.
+enum StreamFormatPreference: String, CaseIterable, Identifiable, Codable {
+    /// Original MPEG-TS first (matches most IPTV players), HLS fallback.
+    case automatic
+    /// HLS manifest first, MPEG-TS fallback.
+    case hlsFirst
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .automatic: return "Automatic (MPEG-TS first)"
+        case .hlsFirst: return "HLS first"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .automatic:
+            return "Plays the provider's original MPEG-TS stream when available, with HLS as a fallback."
+        case .hlsFirst:
+            return "Plays the HLS (.m3u8) manifest first, falling back to MPEG-TS."
+        }
+    }
+}
+
 /// User preferences backed by UserDefaults, mirrored as @Published so SwiftUI
 /// reacts immediately. Contains no secrets.
 @MainActor
@@ -12,6 +39,7 @@ final class SettingsStore: ObservableObject {
         static let siriusOnly = "settings.siriusOnly"
         static let detectionRules = "settings.detectionRules"
         static let authMode = "settings.authMode"
+        static let streamFormatPreference = "settings.streamFormatPreference"
     }
 
     enum AuthMode: String, CaseIterable, Identifiable {
@@ -35,6 +63,10 @@ final class SettingsStore: ObservableObject {
     @Published var authMode: AuthMode { didSet { defaults.set(authMode.rawValue, forKey: Keys.authMode) } }
     /// Configurable detection rules.
     @Published var detectionRules: RadioDetectionRules { didSet { persistRules() } }
+    /// Stream format order used when building playback candidates.
+    @Published var streamFormatPreference: StreamFormatPreference {
+        didSet { defaults.set(streamFormatPreference.rawValue, forKey: Keys.streamFormatPreference) }
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -44,6 +76,9 @@ final class SettingsStore: ObservableObject {
         showAllStations = defaults.object(forKey: Keys.showAllStations) as? Bool ?? true
         siriusOnly = defaults.object(forKey: Keys.siriusOnly) as? Bool ?? false
         authMode = AuthMode(rawValue: defaults.string(forKey: Keys.authMode) ?? "") ?? .xtream
+        streamFormatPreference = StreamFormatPreference(
+            rawValue: defaults.string(forKey: Keys.streamFormatPreference) ?? ""
+        ) ?? .automatic
 
         if let data = defaults.data(forKey: Keys.detectionRules),
            let rules = try? JSONDecoder().decode(RadioDetectionRules.self, from: data) {

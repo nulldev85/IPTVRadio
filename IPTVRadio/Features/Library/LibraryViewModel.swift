@@ -96,7 +96,12 @@ final class LibraryViewModel: ObservableObject {
         let rules = settings.detectionRules
         let result: LibraryRefreshResult
         if let xtream = stored.xtream {
-            result = await libraryService.refresh(credentials: xtream, http: httpClient, rules: rules)
+            result = await libraryService.refresh(
+                credentials: xtream,
+                http: httpClient,
+                rules: rules,
+                formatPreference: settings.streamFormatPreference
+            )
         } else if let m3uURL = stored.m3uURL {
             result = await libraryService.refresh(
                 credentials: M3UPlaylistCredentials(url: m3uURL),

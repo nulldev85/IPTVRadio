@@ -66,6 +66,10 @@ struct NowPlayingView: View {
 
             controlRow
 
+            if let diagnostics = playback.streamDiagnostics {
+                StreamDiagnosticsSummaryCard(diagnostics: diagnostics)
+            }
+
             HStack(spacing: 28) {
                 SleepTimerButton(showSheet: $showSleepTimerSheet)
                 RoutePickerButton()

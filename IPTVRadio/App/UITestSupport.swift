@@ -50,6 +50,7 @@ final class MockAudioPlayer: AudioPlayerControlling {
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
     var onEnded: (() -> Void)?
+    var onDiagnostics: ((StreamDiagnosticsSample) -> Void)?
 
     func load(url: URL) {
         Task { @MainActor [weak self] in

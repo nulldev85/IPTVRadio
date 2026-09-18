@@ -123,6 +123,24 @@ final class XtreamClientTests: XCTestCase {
         )
         XCTAssertTrue(faction?.streamCandidates.contains { $0.absoluteString.hasPrefix("http://") } ?? false)
     }
+
+    @MainActor
+    func testHLSFirstPreferenceOrdersCandidates() async {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("lib-test-\(UUID().uuidString)")
+        let service = LibraryService(cache: StationCache(fileStore: JSONFileStore(directory: temp)))
+        let result = await service.refresh(
+            credentials: Fixtures.makeCredentials(),
+            http: MockHTTP.xtreamClient(),
+            rules: .default,
+            formatPreference: .hlsFirst
+        )
+        guard case .success(let snapshot) = result else {
+            return XCTFail("Expected success, got \(result)")
+        }
+        let hits = snapshot.allRadioStations.first { $0.name.contains("SiriusXM Hits 1") }
+        XCTAssertEqual(hits?.streamCandidates.first?.pathExtension, "m3u8")
+        XCTAssertEqual(hits?.streamCandidates.last?.pathExtension, "ts")
+    }
 }
 
 /// In-memory secret store for tests; never touches the real Keychain.
