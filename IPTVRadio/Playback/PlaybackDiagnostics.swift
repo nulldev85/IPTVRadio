@@ -25,9 +25,11 @@ struct StreamDiagnostics: Equatable {
     var mediaRequests: Int?
     var updatedAt: Date
 
-    /// Best available single bitrate figure for compact display.
+    /// Best available single bitrate figure for compact display. Observed
+    /// bitrate is intentionally excluded: it reflects the recent download
+    /// rate (highest right after playback starts), not audio quality.
     var primaryBitrate: Double? {
-        averageAudioBitrate ?? audioTrackDataRate ?? indicatedBitrate ?? observedBitrate
+        averageAudioBitrate ?? audioTrackDataRate ?? indicatedBitrate
     }
 }
 

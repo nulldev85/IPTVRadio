@@ -9,6 +9,48 @@ enum LibraryRefreshResult: Equatable {
     case failure(String)
 }
 
+/// Derives alternate stream formats for playlist entries that follow the
+/// Xtream live-URL pattern (`.../live/{user}/{pass}/{id}.{ts|m3u8}`), so the
+/// stream-format preference and automatic runtime fallback also work for
+/// stations imported from an M3U playlist. Other URLs are left untouched.
+enum PlaylistStreamFormats {
+    static func candidates(for url: URL, preference: StreamFormatPreference) -> [URL] {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return [url]
+        }
+        let path = url.path.lowercased()
+        guard url.pathComponents.contains("live"),
+              url.pathComponents.count >= 5,
+              path.hasSuffix(".ts") || path.hasSuffix(".m3u8") else {
+            return [url]
+        }
+
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return [url]
+        }
+        let originalPath = components.path
+        let siblingPath: String
+        let originalIsTS: Bool
+        if originalPath.lowercased().hasSuffix(".m3u8") {
+            siblingPath = String(originalPath.dropLast(".m3u8".count)) + ".ts"
+            originalIsTS = false
+        } else {
+            siblingPath = String(originalPath.dropLast(".ts".count)) + ".m3u8"
+            originalIsTS = true
+        }
+        components.path = siblingPath
+        guard let sibling = components.url, sibling != url else {
+            return [url]
+        }
+
+        // Keep the playlist's URL as primary when it is already the preferred
+        // format; otherwise try the preferred format first (with fallback).
+        let originalIsPreferred = (preference == .automatic && originalIsTS)
+            || (preference == .hlsFirst && !originalIsTS)
+        return originalIsPreferred ? [url, sibling] : [sibling, url]
+    }
+}
+
 /// Orchestrates fetching provider data, running detection, and caching.
 @MainActor
 final class LibraryService: ObservableObject {
@@ -114,7 +156,12 @@ final class LibraryService: ObservableObject {
 
     // MARK: M3U fetch
 
-    func refresh(credentials: M3UPlaylistCredentials, http: HTTPClient, rules: RadioDetectionRules) async -> LibraryRefreshResult {
+    func refresh(
+        credentials: M3UPlaylistCredentials,
+        http: HTTPClient,
+        rules: RadioDetectionRules,
+        formatPreference: StreamFormatPreference = .automatic
+    ) async -> LibraryRefreshResult {
         do {
             let client = M3UClient(http: http)
             let text = try await client.fetchPlaylistText(url: credentials.url)
@@ -123,13 +170,18 @@ final class LibraryService: ObservableObject {
                 return .failure(ProviderError.malformedResponse("Playlist was empty or malformed.").errorDescription ?? "Playlist malformed.")
             }
             let channels = items.map { item in
-                RawChannel(
+                let formatCandidates = PlaylistStreamFormats.candidates(
+                    for: item.url,
+                    preference: formatPreference
+                )
+                return RawChannel(
                     name: item.name,
-                    url: item.url,
+                    url: formatCandidates.first ?? item.url,
                     group: item.groupTitle,
                     logoURL: item.logoURL,
                     tvgID: item.tvgID,
-                    source: .m3u
+                    source: .m3u,
+                    alternativeURLs: Array(formatCandidates.dropFirst())
                 )
             }
             let detector = RadioStationDetector(rules: rules)

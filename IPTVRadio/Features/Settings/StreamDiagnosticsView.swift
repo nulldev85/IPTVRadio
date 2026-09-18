@@ -16,7 +16,7 @@ struct StreamDiagnosticsView: View {
                         value: "\(formatName(diagnostics.streamType)), option \(diagnostics.formatIndex) of \(diagnostics.formatCount)"
                     )
                     LabeledContent("Indicated bitrate", value: bitrate(diagnostics.indicatedBitrate))
-                    LabeledContent("Observed bitrate", value: bitrate(diagnostics.observedBitrate))
+                    LabeledContent("Observed bitrate (download rate)", value: bitrate(diagnostics.observedBitrate))
                     LabeledContent("Average audio bitrate", value: bitrate(diagnostics.averageAudioBitrate))
                     LabeledContent("Audio track data rate", value: bitrate(diagnostics.audioTrackDataRate))
                     if let requests = diagnostics.mediaRequests {
@@ -36,7 +36,7 @@ struct StreamDiagnosticsView: View {
             }
 
             Section {
-                Text("This app plays your provider's stream exactly as delivered — no transcoding, EQ or volume processing. If the bitrate above is low (for example 64 kbps), the provider's source for the selected format is low quality. Switch “Stream format” in Settings ▸ Playback and compare.")
+                Text("This app plays your provider's stream exactly as delivered — no transcoding, EQ or volume processing.\n\n“Observed bitrate” is the recent download rate and is highest right after playback starts; it does not describe audio quality. HLS streams often do not report audio bitrate figures at all.\n\nIf audio quality sounds low, switch “Stream format” in Settings ▸ Playback and compare — the format line above shows which option is playing.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } header: {

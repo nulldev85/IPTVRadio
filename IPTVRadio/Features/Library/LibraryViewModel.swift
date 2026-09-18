@@ -106,7 +106,8 @@ final class LibraryViewModel: ObservableObject {
             result = await libraryService.refresh(
                 credentials: M3UPlaylistCredentials(url: m3uURL),
                 http: httpClient,
-                rules: rules
+                rules: rules,
+                formatPreference: settings.streamFormatPreference
             )
         } else {
             state = .error(ProviderError.notAuthenticated.errorDescription ?? "Sign in required.")
