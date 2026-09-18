@@ -13,7 +13,7 @@ final class StationCacheTests: XCTestCase {
         RadioStationDetector(rules: .default).buildSnapshot(channels: [
             RawChannel(
                 name: "Test Radio",
-                url: URL(string: "https://host.example/live/u/p/1.ts")!,
+                url: URL(string: "https://host.example/live/u/p/1.m3u8")!,
                 group: "Music Radio",
                 source: .xtream
             )
