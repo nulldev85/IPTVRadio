@@ -17,13 +17,15 @@ final class NowPlayingManagerTests: XCTestCase {
         )
     }
 
-    private func makeManager(artworkData: @escaping () -> Data = { Data() }) -> NowPlayingManager {
-        MockURLProtocol.requestHandler = { _ in (200, artworkData()) }
+    private func makeManager(artworkData: Data = Data()) -> NowPlayingManager {
+        MockURLProtocol.requestHandler = { _ in (200, artworkData) }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
         return NowPlayingManager(artworkSession: URLSession(configuration: config))
     }
 
+    /// Rendered on the main actor before being captured by mock handlers,
+    /// since those handlers run on background threads.
     private func testImageData() -> Data {
         let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
             UIColor.systemRed.setFill()
@@ -33,7 +35,7 @@ final class NowPlayingManagerTests: XCTestCase {
     }
 
     func testArtworkAppliesWhenStationStillActive() async throws {
-        let manager = makeManager(artworkData: testImageData)
+        let manager = makeManager(artworkData: testImageData())
         defer { manager.clear() }
         let station = makeStation("a", withLogo: true)
 
@@ -52,7 +54,7 @@ final class NowPlayingManagerTests: XCTestCase {
     }
 
     func testStaleArtworkIsNotAppliedAfterStationChange() async throws {
-        let manager = makeManager(artworkData: testImageData)
+        let manager = makeManager(artworkData: testImageData())
         defer { manager.clear() }
         let withLogo = makeStation("a", withLogo: true)
         let withoutLogo = makeStation("b", withLogo: false)
@@ -72,7 +74,7 @@ final class NowPlayingManagerTests: XCTestCase {
     }
 
     func testStationChangeDropsPreviousArtwork() {
-        let manager = makeManager(artworkData: testImageData)
+        let manager = makeManager(artworkData: testImageData())
         defer { manager.clear() }
         let a = makeStation("a", withLogo: true)
         let b = makeStation("b", withLogo: false)
