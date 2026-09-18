@@ -21,7 +21,11 @@ struct RadioStationDetector: Sendable {
         let name = channel.name.lowercased()
         let group = channel.group.lowercased()
         let tvg = (channel.tvgID ?? "").lowercased()
-        let pathExtension = channel.url.pathExtension.lowercased()
+        // Classify against the URL exactly as the provider declared it.
+        // (The playback URL may be a reordered format candidate such as a
+        // `.ts` sibling, which must not affect radio detection.)
+        let analysisURL = channel.analysisURL ?? channel.url
+        let pathExtension = analysisURL.pathExtension.lowercased()
 
         var score = 0
 
@@ -40,7 +44,7 @@ struct RadioStationDetector: Sendable {
         if tvg.contains("radio") { score += 1 }
 
         // URL path hints (e.g. /radio/ in the path).
-        let path = channel.url.path.lowercased()
+        let path = analysisURL.path.lowercased()
         if path.contains("/radio") || path.contains("aac") || path.contains("mp3") { score += 1 }
 
         let isRadio = score >= rules.minimumRadioScore

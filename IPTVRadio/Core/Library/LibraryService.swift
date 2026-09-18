@@ -118,6 +118,9 @@ final class LibraryService: ObservableObject {
                 var seen = Set<String>()
                 let unique = candidates.filter { seen.insert($0.absoluteString).inserted }
                 let primary = unique.first ?? client.streamURL(streamID: stream.streamID)
+                // Detection always sees the HLS URL, independent of the
+                // format preference, so radio classification stays stable.
+                let analysisURL = client.streamURL(streamID: stream.streamID, format: "m3u8")
 
                 let group = categoriesByID[stream.categoryID ?? ""]?.name ?? ""
                 return RawChannel(
@@ -128,7 +131,8 @@ final class LibraryService: ObservableObject {
                     tvgID: stream.epgChannelID,
                     source: .xtream,
                     categoryID: stream.categoryID,
-                    alternativeURLs: Array(unique.dropFirst())
+                    alternativeURLs: Array(unique.dropFirst()),
+                    analysisURL: analysisURL
                 )
             }
 
@@ -181,7 +185,10 @@ final class LibraryService: ObservableObject {
                     logoURL: item.logoURL,
                     tvgID: item.tvgID,
                     source: .m3u,
-                    alternativeURLs: Array(formatCandidates.dropFirst())
+                    alternativeURLs: Array(formatCandidates.dropFirst()),
+                    // Classify against the playlist's declared URL so a
+                    // reordered `.ts` candidate never looks like video.
+                    analysisURL: item.url
                 )
             }
             let detector = RadioStationDetector(rules: rules)

@@ -41,6 +41,7 @@ protocol AudioPlayerControlling: AnyObject {
     var onFailure: ((String) -> Void)? { get set }
     var onEnded: (() -> Void)? { get set }
     var onDiagnostics: ((StreamDiagnosticsSample) -> Void)? { get set }
+    var onMetadata: ((StreamMetadataUpdate) -> Void)? { get set }
     func load(url: URL)
     func play()
     func pause()
@@ -53,12 +54,15 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
     var onFailure: ((String) -> Void)?
     var onEnded: (() -> Void)?
     var onDiagnostics: ((StreamDiagnosticsSample) -> Void)?
+    var onMetadata: ((StreamMetadataUpdate) -> Void)?
 
     private let player = AVPlayer()
     private var statusObservation: NSKeyValueObservation?
     private var rateObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var diagnosticsTask: Task<Void, Never>?
+    private var metadataOutput: AVPlayerItemMetadataOutput?
+    private var lastMetadata: StreamMetadataUpdate?
     private var hasReportedReady = false
 
     var underlyingPlayer: AVPlayer { player }
@@ -83,11 +87,18 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
     func load(url: URL) {
         stopObserversForReload()
         hasReportedReady = false
+        lastMetadata = nil
         let item = AVPlayerItem(url: url)
         // The provider URL is handed to AVPlayer unchanged: no transcoding,
         // recompression or rendition caps. AVPlayer picks the highest
         // sustainable audio rendition the provider offers.
         scheduleDiagnostics(for: url, item: item)
+        // Stream song metadata (ID3): powers the current-song artwork in the
+        // now playing bar and the lock screen.
+        let output = AVPlayerItemMetadataOutput(identifiers: nil)
+        output.setDelegate(self, queue: .main)
+        item.add(output)
+        metadataOutput = output
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             switch item.status {
             case .readyToPlay:
@@ -167,10 +178,27 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
         statusObservation = nil
         diagnosticsTask?.cancel()
         diagnosticsTask = nil
+        metadataOutput = nil
         if let endObserver {
             NotificationCenter.default.removeObserver(endObserver)
             self.endObserver = nil
         }
+    }
+}
+
+// MARK: - Stream song metadata (ID3)
+
+extension AVAudioPlayerAdapter: AVPlayerItemMetadataOutputPushDelegate {
+    func metadataOutput(
+        _ output: AVPlayerItemMetadataOutput,
+        didOutputTimedMetadataGroups groups: [AVTimedMetadataGroup],
+        from track: AVPlayerItemTrack?
+    ) {
+        let items = groups.flatMap { $0.items }
+        guard let update = StreamMetadataParser.parse(items: items) else { return }
+        guard update != lastMetadata else { return }
+        lastMetadata = update
+        onMetadata?(update)
     }
 }
 
@@ -226,6 +254,8 @@ final class PlaybackEngine: ObservableObject {
     /// Live stream diagnostics for the active station (visible in-app because
     /// builds are installed from CI artifacts without console access).
     @Published private(set) var streamDiagnostics: StreamDiagnostics?
+    /// Current song metadata from the stream (ID3): title, artist and artwork.
+    @Published private(set) var nowPlayingMetadata: NowPlayingMetadata?
 
     /// The list used for next/previous navigation.
     var queue: [RadioStation] = []
@@ -296,6 +326,7 @@ final class PlaybackEngine: ObservableObject {
         candidateIndex = 0
         candidatePlayedSuccessfully = false
         streamDiagnostics = nil
+        nowPlayingMetadata = nil
         beginPlayback(station)
         history.record(station)
     }
@@ -332,6 +363,7 @@ final class PlaybackEngine: ObservableObject {
         state = .stopped(nil)
         nowPlaying.clear()
         streamDiagnostics = nil
+        nowPlayingMetadata = nil
         sleepTimer?.invalidate()
         sleepTimer = nil
         sleepTimerDeadline = nil
@@ -525,6 +557,16 @@ final class PlaybackEngine: ObservableObject {
                 Task { @MainActor in self.handleDiagnosticsSample(sample) }
             }
         }
+        player.onMetadata = { [weak self] update in
+            guard let self else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self.handleMetadataUpdate(update)
+                }
+            } else {
+                Task { @MainActor in self.handleMetadataUpdate(update) }
+            }
+        }
         player.onEnded = { [weak self] in
             guard let self else { return }
             let endHandler = {
@@ -555,6 +597,18 @@ final class PlaybackEngine: ObservableObject {
             mediaRequests: sample.mediaRequests,
             updatedAt: Date()
         )
+    }
+
+    /// Song metadata (artist/title/artwork) arriving from the stream.
+    private func handleMetadataUpdate(_ update: StreamMetadataUpdate) {
+        guard let station = state.station else { return }
+        let metadata = NowPlayingMetadata(
+            title: update.title,
+            artist: update.artist,
+            artworkData: update.artworkData
+        )
+        nowPlayingMetadata = metadata
+        nowPlaying.applySongMetadata(metadata, station: station)
     }
 
     private func handleReady() {

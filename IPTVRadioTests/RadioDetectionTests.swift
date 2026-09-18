@@ -42,6 +42,35 @@ final class RadioDetectionTests: XCTestCase {
         XCTAssertFalse(verdict.isRadio)
     }
 
+    func testTSPlaybackURLWithM3U8AnalysisURLStillDetectedAsRadio() {
+        // The format preference can reorder playback to .ts, but detection
+        // must keep using the playlist's declared .m3u8 URL so radio
+        // stations are never mistaken for video.
+        let channel = RawChannel(
+            name: "Rock The Bells Radio",
+            url: URL(string: "http://host.example:8080/live/user/pass/12345.ts")!,
+            group: "Music Radio",
+            source: .m3u,
+            alternativeURLs: [URL(string: "http://host.example:8080/live/user/pass/12345.m3u8")!],
+            analysisURL: URL(string: "http://host.example:8080/live/user/pass/12345.m3u8")!
+        )
+        let verdict = detector.classify(channel)
+        XCTAssertTrue(verdict.isRadio, "TS playback URL must not make a radio station look like video")
+        let snapshot = detector.buildSnapshot(channels: [channel])
+        XCTAssertEqual(snapshot.allRadioStations.count, 1)
+    }
+
+    func testTSURLAnalyzedWhenNoAnalysisURLGiven() {
+        // Without an analysis URL the .ts extension keeps its video penalty.
+        let channel = RawChannel(
+            name: "Random Channel",
+            url: URL(string: "https://host.example/live/user/pass/1.ts")!,
+            group: "General",
+            source: .xtream
+        )
+        XCTAssertFalse(detector.classify(channel).isRadio)
+    }
+
     func testTVGIDRadioHintNotSufficientAlone() {
         let verdict = detector.classify(channel("The Mix 88", group: "General", path: "/live/88.stream", tvg: "radio-mix-88"))
         // TVG hint (+1) alone stays below the minimum score of 2.

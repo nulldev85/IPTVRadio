@@ -30,6 +30,8 @@ final class NowPlayingManager {
     private let artworkSession: URLSession
     private let metadataLock = NSLock()
     private var metadata: RadioStation?
+    /// Current song info from the stream (ID3), when available.
+    private var songMetadata: NowPlayingMetadata?
     private(set) var lastArtworkOutcome: ArtworkOutcome = .none
     private(set) var lastAppliedArtworkStationID: String?
     /// Remote commands are process-global; register only once.
@@ -100,15 +102,20 @@ final class NowPlayingManager {
             return
         }
         metadataLock.lock()
+        let stationChanged = metadata?.id != station.id
         metadata = station
-        // Station changed: previously applied artwork is stale until it loads again.
-        lastAppliedArtworkStationID = nil
-        lastArtworkOutcome = .none
+        if stationChanged {
+            // Station changed: previous artwork and song info are stale.
+            lastAppliedArtworkStationID = nil
+            lastArtworkOutcome = .none
+            songMetadata = nil
+        }
+        let song = songMetadata
         metadataLock.unlock()
 
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: station.name,
-            MPMediaItemPropertyArtist: station.groupTitle.isEmpty ? "Live Radio" : station.groupTitle,
+            MPMediaItemPropertyTitle: song?.title ?? station.name,
+            MPMediaItemPropertyArtist: song?.artist ?? (station.groupTitle.isEmpty ? "Live Radio" : station.groupTitle),
             MPNowPlayingInfoPropertyIsLiveStream: true,
             MPNowPlayingInfoPropertyPlaybackRate: (state.isPlaying && !buffering) ? 1.0 : 0.0,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: 0.0,
@@ -116,13 +123,49 @@ final class NowPlayingManager {
             MPNowPlayingInfoPropertyPlaybackQueueCount: 1,
             MPNowPlayingInfoPropertyPlaybackQueueIndex: 1,
         ]
+        if song != nil {
+            info[MPMediaItemPropertyAlbumTitle] = station.name
+        }
+        if let image = song?.artworkImage {
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        }
+        infoCenter.nowPlayingInfo = info
+    }
+
+    /// Applies current-song info (ID3) so the lock screen and Control Center
+    /// show the song title, artist and artwork instead of the channel logo.
+    func applySongMetadata(_ song: NowPlayingMetadata, station: RadioStation) {
+        metadataLock.lock()
+        songMetadata = song
+        let stationChanged = metadata?.id != station.id
+        metadata = station
+        if stationChanged {
+            lastAppliedArtworkStationID = nil
+            lastArtworkOutcome = .none
+        }
+        if song.artworkImage != nil {
+            lastAppliedArtworkStationID = station.id
+            lastArtworkOutcome = .applied
+        }
+        metadataLock.unlock()
+
+        var info = infoCenter.nowPlayingInfo ?? [:]
+        info[MPMediaItemPropertyTitle] = song.title ?? station.name
+        info[MPMediaItemPropertyArtist] = song.artist ?? (station.groupTitle.isEmpty ? "Live Radio" : station.groupTitle)
+        info[MPMediaItemPropertyAlbumTitle] = station.name
+        if let image = song.artworkImage {
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        }
         infoCenter.nowPlayingInfo = info
     }
 
     private func applyArtwork(_ image: UIImage, for station: RadioStation) {
-        let item = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         metadataLock.lock()
         defer { metadataLock.unlock() }
+        // Song artwork (from stream metadata) takes precedence over the
+        // channel logo while a song is playing.
+        guard songMetadata?.artworkImage == nil else { return }
+        let item = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         var info = infoCenter.nowPlayingInfo ?? [:]
         info[MPMediaItemPropertyArtwork] = item
         infoCenter.nowPlayingInfo = info
@@ -135,6 +178,7 @@ final class NowPlayingManager {
         metadata = nil
         lastAppliedArtworkStationID = nil
         lastArtworkOutcome = .none
+        songMetadata = nil
         metadataLock.unlock()
         infoCenter.nowPlayingInfo = nil
     }

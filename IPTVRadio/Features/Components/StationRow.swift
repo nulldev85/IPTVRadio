@@ -103,6 +103,31 @@ struct StationArtwork: View {
     }
 }
 
+/// Artwork used while playing: shows the current song's artwork when the
+/// stream provides it, falling back to the channel logo otherwise.
+/// (Channel logos remain unchanged everywhere else in the app.)
+struct PlaybackArtwork: View {
+    let station: RadioStation
+    let songArtwork: UIImage?
+    var size: CGFloat = 52
+
+    var body: some View {
+        ZStack {
+            if let songArtwork {
+                Image(uiImage: songArtwork)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .accessibilityHidden(true)
+            } else {
+                StationArtwork(logoURL: station.logoURL, size: size)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
 struct AsyncArtworkImage: View {
     let url: URL
 

@@ -16,13 +16,17 @@ struct MiniPlayerView: View {
                         onOpen()
                     } label: {
                         HStack(spacing: 12) {
-                            StationArtwork(logoURL: station.logoURL, size: 44)
+                            PlaybackArtwork(
+                                station: station,
+                                songArtwork: playback.nowPlayingMetadata?.artworkImage,
+                                size: 44
+                            )
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(station.name)
+                                Text(playback.nowPlayingMetadata?.title ?? station.name)
                                     .font(.subheadline.weight(.medium))
                                     .lineLimit(1)
-                                Text(stateDescription)
+                                Text(playback.nowPlayingMetadata?.artist ?? stateDescription)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)

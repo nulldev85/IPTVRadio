@@ -8,6 +8,7 @@ final class StubAudioPlayer: AudioPlayerControlling {
     var onFailure: ((String) -> Void)?
     var onEnded: (() -> Void)?
     var onDiagnostics: ((StreamDiagnosticsSample) -> Void)?
+    var onMetadata: ((StreamMetadataUpdate) -> Void)?
 
     private(set) var loadedURLs: [URL] = []
     private(set) var playCount = 0
@@ -297,5 +298,41 @@ final class PlaybackEngineTests: XCTestCase {
 
         engine.stop()
         XCTAssertNil(engine.streamDiagnostics)
+    }
+
+    // MARK: Song metadata
+
+    @MainActor
+    func testSongMetadataPublishedAndCleared() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        let s = station("song")
+        engine.play(s)
+        player.simulateReady()
+        XCTAssertNil(engine.nowPlayingMetadata, "Song metadata is cleared on play")
+
+        player.onMetadata?(StreamMetadataUpdate(
+            title: "Around the World",
+            artist: "Daft Punk",
+            artworkData: Data([0x89, 0x50])
+        ))
+
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Around the World")
+        XCTAssertEqual(engine.nowPlayingMetadata?.artist, "Daft Punk")
+        XCTAssertEqual(engine.nowPlayingMetadata?.artworkData, Data([0x89, 0x50]))
+
+        engine.stop()
+        XCTAssertNil(engine.nowPlayingMetadata)
+    }
+
+    @MainActor
+    func testStationChangeClearsSongMetadata() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        engine.play(station("first"))
+        player.simulateReady()
+        player.onMetadata?(StreamMetadataUpdate(title: "Song A", artist: "Artist A", artworkData: nil))
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Song A")
+
+        engine.play(station("second"))
+        XCTAssertNil(engine.nowPlayingMetadata, "Switching stations clears stale song info")
     }
 }

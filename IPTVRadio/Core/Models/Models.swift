@@ -91,6 +91,10 @@ struct RawChannel: Hashable, Sendable {
     var categoryID: String?
     /// Additional stream formats to try if `url` fails (primary first).
     var alternativeURLs: [URL]
+    /// URL used for radio classification. Detection must not depend on format
+    /// reordering (e.g. a `.ts` sibling would otherwise look like video);
+    /// this is normally the URL exactly as the provider/playlist declared it.
+    var analysisURL: URL?
 
     init(
         name: String,
@@ -100,7 +104,8 @@ struct RawChannel: Hashable, Sendable {
         tvgID: String? = nil,
         source: RadioStation.Source,
         categoryID: String? = nil,
-        alternativeURLs: [URL] = []
+        alternativeURLs: [URL] = [],
+        analysisURL: URL? = nil
     ) {
         self.name = name
         self.url = url
@@ -110,6 +115,7 @@ struct RawChannel: Hashable, Sendable {
         self.source = source
         self.categoryID = categoryID
         self.alternativeURLs = alternativeURLs
+        self.analysisURL = analysisURL
     }
 }
 

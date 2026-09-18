@@ -25,17 +25,24 @@ final class LibraryViewModel: ObservableObject {
     private let settings: SettingsStore
     private let credentials: CredentialsStore
     private let httpClient: HTTPClient
+    /// In-flight refresh, kept outside SwiftUI's task lifetime so the load
+    /// always completes even if the view task that started it is cancelled.
+    private var refreshTask: Task<Void, Never>?
+    /// Hard cap on a single provider fetch (guarantees the UI leaves loading).
+    private let refreshTimeout: TimeInterval
 
     init(
         libraryService: LibraryService,
         settings: SettingsStore,
         credentials: CredentialsStore,
-        httpClient: HTTPClient
+        httpClient: HTTPClient,
+        refreshTimeout: TimeInterval = 75
     ) {
         self.libraryService = libraryService
         self.settings = settings
         self.credentials = credentials
         self.httpClient = httpClient
+        self.refreshTimeout = refreshTimeout
     }
 
     // MARK: Derived data
@@ -83,8 +90,28 @@ final class LibraryViewModel: ObservableObject {
 
     // MARK: Refresh
 
+    /// Refreshes the library. The work runs in an unstructured task owned by
+    /// this view model, so it always runs to completion and always leaves the
+    /// UI in a terminal state (loaded / offline / error) — even if the view
+    /// task that triggered it is cancelled. Concurrent calls join the
+    /// in-flight refresh instead of being dropped.
     func refresh() async {
-        guard !isRefreshing else { return }
+        if let existing = refreshTask {
+            await existing.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            await self?.performRefresh()
+        }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+    }
+
+    private func performRefresh() async {
+        if snapshot == nil {
+            state = .loading
+        }
         isRefreshing = true
         defer { isRefreshing = false }
 
@@ -93,27 +120,45 @@ final class LibraryViewModel: ObservableObject {
             return
         }
 
-        let rules = settings.detectionRules
-        let result: LibraryRefreshResult
-        if let xtream = stored.xtream {
-            result = await libraryService.refresh(
-                credentials: xtream,
-                http: httpClient,
-                rules: rules,
-                formatPreference: settings.streamFormatPreference
-            )
-        } else if let m3uURL = stored.m3uURL {
-            result = await libraryService.refresh(
-                credentials: M3UPlaylistCredentials(url: m3uURL),
-                http: httpClient,
-                rules: rules,
-                formatPreference: settings.streamFormatPreference
-            )
-        } else {
-            state = .error(ProviderError.notAuthenticated.errorDescription ?? "Sign in required.")
-            return
+        var result = await fetch(stored: stored)
+
+        // One automatic retry for transient provider/network problems when we
+        // have nothing cached to show.
+        if case .failure = result, snapshot == nil {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            result = await fetch(stored: stored)
         }
         apply(result)
+    }
+
+    /// Runs the provider fetch with a hard timeout so the UI can never stay
+    /// stuck on "Loading" because of a hung request.
+    private func fetch(stored: CredentialsStore.StoredCredentials) async -> LibraryRefreshResult {
+        let rules = settings.detectionRules
+        let preference = settings.streamFormatPreference
+        let timeoutMessage = "Your provider took too long to respond. Check your connection, then pull to refresh."
+        return await withTimeout(
+            seconds: refreshTimeout,
+            timeoutValue: .failure(timeoutMessage)
+        ) { [libraryService, httpClient] in
+            if let xtream = stored.xtream {
+                return await libraryService.refresh(
+                    credentials: xtream,
+                    http: httpClient,
+                    rules: rules,
+                    formatPreference: preference
+                )
+            }
+            if let m3uURL = stored.m3uURL {
+                return await libraryService.refresh(
+                    credentials: M3UPlaylistCredentials(url: m3uURL),
+                    http: httpClient,
+                    rules: rules,
+                    formatPreference: preference
+                )
+            }
+            return .failure(ProviderError.notAuthenticated.errorDescription ?? "Sign in required.")
+        }
     }
 
     private func apply(_ result: LibraryRefreshResult) {
@@ -160,5 +205,24 @@ final class LibraryViewModel: ObservableObject {
     func injectForUITest(snapshot: LibrarySnapshot) {
         self.snapshot = snapshot
         state = snapshot.allRadioStations.isEmpty ? .empty : .loaded
+    }
+}
+
+/// Runs `operation` and returns `timeoutValue` if it does not finish within
+/// `seconds`. Guarantees callers can never wait forever on a hung request.
+private func withTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    timeoutValue: T,
+    _ operation: @escaping @Sendable () async -> T
+) async -> T {
+    await withTaskGroup(of: T.self) { group in
+        group.addTask { await operation() }
+        group.addTask {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            return timeoutValue
+        }
+        let result = await group.next() ?? timeoutValue
+        group.cancelAll()
+        return result
     }
 }

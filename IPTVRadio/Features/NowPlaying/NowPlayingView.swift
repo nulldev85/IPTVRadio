@@ -43,12 +43,35 @@ struct NowPlayingView: View {
                 .accessibilityLabel("Close now playing screen")
             }
 
-            StationArtwork(logoURL: station.logoURL, size: 220)
-                .padding(.top, 12)
+            PlaybackArtwork(
+                station: station,
+                songArtwork: playback.nowPlayingMetadata?.artworkImage,
+                size: 220
+            )
+            .padding(.top, 12)
 
             VStack(spacing: 6) {
+                if let metadata = playback.nowPlayingMetadata,
+                   metadata.title != nil || metadata.artist != nil {
+                    // Current song from the stream's metadata.
+                    VStack(spacing: 2) {
+                        if let title = metadata.title {
+                            Text(title)
+                                .font(.title3.weight(.semibold))
+                                .multilineTextAlignment(.center)
+                        }
+                        if let artist = metadata.artist {
+                            Text(artist)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .accessibilityIdentifier("nowplaying.song")
+                }
                 Text(station.name)
-                    .font(.title2.weight(.semibold))
+                    .font(playback.nowPlayingMetadata?.title == nil ? .title2.weight(.semibold) : .footnote)
+                    .foregroundStyle(playback.nowPlayingMetadata?.title == nil ? Color.primary : Color.secondary)
                     .multilineTextAlignment(.center)
                     .accessibilityIdentifier("nowplaying.title")
                 if !station.groupTitle.isEmpty {
