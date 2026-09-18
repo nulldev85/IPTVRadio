@@ -72,7 +72,8 @@ final class AppEnvironment: ObservableObject {
             settings: settings,
             connectivity: connectivity,
             history: history,
-            nowPlaying: nowPlaying
+            nowPlaying: nowPlaying,
+            http: httpClient
         )
         library = LibraryViewModel(
             libraryService: LibraryService(cache: cache),

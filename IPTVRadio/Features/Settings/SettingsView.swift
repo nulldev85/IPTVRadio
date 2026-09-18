@@ -87,6 +87,8 @@ struct SettingsView: View {
             .accessibilityLabel("Auto-retry attempts")
             .accessibilityValue("\(settings.retryLimit) attempts")
             SleepTimerStatusRow()
+            Toggle("Prefer audio-only stream", isOn: $settings.preferAudioOnlyRendition)
+                .accessibilityIdentifier("settings.audioOnly")
             Picker("Stream format", selection: $settings.streamFormatPreference) {
                 ForEach(StreamFormatPreference.allCases) { preference in
                     Text(preference.label).tag(preference)
@@ -100,7 +102,7 @@ struct SettingsView: View {
         } header: {
             Text("Playback")
         } footer: {
-            Text("Background audio, lock-screen controls and automatic reconnection are always active. If audio quality sounds low, compare the Stream format options — providers differ in which format carries the original stream.")
+            Text("Background audio, lock-screen controls and automatic reconnection are always active.\n\n“Prefer audio-only stream” plays a channel's dedicated audio track when its HLS manifest offers one — better quality for radio and much less data than downloading its video variant. If audio quality sounds low, compare the Stream format options — providers differ in which format carries the original stream.")
         }
     }
 

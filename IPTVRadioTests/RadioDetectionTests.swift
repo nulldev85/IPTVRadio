@@ -71,6 +71,45 @@ final class RadioDetectionTests: XCTestCase {
         XCTAssertFalse(detector.classify(channel).isRadio)
     }
 
+    func testHardVideoGroupCategoriesNeverAppearInRadioLineup() {
+        // Even with strong radio-ish name/format signals, a channel sitting in
+        // a Movies/Series/VOD category must never be shown in a radio-only app.
+        let channel = RawChannel(
+            name: "Rock Music Radio",
+            url: URL(string: "https://host.example/live/user/pass/1.m3u8")!,
+            group: "Movies 4K",
+            source: .m3u
+        )
+        let snapshot = detector.buildSnapshot(channels: [channel])
+        XCTAssertTrue(
+            snapshot.allRadioStations.isEmpty,
+            "Video categories must never appear in the radio lineup"
+        )
+    }
+
+    func testSiriusStationInVideoCategoryStillIncluded() {
+        let channel = RawChannel(
+            name: "SiriusXM Hits 1",
+            url: URL(string: "https://host.example/live/user/pass/1.m3u8")!,
+            group: "Movies",
+            source: .m3u
+        )
+        let snapshot = detector.buildSnapshot(channels: [channel])
+        XCTAssertEqual(snapshot.siriusStations.count, 1, "Explicit SiriusXM matches keep priority")
+    }
+
+    func testSportsRadioCategoryStillIncluded() {
+        // Soft video keywords (sports, tv, kids) must not exclude real radio.
+        let channel = RawChannel(
+            name: "Sports Talk Radio",
+            url: URL(string: "https://host.example/live/user/pass/2.mp3")!,
+            group: "Sports",
+            source: .m3u
+        )
+        let snapshot = detector.buildSnapshot(channels: [channel])
+        XCTAssertEqual(snapshot.allRadioStations.count, 1)
+    }
+
     func testTVGIDRadioHintNotSufficientAlone() {
         let verdict = detector.classify(channel("The Mix 88", group: "General", path: "/live/88.stream", tvg: "radio-mix-88"))
         // TVG hint (+1) alone stays below the minimum score of 2.

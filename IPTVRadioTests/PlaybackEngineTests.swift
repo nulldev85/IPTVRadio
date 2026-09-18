@@ -31,12 +31,16 @@ final class PlaybackEngineTests: XCTestCase {
     private func makeEngine(
         defaults: UserDefaults,
         retryLimit: Int = 2,
-        timeout: Double = 15
+        timeout: Double = 15,
+        http: HTTPClient = URLSessionHTTPClient.providerDefault,
+        audioOnlyProbe: Bool = false
     ) async -> (PlaybackEngine, StubAudioPlayer, ConnectivityMonitor, HistoryStore) {
         let settings = await SettingsStore(defaults: defaults)
         await MainActor.run {
             settings.retryLimit = retryLimit
             settings.streamTimeout = timeout
+            // Deterministic tests: the manifest probe is opt-in per test.
+            settings.preferAudioOnlyRendition = audioOnlyProbe
         }
         let player = await StubAudioPlayer()
         let connectivity = await ConnectivityMonitor()
@@ -45,7 +49,9 @@ final class PlaybackEngineTests: XCTestCase {
             player: player,
             settings: settings,
             connectivity: connectivity,
-            history: history
+            history: history,
+            http: http,
+            probeCache: HLSProbeCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("probe-cache-\(UUID().uuidString)")))
         )
         return (engine, player, connectivity, history)
     }
@@ -334,5 +340,77 @@ final class PlaybackEngineTests: XCTestCase {
 
         engine.play(station("second"))
         XCTAssertNil(engine.nowPlayingMetadata, "Switching stations clears stale song info")
+    }
+
+    // MARK: Audio-only rendition preference
+
+    @MainActor
+    func testAudioOnlyRenditionPreferredWhenManifestOffersOne() async {
+        let master = """
+        #EXTM3U
+        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aac",NAME="English",DEFAULT=YES,URI="audio/eng.m3u8",BANDWIDTH=128000
+        #EXT-X-STREAM-INF:BANDWIDTH=5324800,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2",AUDIO="aac"
+        video/720p.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=160000,CODECS="mp4a.40.2",AUDIO="aac"
+        audio/128k.m3u8
+        """
+        let http = MockHTTP.client { _ in (200, Data(master.utf8)) }
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            http: http,
+            audioOnlyProbe: true
+        )
+        let url = URL(string: "https://cdn.example.net/live/12345.m3u8")!
+        let s = RadioStation(name: "Rock Radio", streamURL: url, groupTitle: "Music Radio", source: .m3u)
+
+        engine.play(s)
+
+        // The probe runs before the player loads.
+        for _ in 0..<50 where player.loadedURLs.isEmpty {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertEqual(
+            player.loadedURLs.first?.absoluteString,
+            "https://cdn.example.net/live/audio/128k.m3u8",
+            "The dedicated audio track should be played instead of the video variant"
+        )
+
+        player.simulateReady()
+        XCTAssertEqual(engine.state, .playing(s))
+
+        // Diagnostics report the audio-only rendition and its declared bandwidth.
+        player.onDiagnostics?(StreamDiagnosticsSample(
+            streamExtension: "m3u8",
+            indicatedBitrate: nil,
+            observedBitrate: 9_400_000,
+            averageAudioBitrate: nil,
+            audioTrackDataRate: nil,
+            mediaRequests: 2
+        ))
+        XCTAssertEqual(engine.streamDiagnostics?.usingAudioOnlyRendition, true)
+        XCTAssertEqual(engine.streamDiagnostics?.declaredAudioBandwidth, 160_000)
+        XCTAssertEqual(engine.streamDiagnostics?.manifestChecked, true)
+    }
+
+    @MainActor
+    func testProbeSkippedForTSStreams() async {
+        let http = MockHTTP.client { _ in
+            XCTFail("The manifest probe must not fetch a raw .ts stream")
+            return (200, Data())
+        }
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            http: http,
+            audioOnlyProbe: true
+        )
+        let s = RadioStation(
+            name: "TS Station",
+            streamURL: URL(string: "https://edge.example.net/live/user/pass/1.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream
+        )
+
+        engine.play(s)
+        XCTAssertEqual(player.loadedURLs, [s.streamURL], ".ts candidates load directly without probing")
     }
 }

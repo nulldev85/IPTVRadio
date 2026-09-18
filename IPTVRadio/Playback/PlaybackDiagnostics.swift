@@ -24,12 +24,18 @@ struct StreamDiagnostics: Equatable {
     var audioTrackDataRate: Double?
     var mediaRequests: Int?
     var updatedAt: Date
+    /// True when the playing URL is the stream's dedicated audio-only rendition.
+    var usingAudioOnlyRendition: Bool
+    /// Declared bandwidth of the audio-only rendition, when known.
+    var declaredAudioBandwidth: Double?
+    /// True when the HLS manifest was inspected for audio-only renditions.
+    var manifestChecked: Bool
 
     /// Best available single bitrate figure for compact display. Observed
     /// bitrate is intentionally excluded: it reflects the recent download
     /// rate (highest right after playback starts), not audio quality.
     var primaryBitrate: Double? {
-        averageAudioBitrate ?? audioTrackDataRate ?? indicatedBitrate
+        averageAudioBitrate ?? audioTrackDataRate ?? indicatedBitrate ?? declaredAudioBandwidth
     }
 }
 

@@ -6,12 +6,24 @@ struct ChannelVerdict: Equatable {
     var siriusScore: Int
     var isRadio: Bool
     var isSirius: Bool
+    /// True when the channel sits in an unambiguously video category
+    /// (Movies, Series, VOD, ...). Such channels never appear in the radio
+    /// lineup, no matter how many name/format points they score.
+    var matchedHardVideoGroup: Bool
 }
 
 /// Scores channels against configurable rules to detect audio/radio stations
 /// and to prioritize SiriusXM-labelled ones.
 struct RadioStationDetector: Sendable {
     let rules: RadioDetectionRules
+
+    /// Groups that are always video content. These are excluded outright when
+    /// `excludeVideoChannels` is on (sports/TV/kids categories are only
+    /// soft-penalized because sports radio and kids radio are legitimate).
+    static let hardVideoGroupKeywords = [
+        "movie", "movies", "serie", "series", "vod", "cinema", "ppv",
+        "documentary", "documentaries", "shows",
+    ]
 
     init(rules: RadioDetectionRules = .default) {
         self.rules = rules
@@ -47,6 +59,7 @@ struct RadioStationDetector: Sendable {
         let path = analysisURL.path.lowercased()
         if path.contains("/radio") || path.contains("aac") || path.contains("mp3") { score += 1 }
 
+        let matchedHardVideoGroup = containsAny(group, Self.hardVideoGroupKeywords)
         let isRadio = score >= rules.minimumRadioScore
         let siriusScore = SiriusMatcher.score(
             name: channel.name,
@@ -58,7 +71,8 @@ struct RadioStationDetector: Sendable {
             radioScore: score,
             siriusScore: siriusScore,
             isRadio: isRadio,
-            isSirius: siriusScore > 0
+            isSirius: siriusScore > 0,
+            matchedHardVideoGroup: matchedHardVideoGroup
         )
     }
 
@@ -73,7 +87,11 @@ struct RadioStationDetector: Sendable {
         for channel in channels {
             let verdict = classify(channel)
             guard verdict.isRadio || verdict.isSirius else { continue }
-            if rules.excludeVideoChannels, !verdict.isRadio, !verdict.isSirius { continue }
+            // Radio only: channels in video categories (Movies, Series, VOD…)
+            // are never shown, regardless of their score.
+            if rules.excludeVideoChannels, verdict.matchedHardVideoGroup, !verdict.isSirius {
+                continue
+            }
 
             let group = categoryName(for: channel, categoriesByID: categoriesByID)
             let station = RadioStation(

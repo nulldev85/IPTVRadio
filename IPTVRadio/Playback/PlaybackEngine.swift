@@ -270,6 +270,8 @@ final class PlaybackEngine: ObservableObject {
     private let history: HistoryStore
     private let nowPlaying: NowPlayingManager
     private let redactor: Redactor
+    private let hlsProbe: HLSManifestProbe
+    private let probeCache: HLSProbeCache
 
     private var watchdogTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
@@ -283,6 +285,10 @@ final class PlaybackEngine: ObservableObject {
     private var candidateIndex = 0
     /// True once the current candidate has actually played successfully.
     private var candidatePlayedSuccessfully = false
+    /// Async manifest probe (audio-only rendition discovery) for the current load.
+    private var resolveTask: Task<Void, Never>?
+    private var probeResultForActiveStation: HLSProbeResult?
+    private var activePlaybackURL: URL?
 
     init(
         player: AudioPlayerControlling = AVAudioPlayerAdapter(),
@@ -290,7 +296,9 @@ final class PlaybackEngine: ObservableObject {
         settings: SettingsStore,
         connectivity: ConnectivityMonitor,
         history: HistoryStore,
-        nowPlaying: NowPlayingManager = NowPlayingManager()
+        nowPlaying: NowPlayingManager = NowPlayingManager(),
+        http: HTTPClient = URLSessionHTTPClient.providerDefault,
+        probeCache: HLSProbeCache = HLSProbeCache()
     ) {
         self.player = player
         self.audioSession = audioSession
@@ -299,6 +307,8 @@ final class PlaybackEngine: ObservableObject {
         self.history = history
         self.nowPlaying = nowPlaying
         self.redactor = Redactor(secrets: [])
+        self.hlsProbe = HLSManifestProbe(http: http)
+        self.probeCache = probeCache
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
         nowPlaying.commandDelegate = self
@@ -327,6 +337,8 @@ final class PlaybackEngine: ObservableObject {
         candidatePlayedSuccessfully = false
         streamDiagnostics = nil
         nowPlayingMetadata = nil
+        probeResultForActiveStation = nil
+        activePlaybackURL = nil
         beginPlayback(station)
         history.record(station)
     }
@@ -354,6 +366,8 @@ final class PlaybackEngine: ObservableObject {
 
     func stop() {
         wantsPlayback = false
+        resolveTask?.cancel()
+        resolveTask = nil
         cancelWatchdog()
         cancelRetry()
         player.stop()
@@ -364,6 +378,8 @@ final class PlaybackEngine: ObservableObject {
         nowPlaying.clear()
         streamDiagnostics = nil
         nowPlayingMetadata = nil
+        probeResultForActiveStation = nil
+        activePlaybackURL = nil
         sleepTimer?.invalidate()
         sleepTimer = nil
         sleepTimerDeadline = nil
@@ -431,9 +447,50 @@ final class PlaybackEngine: ObservableObject {
     }
 
     /// Loads the currently selected stream candidate (format) for the station.
+    /// HLS candidates are first checked for a dedicated audio-only rendition
+    /// (radio quality/data win); results are cached so this is instant after
+    /// the first play of a station.
     private func loadCurrentCandidate(_ station: RadioStation) {
-        let url = currentCandidateURL(for: station)
-        player.load(url: url)
+        let candidate = currentCandidateURL(for: station)
+
+        // Fast paths: probing disabled, or a cached probe result exists.
+        if !settings.preferAudioOnlyRendition {
+            load(candidate: candidate, probe: nil, station: station)
+            return
+        }
+        if let cached = probeCache.result(for: candidate) {
+            load(candidate: cached.audioOnlyURL ?? candidate, probe: cached, station: station)
+            return
+        }
+        // .ts and other non-manifest candidates have nothing to probe.
+        guard candidate.pathExtension.lowercased() == "m3u8" else {
+            load(candidate: candidate, probe: nil, station: station)
+            return
+        }
+
+        resolveTask?.cancel()
+        resolveTask = Task { [weak self] in
+            guard let self else { return }
+            let probe = await self.hlsProbe.probe(url: candidate)
+            guard !Task.isCancelled,
+                  self.wantsPlayback,
+                  self.state.station?.id == station.id else { return }
+            if let probe {
+                self.probeCache.store(probe, for: candidate)
+            }
+            if let audioURL = probe?.audioOnlyURL {
+                AppLogger.playback.info("HLS probe: using audio-only rendition (declared \(Int((probe?.declaredAudioBandwidth ?? 0) / 1000))kbps)")
+                self.load(candidate: audioURL, probe: probe, station: station)
+            } else {
+                self.load(candidate: candidate, probe: probe, station: station)
+            }
+        }
+    }
+
+    private func load(candidate: URL, probe: HLSProbeResult?, station: RadioStation) {
+        probeResultForActiveStation = probe
+        activePlaybackURL = candidate
+        player.load(url: candidate)
         startWatchdog(station: station)
     }
 
@@ -585,6 +642,8 @@ final class PlaybackEngine: ObservableObject {
 
     private func handleDiagnosticsSample(_ sample: StreamDiagnosticsSample) {
         guard let station = state.station else { return }
+        let probe = probeResultForActiveStation
+        let usingAudioOnly = probe?.audioOnlyURL != nil && activePlaybackURL == probe?.audioOnlyURL
         streamDiagnostics = StreamDiagnostics(
             stationName: station.name,
             formatIndex: candidateIndex + 1,
@@ -595,7 +654,10 @@ final class PlaybackEngine: ObservableObject {
             averageAudioBitrate: sample.averageAudioBitrate,
             audioTrackDataRate: sample.audioTrackDataRate,
             mediaRequests: sample.mediaRequests,
-            updatedAt: Date()
+            updatedAt: Date(),
+            usingAudioOnlyRendition: usingAudioOnly,
+            declaredAudioBandwidth: probe?.declaredAudioBandwidth,
+            manifestChecked: probe != nil
         )
     }
 

@@ -41,17 +41,18 @@ final class IPTVRadioUITests: XCTestCase {
         }
     }
 
-    func testBrowseShowsStationsAndCategories() throws {
+    func testRadioTabListsStationsAndSeeAll() throws {
         let app = launch(scenario: "UITestBrowse")
 
         // SiriusXM stations are prioritized on the Radio tab.
         XCTAssertTrue(app.staticTexts["SiriusXM Hits 1"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["SiriusXM Octane"].exists)
 
-        app.buttons["Browse"].tap()
-        let category = app.buttons["browse.category.SiriusXM"]
-        XCTAssertTrue(category.waitForExistence(timeout: 8))
-        category.tap()
+        // Radio only: there is no TV/video browsing tab.
+        XCTAssertFalse(app.buttons["Browse"].exists, "TV browsing must not exist in a radio-only app")
+
+        app.buttons["radio.seeAll"].tap()
+        XCTAssertTrue(app.navigationBars["SiriusXM Stations"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["station.row.SiriusXM Hits 1"].waitForExistence(timeout: 8))
     }
 
@@ -87,8 +88,8 @@ final class IPTVRadioUITests: XCTestCase {
         }
 
         // Tab navigation must remain usable while a station is playing.
-        app.buttons["Browse"].tap()
-        XCTAssertTrue(app.buttons["browse.category.SiriusXM"].waitForExistence(timeout: 8),
+        app.buttons["Settings"].tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 8),
                       "Tab bar must remain reachable during playback")
         app.buttons["Radio"].tap()
         XCTAssertTrue(app.buttons["miniplayer.open"].waitForExistence(timeout: 8))
@@ -117,6 +118,6 @@ final class IPTVRadioUITests: XCTestCase {
         app.buttons["miniplayer.stop"].tap()
         XCTAssertTrue(app.buttons["miniplayer.open"].waitForNonExistence(timeout: 8),
                       "Stopping must clear the mini player")
-        XCTAssertTrue(app.buttons["Browse"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Radio"].waitForExistence(timeout: 8))
     }
 }

@@ -19,6 +19,10 @@ struct StreamDiagnosticsView: View {
                     LabeledContent("Observed bitrate (download rate)", value: bitrate(diagnostics.observedBitrate))
                     LabeledContent("Average audio bitrate", value: bitrate(diagnostics.averageAudioBitrate))
                     LabeledContent("Audio track data rate", value: bitrate(diagnostics.audioTrackDataRate))
+                    LabeledContent("Audio-only rendition", value: audioOnlyValue(diagnostics))
+                    if let bandwidth = diagnostics.declaredAudioBandwidth {
+                        LabeledContent("Declared audio bandwidth", value: bitrate(bandwidth))
+                    }
                     if let requests = diagnostics.mediaRequests {
                         LabeledContent("Media requests", value: "\(requests)")
                     }
@@ -45,6 +49,12 @@ struct StreamDiagnosticsView: View {
         }
         .navigationTitle("Stream diagnostics")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func audioOnlyValue(_ diagnostics: StreamDiagnostics) -> String {
+        if diagnostics.usingAudioOnlyRendition { return "Playing the dedicated audio track" }
+        if diagnostics.manifestChecked { return "Not offered by this stream" }
+        return "Not checked"
     }
 
     private func formatName(_ streamExtension: String) -> String {

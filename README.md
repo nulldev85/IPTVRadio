@@ -13,7 +13,8 @@ authorization from their provider for every stream they configure.
 - Automatic radio/audio station detection with **user-configurable** keyword rules
 - SiriusXM-focused prioritization (configurable keywords: `siriusxm`, `sxm`, …)
 - Optional full list of all detected radio stations
-- Search by station, genre, category, or metadata; category browsing
+- Radio only: video/TV categories are never shown; search by station, genre, or metadata
+- Prefers a stream's dedicated audio-only rendition when offered (better quality, far less data than video variants)
 - Favorites and recently-played history (persisted locally)
 - Full now-playing screen, mini player, sleep timer, retry/stop controls
 - Background audio, lock-screen & Control Center controls, now-playing metadata + artwork
@@ -40,7 +41,7 @@ IPTVRadio/
     Connectivity/             Network path monitor
     Library/                  Refresh orchestration and caching
   Playback/                   AVPlayer engine, audio session, remote commands, now playing
-  Features/                   SwiftUI screens (auth, radio, browse, search, library, settings, now playing)
+  Features/                   SwiftUI screens (auth, radio, search, library, settings, now playing)
 IPTVRadioTests/               Unit tests with embedded fixtures + mocked networking
 IPTVRadioUITests/             UI tests using the app's mock mode (no network)
 scripts/                      CI helpers (Xcode selection, signing import/cleanup, IPA export)

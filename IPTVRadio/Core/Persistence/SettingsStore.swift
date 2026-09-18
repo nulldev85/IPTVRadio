@@ -40,6 +40,7 @@ final class SettingsStore: ObservableObject {
         static let detectionRules = "settings.detectionRules"
         static let authMode = "settings.authMode"
         static let streamFormatPreference = "settings.streamFormatPreference"
+        static let preferAudioOnlyRendition = "settings.preferAudioOnlyRendition"
     }
 
     enum AuthMode: String, CaseIterable, Identifiable {
@@ -67,6 +68,11 @@ final class SettingsStore: ObservableObject {
     @Published var streamFormatPreference: StreamFormatPreference {
         didSet { defaults.set(streamFormatPreference.rawValue, forKey: Keys.streamFormatPreference) }
     }
+    /// Prefer a stream's dedicated audio-only rendition over its video variant
+    /// when the HLS manifest offers one (recommended for radio listening).
+    @Published var preferAudioOnlyRendition: Bool {
+        didSet { defaults.set(preferAudioOnlyRendition, forKey: Keys.preferAudioOnlyRendition) }
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -79,6 +85,7 @@ final class SettingsStore: ObservableObject {
         streamFormatPreference = StreamFormatPreference(
             rawValue: defaults.string(forKey: Keys.streamFormatPreference) ?? ""
         ) ?? .automatic
+        preferAudioOnlyRendition = defaults.object(forKey: Keys.preferAudioOnlyRendition) as? Bool ?? true
 
         if let data = defaults.data(forKey: Keys.detectionRules),
            let rules = try? JSONDecoder().decode(RadioDetectionRules.self, from: data) {
