@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AA00000000000000000000PKB /* VLCKitSPM in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000PKD /* VLCKitSPM */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		AA00000000000000000000P1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -65,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA00000000000000000000PKB /* VLCKitSPM in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -151,6 +156,7 @@
 			);
 			name = IPTVRadio;
 			packageProductDependencies = (
+				AA00000000000000000000PKD /* VLCKitSPM */,
 			);
 			productName = IPTVRadio;
 			productReference = AA00000000000000000000PR1 /* IPTVRadio.app */;
@@ -234,6 +240,9 @@
 			);
 			mainGroup = AA00000000000000000000GR0;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AA00000000000000000000PKR /* XCRemoteSwiftPackageReference "vlckit-spm" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AA00000000000000000000GRP /* Products */;
 			projectDirPath = "";
@@ -585,8 +594,7 @@
 		};
 /* End XCBuildConfiguration section */
 
-/* Begin XCConfigurationList section */
-		AA00000000000000000000CL0 /* Build configuration list for PBXProject "IPTVRadio" */ = {
+/* Begin XCConfigurationList section */		AA00000000000000000000CL0 /* Build configuration list for PBXProject "IPTVRadio" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				AA00000000000000000000PC1 /* Debug */,
@@ -623,6 +631,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AA00000000000000000000PKR /* XCRemoteSwiftPackageReference "vlckit-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tylerjonesio/vlckit-spm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.6.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA00000000000000000000PKD /* VLCKitSPM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00000000000000000000PKR /* XCRemoteSwiftPackageReference "vlckit-spm" */;
+			productName = VLCKitSPM;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AA00000000000000000000PRJ /* Project object */;
 }

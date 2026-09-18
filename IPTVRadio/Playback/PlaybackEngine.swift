@@ -918,6 +918,16 @@ final class PlaybackEngine: ObservableObject {
             nowPlaying.update(state: state, buffering: false)
             nowPlaying.loadArtwork(for: station)
             startEPGPolling(for: station)
+            // Emit a basic diagnostics sample immediately (the compatibility
+            // engine has no access log; richer AVPlayer samples override this).
+            handleDiagnosticsSample(StreamDiagnosticsSample(
+                streamExtension: activePlaybackURL?.pathExtension ?? "",
+                indicatedBitrate: nil,
+                observedBitrate: nil,
+                averageAudioBitrate: nil,
+                audioTrackDataRate: nil,
+                mediaRequests: nil
+            ))
         }
     }
 

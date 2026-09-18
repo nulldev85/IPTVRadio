@@ -78,6 +78,13 @@ Manual runs via `workflow_dispatch` allow choosing the export method
 See `docs/SECRETS.md` for the full list of required secrets and step-by-step
 certificate/profile/API-key setup, and `docs/INSTALL.md` for installing the IPA.
 
+## Third-party components
+
+- **Playback engine:** [VLCKit](https://code.videolan.org/videolan/VLCKit) (LGPL-2.1), bundled as an optional
+  compatibility engine (`Settings ▸ Playback ▸ Playback engine`). It plays provider stream formats that
+  Apple's AVPlayer refuses, such as raw MPEG-TS and redirecting audio-only endpoints. The app defaults to
+  the compatibility engine and can switch to AVPlayer at any time.
+
 ## Privacy & authorization
 
 - Credentials are stored only in the Keychain; all logging is scrubbed of usernames,

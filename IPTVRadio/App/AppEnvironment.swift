@@ -67,8 +67,16 @@ final class AppEnvironment: ObservableObject {
             : URLSessionHTTPClient.providerDefault
 
         let nowPlaying = NowPlayingManager()
+        let audioPlayer: AudioPlayerControlling
+        if uitestMode {
+            audioPlayer = MockAudioPlayer()
+        } else if settings.playbackEngine == .vlc {
+            audioPlayer = VLCPlayerAdapter()
+        } else {
+            audioPlayer = AVAudioPlayerAdapter()
+        }
         playback = PlaybackEngine(
-            player: uitestMode ? MockAudioPlayer() : AVAudioPlayerAdapter(),
+            player: audioPlayer,
             settings: settings,
             connectivity: connectivity,
             history: history,
