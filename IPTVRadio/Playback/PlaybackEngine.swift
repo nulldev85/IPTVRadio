@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CoreMedia
 import MediaPlayer
 
 // MARK: - Playback state model
@@ -132,7 +133,9 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
             var didLog = false
             while !Task.isCancelled {
                 guard let self, self.player.currentItem === item, item.error == nil else { return }
-                let sample = PlaybackDiagnostics.makeSample(
+                let trackInfo = await Self.loadAudioTrackInfo(for: item)
+                guard !Task.isCancelled, self.player.currentItem === item else { return }
+                var sample = PlaybackDiagnostics.makeSample(
                     streamExtension: streamExtension,
                     events: (item.accessLog()?.events ?? []).map { event in
                         PlaybackDiagnostics.EventSample(
@@ -147,8 +150,12 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
                             mediaType: track.mediaType.rawValue,
                             estimatedDataRate: Double(track.estimatedDataRate)
                         )
-                    }
+                    },
+                    audioFormatDescription: trackInfo.description
                 )
+                if sample.audioTrackDataRate == nil {
+                    sample.audioTrackDataRate = trackInfo.estimatedDataRate
+                }
                 if !didLog {
                     AppLogger.playback.info("Stream diagnostics (redacted): \(PlaybackDiagnostics.summary(for: sample), privacy: .public)")
                     didLog = true
@@ -156,6 +163,39 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
                 self.onDiagnostics?(sample)
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
             }
+        }
+    }
+
+    /// Loads the decoded audio track's codec/sample-rate/channel info.
+    /// This exposes low-grade source audio (e.g. HE-AAC at 24 kHz) so users
+    /// can distinguish a weak provider stream from an app-side problem.
+    private struct AudioTrackInfo {
+        var description: String?
+        var estimatedDataRate: Double?
+    }
+
+    private static func loadAudioTrackInfo(for item: AVPlayerItem) async -> AudioTrackInfo {
+        do {
+            guard let track = try await item.asset.loadTracks(withMediaType: .audio).first else {
+                return AudioTrackInfo(description: nil, estimatedDataRate: nil)
+            }
+            var info = AudioTrackInfo(description: nil, estimatedDataRate: nil)
+            if let descriptions = try? await track.load(.formatDescriptions),
+               let formatDescription = descriptions.first {
+                let codec = CMFormatDescriptionGetMediaSubType(formatDescription)
+                let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee
+                info.description = AudioFormatDescriber.describe(
+                    codec: codec,
+                    sampleRate: asbd?.mSampleRate ?? 0,
+                    channels: asbd?.mChannelsPerFrame ?? 0
+                )
+            }
+            if let rate = try? await track.load(.estimatedDataRate) {
+                info.estimatedDataRate = Double(rate)
+            }
+            return info
+        } catch {
+            return AudioTrackInfo(description: nil, estimatedDataRate: nil)
         }
     }
 
@@ -657,7 +697,8 @@ final class PlaybackEngine: ObservableObject {
             updatedAt: Date(),
             usingAudioOnlyRendition: usingAudioOnly,
             declaredAudioBandwidth: probe?.declaredAudioBandwidth,
-            manifestChecked: probe != nil
+            manifestChecked: probe != nil,
+            audioFormat: sample.audioFormat
         )
     }
 

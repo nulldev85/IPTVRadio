@@ -69,4 +69,44 @@ final class PlaybackDiagnosticsTests: XCTestCase {
         XCTAssertFalse(summary.contains("hlsIndicatedBitrate"))
         XCTAssertFalse(summary.contains("audioTrackDataRate"))
     }
+
+    // MARK: Audio format description
+
+    private func fourCC(_ string: String) -> UInt32 {
+        var result: UInt32 = 0
+        for byte in string.utf8.prefix(4) {
+            result = (result << 8) | UInt32(byte)
+        }
+        return result
+    }
+
+    func testAudioFormatDescriberMapsCommonCodecs() {
+        XCTAssertEqual(
+            AudioFormatDescriber.describe(codec: fourCC("aac "), sampleRate: 44_100, channels: 2),
+            "AAC-LC · 44.1 kHz · stereo"
+        )
+        XCTAssertEqual(
+            AudioFormatDescriber.describe(codec: fourCC("aacp"), sampleRate: 24_000, channels: 2),
+            "HE-AAC · 24.0 kHz · stereo"
+        )
+        XCTAssertEqual(
+            AudioFormatDescriber.describe(codec: fourCC("mp3 "), sampleRate: 0, channels: 1),
+            "MP3 · mono"
+        )
+        XCTAssertEqual(
+            AudioFormatDescriber.describe(codec: fourCC("ec-3"), sampleRate: 48_000, channels: 6),
+            "E-AC-3 · 48.0 kHz · 6 ch"
+        )
+    }
+
+    func testSummaryIncludesAudioFormatWhenKnown() {
+        let sample = PlaybackDiagnostics.makeSample(
+            streamExtension: "m3u8",
+            events: [],
+            tracks: [],
+            audioFormatDescription: "HE-AAC · 24.0 kHz · stereo"
+        )
+        XCTAssertTrue(PlaybackDiagnostics.summary(for: sample).contains("audioFormat=HE-AAC"))
+        XCTAssertFalse(PlaybackDiagnostics.summary(for: sample).lowercased().contains("http"))
+    }
 }

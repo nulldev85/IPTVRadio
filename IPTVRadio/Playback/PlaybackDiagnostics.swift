@@ -1,5 +1,52 @@
 import Foundation
 import AVFoundation
+import CoreMedia
+
+/// Describes the decoded audio track (codec, sample rate, channel layout).
+/// Low-grade source audio (e.g. HE-AAC at 24 kHz) is visible here, which
+/// distinguishes a weak provider source from an app-side problem.
+enum AudioFormatDescriber {
+    static func describe(codec: UInt32, sampleRate: Double, channels: UInt32) -> String {
+        var parts: [String] = [codecName(codec)]
+        if sampleRate > 0 {
+            parts.append(String(format: "%.1f kHz", sampleRate / 1000))
+        }
+        if channels > 0 {
+            switch channels {
+            case 1: parts.append("mono")
+            case 2: parts.append("stereo")
+            default: parts.append("\(channels) ch")
+            }
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    static func codecName(_ fourCC: UInt32) -> String {
+        switch fourCCString(fourCC) {
+        case "aac ": return "AAC-LC"
+        case "aacp": return "HE-AAC"
+        case "ac-3": return "AC-3"
+        case "ec-3": return "E-AC-3"
+        case "alac": return "ALAC"
+        case "mp3 ": return "MP3"
+        case "opus": return "Opus"
+        case "lpcm": return "PCM"
+        default:
+            let raw = fourCCString(fourCC).trimmingCharacters(in: .whitespaces)
+            return raw.isEmpty ? "unknown" : raw.uppercased()
+        }
+    }
+
+    static func fourCCString(_ code: UInt32) -> String {
+        let bytes = [
+            UInt8((code >> 24) & 0xFF),
+            UInt8((code >> 16) & 0xFF),
+            UInt8((code >> 8) & 0xFF),
+            UInt8(code & 0xFF),
+        ]
+        return String(bytes: bytes, encoding: .isoLatin1) ?? ""
+    }
+}
 
 /// A snapshot of stream quality information collected from AVPlayer's access
 /// log and the audio track. Contains no URLs or credentials.
@@ -10,6 +57,8 @@ struct StreamDiagnosticsSample: Equatable {
     var averageAudioBitrate: Double?
     var audioTrackDataRate: Double?
     var mediaRequests: Int?
+    /// Decoded audio codec/sample rate/channels, e.g. "AAC-LC · 44.1 kHz · stereo".
+    var audioFormat: String? = nil
 }
 
 /// User-visible diagnostics for the currently playing stream.
@@ -30,6 +79,8 @@ struct StreamDiagnostics: Equatable {
     var declaredAudioBandwidth: Double?
     /// True when the HLS manifest was inspected for audio-only renditions.
     var manifestChecked: Bool
+    /// Decoded audio codec/sample rate/channels, when known.
+    var audioFormat: String?
 
     /// Best available single bitrate figure for compact display. Observed
     /// bitrate is intentionally excluded: it reflects the recent download
@@ -61,7 +112,8 @@ enum PlaybackDiagnostics {
     static func makeSample(
         streamExtension: String,
         events: [EventSample],
-        tracks: [TrackSample]
+        tracks: [TrackSample],
+        audioFormatDescription: String? = nil
     ) -> StreamDiagnosticsSample {
         var sample = StreamDiagnosticsSample(
             streamExtension: streamExtension.trimmingCharacters(in: .whitespaces),
@@ -80,6 +132,7 @@ enum PlaybackDiagnostics {
         if let audioTrack = tracks.first(where: { $0.mediaType == "soun" }) {
             sample.audioTrackDataRate = positive(audioTrack.estimatedDataRate)
         }
+        sample.audioFormat = audioFormatDescription
         return sample
     }
 
@@ -100,6 +153,9 @@ enum PlaybackDiagnostics {
         }
         if let rate = sample.audioTrackDataRate {
             parts.append(String(format: "audioTrackDataRate=%.0fkbps", rate / 1000))
+        }
+        if let format = sample.audioFormat {
+            parts.append("audioFormat=\(format)")
         }
         if sample.indicatedBitrate == nil, sample.observedBitrate == nil, sample.averageAudioBitrate == nil {
             parts.append("noAccessLogEvents")

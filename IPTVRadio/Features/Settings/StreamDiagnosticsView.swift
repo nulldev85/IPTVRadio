@@ -19,6 +19,9 @@ struct StreamDiagnosticsView: View {
                     LabeledContent("Observed bitrate (download rate)", value: bitrate(diagnostics.observedBitrate))
                     LabeledContent("Average audio bitrate", value: bitrate(diagnostics.averageAudioBitrate))
                     LabeledContent("Audio track data rate", value: bitrate(diagnostics.audioTrackDataRate))
+                    if let audioFormat = diagnostics.audioFormat {
+                        LabeledContent("Audio format", value: audioFormat)
+                    }
                     LabeledContent("Audio-only rendition", value: audioOnlyValue(diagnostics))
                     if let bandwidth = diagnostics.declaredAudioBandwidth {
                         LabeledContent("Declared audio bandwidth", value: bitrate(bandwidth))
