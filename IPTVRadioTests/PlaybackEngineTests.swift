@@ -296,8 +296,8 @@ final class PlaybackEngineTests: XCTestCase {
         )
 
         engine.play(s)
-        player.simulateReady()
         XCTAssertNil(engine.streamDiagnostics, "Diagnostics are cleared on play")
+        player.simulateReady()
 
         player.onDiagnostics?(StreamDiagnosticsSample(
             streamExtension: "ts",
