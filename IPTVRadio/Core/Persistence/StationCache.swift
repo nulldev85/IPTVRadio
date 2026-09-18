@@ -2,6 +2,12 @@ import Foundation
 
 /// Cached provider snapshot used for offline access and instant startup.
 struct CachedLibrary: Codable {
+    /// Bump when the cached shape changes (e.g. new stream format candidates,
+    /// detection rules). Old caches are discarded instead of being shown and
+    /// played, which would silently bypass app improvements.
+    static let currentSchemaVersion = 2
+
+    var schemaVersion: Int
     var snapshot: LibrarySnapshot
     var fetchedAt: Date
 }
@@ -17,12 +23,17 @@ final class StationCache: ObservableObject {
     }
 
     func store(_ snapshot: LibrarySnapshot) {
-        let cached = CachedLibrary(snapshot: snapshot, fetchedAt: Date())
+        let cached = CachedLibrary(
+            schemaVersion: CachedLibrary.currentSchemaVersion,
+            snapshot: snapshot,
+            fetchedAt: Date()
+        )
         fileStore.save(cached, filename: filename)
     }
 
     func load(maxAge: TimeInterval = .days(7)) -> CachedLibrary? {
         guard let cached = fileStore.load(CachedLibrary.self, filename: filename) else { return nil }
+        guard cached.schemaVersion == CachedLibrary.currentSchemaVersion else { return nil }
         guard Date().timeIntervalSince(cached.fetchedAt) <= maxAge else { return nil }
         return cached
     }

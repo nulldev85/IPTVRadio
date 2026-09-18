@@ -17,7 +17,11 @@ struct RootView: View {
             case .active:
                 MainTabView()
                     .task {
-                        if library.state == .idle {
+                        // Always refresh in the background: cached stations stay
+                        // visible instantly, but a fresh fetch replaces them
+                        // with current stream URLs and detection results.
+                        // (UI tests inject their own data and are deterministic.)
+                        if !environment.isUITestMode {
                             await library.refresh()
                         }
                     }
