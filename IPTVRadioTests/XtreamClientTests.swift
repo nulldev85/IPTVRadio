@@ -138,7 +138,8 @@ final class XtreamClientTests: XCTestCase {
             return XCTFail("Expected success, got \(result)")
         }
         let hits = snapshot.allRadioStations.first { $0.name.contains("SiriusXM Hits 1") }
-        XCTAssertEqual(hits?.streamCandidates.map(\.pathExtension), ["m3u8", "ts", "mp3", "aac"])
+        XCTAssertEqual(hits?.streamCandidates.map(\.pathExtension), ["mp3", "aac", "m3u8", "ts"],
+                       "Audio-only endpoints lead in every mode; the preference orders the muxed streams")
     }
 }
 

@@ -23,6 +23,9 @@ struct StreamDiagnosticsView: View {
                         LabeledContent("Audio format", value: audioFormat)
                     }
                     LabeledContent("Audio-only rendition", value: audioOnlyValue(diagnostics))
+                    if let variants = diagnostics.availableVariants, variants > 0 {
+                        LabeledContent("Variants in stream", value: "\(variants)")
+                    }
                     if let bandwidth = diagnostics.declaredAudioBandwidth {
                         LabeledContent("Declared audio bandwidth", value: bitrate(bandwidth))
                     }

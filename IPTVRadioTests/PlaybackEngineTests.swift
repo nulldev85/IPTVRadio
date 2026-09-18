@@ -51,7 +51,8 @@ final class PlaybackEngineTests: XCTestCase {
             connectivity: connectivity,
             history: history,
             http: http,
-            probeCache: HLSProbeCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("probe-cache-\(UUID().uuidString)")))
+            probeCache: HLSProbeCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("probe-cache-\(UUID().uuidString)"))),
+            candidateCache: PlaybackCandidateCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("candidate-cache-\(UUID().uuidString)")))
         )
         return (engine, player, connectivity, history)
     }
@@ -390,6 +391,33 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(engine.streamDiagnostics?.usingAudioOnlyRendition, true)
         XCTAssertEqual(engine.streamDiagnostics?.declaredAudioBandwidth, 160_000)
         XCTAssertEqual(engine.streamDiagnostics?.manifestChecked, true)
+        XCTAssertEqual(engine.streamDiagnostics?.availableVariants, 2)
+    }
+
+    @MainActor
+    func testSuccessfulEndpointRememberedForNextPlay() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let primary = URL(string: "https://edge.example.net/live/a.ts")!
+        let fallback = URL(string: "https://edge.example.net/live/a.m3u8")!
+        let s = RadioStation(
+            name: "Remembered",
+            streamURL: primary,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [fallback]
+        )
+
+        engine.play(s)
+        XCTAssertEqual(player.loadedURLs, [primary])
+        player.simulateFailure("ts dead")
+        XCTAssertEqual(player.loadedURLs, [primary, fallback])
+        player.simulateReady()
+        engine.stop()
+
+        // The second play starts directly at the endpoint that worked.
+        engine.play(s)
+        XCTAssertEqual(player.loadedURLs, [primary, fallback, fallback],
+                       "Failed endpoints must be skipped on later plays")
     }
 
     @MainActor

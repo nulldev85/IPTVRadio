@@ -93,6 +93,10 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
         // The provider URL is handed to AVPlayer unchanged: no transcoding,
         // recompression or rendition caps. AVPlayer picks the highest
         // sustainable audio rendition the provider offers.
+        //
+        // A modest forward buffer keeps live radio resilient to brief network
+        // jitter (fewer stalls/buffering gaps) without a long start delay.
+        item.preferredForwardBufferDuration = 4
         scheduleDiagnostics(for: url, item: item)
         // Stream song metadata (ID3): powers the current-song artwork in the
         // now playing bar and the lock screen.
@@ -317,6 +321,7 @@ final class PlaybackEngine: ObservableObject {
     private let redactor: Redactor
     private let hlsProbe: HLSManifestProbe
     private let probeCache: HLSProbeCache
+    private let candidateCache: PlaybackCandidateCache
 
     private var watchdogTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
@@ -343,7 +348,8 @@ final class PlaybackEngine: ObservableObject {
         history: HistoryStore,
         nowPlaying: NowPlayingManager = NowPlayingManager(),
         http: HTTPClient = URLSessionHTTPClient.providerDefault,
-        probeCache: HLSProbeCache = HLSProbeCache()
+        probeCache: HLSProbeCache = HLSProbeCache(),
+        candidateCache: PlaybackCandidateCache = PlaybackCandidateCache()
     ) {
         self.player = player
         self.audioSession = audioSession
@@ -354,6 +360,7 @@ final class PlaybackEngine: ObservableObject {
         self.redactor = Redactor(secrets: [])
         self.hlsProbe = HLSManifestProbe(http: http)
         self.probeCache = probeCache
+        self.candidateCache = candidateCache
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
         nowPlaying.commandDelegate = self
@@ -496,6 +503,14 @@ final class PlaybackEngine: ObservableObject {
     /// (radio quality/data win); results are cached so this is instant after
     /// the first play of a station.
     private func loadCurrentCandidate(_ station: RadioStation) {
+        // Skip endpoints that failed last time: start at the remembered winner.
+        if candidateIndex == 0,
+           let primary = streamCandidates.first,
+           let remembered = candidateCache.successfulURL(for: primary),
+           let index = streamCandidates.firstIndex(where: { $0.absoluteString == remembered }) {
+            candidateIndex = index
+        }
+
         let candidate = currentCandidateURL(for: station)
 
         // Fast paths: probing disabled, or a cached probe result exists.
@@ -703,6 +718,7 @@ final class PlaybackEngine: ObservableObject {
             usingAudioOnlyRendition: usingAudioOnly,
             declaredAudioBandwidth: probe?.declaredAudioBandwidth,
             manifestChecked: probe != nil,
+            availableVariants: probe?.variantCount,
             audioFormat: sample.audioFormat
         )
     }
@@ -726,6 +742,10 @@ final class PlaybackEngine: ObservableObject {
         isBuffering = false
         candidatePlayedSuccessfully = true
         if let station = state.station {
+            // Remember which endpoint worked so the next play starts there.
+            if let played = activePlaybackURL, let primary = streamCandidates.first {
+                candidateCache.record(played, for: primary)
+            }
             AppLogger.playback.info("Stream ready (format \(self.candidateIndex + 1) of \(max(self.streamCandidates.count, 1)))")
             state = .playing(station)
             nowPlaying.update(state: state, buffering: false)

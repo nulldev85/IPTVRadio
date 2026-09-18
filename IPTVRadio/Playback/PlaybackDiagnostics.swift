@@ -79,6 +79,8 @@ struct StreamDiagnostics: Equatable {
     var declaredAudioBandwidth: Double?
     /// True when the HLS manifest was inspected for audio-only renditions.
     var manifestChecked: Bool
+    /// Number of variants declared by the HLS manifest (nil when not checked).
+    var availableVariants: Int?
     /// Decoded audio codec/sample rate/channels, when known.
     var audioFormat: String?
 

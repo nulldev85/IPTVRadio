@@ -22,7 +22,7 @@ enum StreamFormatPreference: String, CaseIterable, Identifiable, Codable {
         case .automatic:
             return "Tries the provider's audio-only endpoints first (MP3/AAC), then the original MPEG-TS stream, then HLS."
         case .hlsFirst:
-            return "Plays the HLS (.m3u8) manifest first, then the other formats."
+            return "Tries the audio-only endpoints first, then HLS before the MPEG-TS stream."
         }
     }
 }

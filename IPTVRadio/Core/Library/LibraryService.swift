@@ -90,12 +90,12 @@ final class LibraryService: ObservableObject {
             // Prefer the protocol that successfully served the API calls, and
             // prefer the provider's original stream over any transcoded variant.
             //
-            // Audio quality note: many panels transcode their HLS (.m3u8)
-            // output, while audio-only endpoints and the raw MPEG-TS stream
-            // carry the original audio. Candidates are tried in order at
-            // runtime, so absent endpoints fail over quickly.
+            // Audio quality note: panels often transcode their HLS (.m3u8)
+            // output, while the audio-only endpoints carry the original audio.
+            // Audio-only formats are always tried first (this is a radio app)
+            // and the preference only decides the order of the muxed streams.
             let orderedFormats: [String] = formatPreference == .hlsFirst
-                ? ["m3u8", "ts", "mp3", "aac"]
+                ? ["mp3", "aac", "m3u8", "ts"]
                 : ["mp3", "aac", "ts", "m3u8"]
             var rawChannels: [RawChannel] = streams.map { stream in
                 var candidates: [URL] = []
