@@ -108,11 +108,11 @@ final class XtreamClientTests: XCTestCase {
             "https://logo.example/hits1.png"
         )
 
-        // Stream format candidates: original MPEG-TS first, HLS as fallback,
-        // so playback quality matches the provider's source stream.
+        // Stream format candidates: audio-only endpoints first (best for
+        // radio), then the original MPEG-TS stream, with HLS as fallback.
         let hits = stations.first { $0.name.contains("SiriusXM Hits 1") }
-        XCTAssertEqual(hits?.streamCandidates.first?.pathExtension, "ts")
-        XCTAssertTrue(hits?.streamCandidates.contains { $0.pathExtension == "m3u8" } ?? false)
+        XCTAssertEqual(hits?.streamCandidates.first?.pathExtension, "mp3")
+        XCTAssertEqual(hits?.streamCandidates.map(\.pathExtension), ["mp3", "aac", "ts", "m3u8"])
 
         // Provider-declared direct sources keep priority and are offered with
         // an HTTPS upgrade plus the original HTTP URL as fallback.
@@ -138,8 +138,7 @@ final class XtreamClientTests: XCTestCase {
             return XCTFail("Expected success, got \(result)")
         }
         let hits = snapshot.allRadioStations.first { $0.name.contains("SiriusXM Hits 1") }
-        XCTAssertEqual(hits?.streamCandidates.first?.pathExtension, "m3u8")
-        XCTAssertEqual(hits?.streamCandidates.last?.pathExtension, "ts")
+        XCTAssertEqual(hits?.streamCandidates.map(\.pathExtension), ["m3u8", "ts", "mp3", "aac"])
     }
 }
 

@@ -90,12 +90,13 @@ final class LibraryService: ObservableObject {
             // Prefer the protocol that successfully served the API calls, and
             // prefer the provider's original stream over any transcoded variant.
             //
-            // Audio quality note: Xtream panels commonly transcode the `.m3u8`
-            // (HLS) endpoint to a low-bitrate audio rendition while the `.ts`
-            // endpoint carries the original stream. Most IPTV players use the
-            // original `.ts` format, so it is tried first (configurable) with
-            // the other format as an automatic runtime fallback.
-            let orderedFormats: [String] = formatPreference == .hlsFirst ? ["m3u8", "ts"] : ["ts", "m3u8"]
+            // Audio quality note: many panels transcode their HLS (.m3u8)
+            // output, while audio-only endpoints and the raw MPEG-TS stream
+            // carry the original audio. Candidates are tried in order at
+            // runtime, so absent endpoints fail over quickly.
+            let orderedFormats: [String] = formatPreference == .hlsFirst
+                ? ["m3u8", "ts", "mp3", "aac"]
+                : ["mp3", "aac", "ts", "m3u8"]
             var rawChannels: [RawChannel] = streams.map { stream in
                 var candidates: [URL] = []
 

@@ -176,7 +176,12 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
 
     private static func loadAudioTrackInfo(for item: AVPlayerItem) async -> AudioTrackInfo {
         do {
-            guard let track = try await item.asset.loadTracks(withMediaType: .audio).first else {
+            var track = try await item.asset.loadTracks(withMediaType: .audio).first
+            if track == nil {
+                // Some HLS assets only expose tracks through the player item.
+                track = item.tracks.first(where: { $0.assetTrack?.mediaType == .audio })?.assetTrack
+            }
+            guard let track else {
                 return AudioTrackInfo(description: nil, estimatedDataRate: nil)
             }
             var info = AudioTrackInfo(description: nil, estimatedDataRate: nil)

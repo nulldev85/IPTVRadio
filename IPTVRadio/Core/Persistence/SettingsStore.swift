@@ -12,7 +12,7 @@ enum StreamFormatPreference: String, CaseIterable, Identifiable, Codable {
 
     var label: String {
         switch self {
-        case .automatic: return "Automatic (MPEG-TS first)"
+        case .automatic: return "Automatic (recommended)"
         case .hlsFirst: return "HLS first"
         }
     }
@@ -20,9 +20,9 @@ enum StreamFormatPreference: String, CaseIterable, Identifiable, Codable {
     var detail: String {
         switch self {
         case .automatic:
-            return "Plays the provider's original MPEG-TS stream when available, with HLS as a fallback."
+            return "Tries the provider's audio-only endpoints first (MP3/AAC), then the original MPEG-TS stream, then HLS."
         case .hlsFirst:
-            return "Plays the HLS (.m3u8) manifest first, falling back to MPEG-TS."
+            return "Plays the HLS (.m3u8) manifest first, then the other formats."
         }
     }
 }
