@@ -89,6 +89,8 @@ struct SettingsView: View {
             SleepTimerStatusRow()
             Toggle("Prefer audio-only stream", isOn: $settings.preferAudioOnlyRendition)
                 .accessibilityIdentifier("settings.audioOnly")
+            Toggle("Look up song artwork online", isOn: $settings.lookupSongArtwork)
+                .accessibilityIdentifier("settings.artworkLookup")
             Picker("Stream format", selection: $settings.streamFormatPreference) {
                 ForEach(StreamFormatPreference.allCases) { preference in
                     Text(preference.label).tag(preference)
@@ -102,7 +104,7 @@ struct SettingsView: View {
         } header: {
             Text("Playback")
         } footer: {
-            Text("Background audio, lock-screen controls and automatic reconnection are always active.\n\n“Prefer audio-only stream” plays a channel's dedicated audio track when its HLS manifest offers one — better quality for radio and much less data than downloading its video variant. If audio quality sounds low, compare the Stream format options — providers differ in which format carries the original stream.")
+            Text("Background audio, lock-screen controls and automatic reconnection are always active.\n\n“Prefer audio-only stream” plays a channel's dedicated audio track when its HLS manifest offers one — better quality for radio and much less data than downloading its video variant.\n\n“Look up song artwork online” sends the current song's artist and title to Apple's public catalog to fetch album art when the stream itself carries none. No account or tracking is involved; disable it for fully offline metadata.")
         }
     }
 

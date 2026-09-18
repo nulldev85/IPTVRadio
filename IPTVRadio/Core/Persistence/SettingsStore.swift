@@ -41,6 +41,7 @@ final class SettingsStore: ObservableObject {
         static let authMode = "settings.authMode"
         static let streamFormatPreference = "settings.streamFormatPreference"
         static let preferAudioOnlyRendition = "settings.preferAudioOnlyRendition"
+        static let lookupSongArtwork = "settings.lookupSongArtwork"
     }
 
     enum AuthMode: String, CaseIterable, Identifiable {
@@ -73,6 +74,11 @@ final class SettingsStore: ObservableObject {
     @Published var preferAudioOnlyRendition: Bool {
         didSet { defaults.set(preferAudioOnlyRendition, forKey: Keys.preferAudioOnlyRendition) }
     }
+    /// Look up song artwork online (Apple's public catalog) for streams that
+    /// carry text metadata only.
+    @Published var lookupSongArtwork: Bool {
+        didSet { defaults.set(lookupSongArtwork, forKey: Keys.lookupSongArtwork) }
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -86,6 +92,7 @@ final class SettingsStore: ObservableObject {
             rawValue: defaults.string(forKey: Keys.streamFormatPreference) ?? ""
         ) ?? .automatic
         preferAudioOnlyRendition = defaults.object(forKey: Keys.preferAudioOnlyRendition) as? Bool ?? true
+        lookupSongArtwork = defaults.object(forKey: Keys.lookupSongArtwork) as? Bool ?? true
 
         if let data = defaults.data(forKey: Keys.detectionRules),
            let rules = try? JSONDecoder().decode(RadioDetectionRules.self, from: data) {

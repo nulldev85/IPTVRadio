@@ -23,6 +23,13 @@ struct RootView: View {
                         // (UI tests inject their own data and are deterministic.)
                         if !environment.isUITestMode {
                             await library.refresh()
+                            // Favorites/history saved by older app versions are
+                            // migrated to the fresh station data so they play.
+                            if let snapshot = library.snapshot {
+                                let stations = snapshot.allRadioStations
+                                environment.favorites.reconcile(with: stations)
+                                environment.history.reconcile(with: stations)
+                            }
                         }
                     }
             }

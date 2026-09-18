@@ -36,14 +36,17 @@ final class PlaybackEngineTests: XCTestCase {
         timeout: Double = 15,
         http: HTTPClient = URLSessionHTTPClient.providerDefault,
         audioOnlyProbe: Bool = false,
+        artworkLookup: ArtworkLookupService? = nil,
         stallTimeout: TimeInterval = 12
     ) async -> (PlaybackEngine, StubAudioPlayer, ConnectivityMonitor, HistoryStore) {
         let settings = await SettingsStore(defaults: defaults)
         await MainActor.run {
             settings.retryLimit = retryLimit
             settings.streamTimeout = timeout
-            // Deterministic tests: the manifest probe is opt-in per test.
+            // Deterministic tests: the manifest probe and online artwork
+            // lookup are opt-in per test.
             settings.preferAudioOnlyRendition = audioOnlyProbe
+            settings.lookupSongArtwork = false
         }
         let player = await StubAudioPlayer()
         let connectivity = await ConnectivityMonitor()
@@ -56,6 +59,7 @@ final class PlaybackEngineTests: XCTestCase {
             http: http,
             probeCache: HLSProbeCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("probe-cache-\(UUID().uuidString)"))),
             candidateCache: PlaybackCandidateCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("candidate-cache-\(UUID().uuidString)"))),
+            artworkLookup: artworkLookup,
             stallTimeout: stallTimeout
         )
         return (engine, player, connectivity, history)
@@ -538,5 +542,40 @@ final class PlaybackEngineTests: XCTestCase {
         player.onEnded?()
         XCTAssertEqual(player.loadedURLs, [primary, fallback],
                        "A stream that ends immediately must be skipped for the next format")
+    }
+
+    @MainActor
+    func testArtworkLookupEnrichesSongMetadata() async throws {
+        let searchJSON = #"{"results":[{"artworkUrl100":"https://art.example/600x600bb.jpg"}]}"#
+        let pngData = try XCTUnwrap(Data(
+            base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        ))
+        let http = MockHTTP.client { request in
+            let url = request.url?.absoluteString ?? ""
+            if url.contains("itunes.apple.com") {
+                return (200, Data(searchJSON.utf8))
+            }
+            if url.contains("art.example") {
+                return (200, pngData)
+            }
+            return (404, Data())
+        }
+        let lookup = ArtworkLookupService(http: http)
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            artworkLookup: lookup
+        )
+        engine.settingsForTesting.lookupSongArtwork = true
+
+        let s = station("artwork")
+        engine.play(s)
+        player.simulateReady()
+        player.onMetadata?(StreamMetadataUpdate(title: "Around the World", artist: "Daft Punk", artworkData: nil))
+        XCTAssertNil(engine.nowPlayingMetadata?.artworkImage, "Stream carries text metadata only")
+
+        for _ in 0..<50 where engine.nowPlayingMetadata?.artworkImage == nil {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertNotNil(engine.nowPlayingMetadata?.artworkImage, "Artwork should be looked up online")
     }
 }

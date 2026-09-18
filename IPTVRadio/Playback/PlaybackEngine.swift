@@ -110,9 +110,9 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
         // recompression or rendition caps. AVPlayer picks the highest
         // sustainable audio rendition the provider offers.
         //
-        // A modest forward buffer keeps live radio resilient to brief network
+        // A forward buffer keeps live radio resilient to brief network
         // jitter (fewer stalls/buffering gaps) without a long start delay.
-        item.preferredForwardBufferDuration = 4
+        item.preferredForwardBufferDuration = 6
         scheduleDiagnostics(for: url, item: item)
         // Stream song metadata (ID3): powers the current-song artwork in the
         // now playing bar and the lock screen.
@@ -338,6 +338,7 @@ final class PlaybackEngine: ObservableObject {
     private let hlsProbe: HLSManifestProbe
     private let probeCache: HLSProbeCache
     private let candidateCache: PlaybackCandidateCache
+    private let artworkLookup: ArtworkLookupService
 
     private var watchdogTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
@@ -361,6 +362,8 @@ final class PlaybackEngine: ObservableObject {
     private var stallTask: Task<Void, Never>?
     private var playbackStartedAt: Date?
     private let stallTimeout: TimeInterval
+    /// Online song-artwork lookup for streams with text-only metadata.
+    private var artworkLookupTask: Task<Void, Never>?
 
     init(
         player: AudioPlayerControlling = AVAudioPlayerAdapter(),
@@ -372,6 +375,7 @@ final class PlaybackEngine: ObservableObject {
         http: HTTPClient = URLSessionHTTPClient.providerDefault,
         probeCache: HLSProbeCache = HLSProbeCache(),
         candidateCache: PlaybackCandidateCache = PlaybackCandidateCache(),
+        artworkLookup: ArtworkLookupService? = nil,
         stallTimeout: TimeInterval = 12
     ) {
         self.player = player
@@ -384,6 +388,7 @@ final class PlaybackEngine: ObservableObject {
         self.hlsProbe = HLSManifestProbe(http: http)
         self.probeCache = probeCache
         self.candidateCache = candidateCache
+        self.artworkLookup = artworkLookup ?? ArtworkLookupService(http: http)
         self.stallTimeout = stallTimeout
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
@@ -418,6 +423,8 @@ final class PlaybackEngine: ObservableObject {
         lastFormatFailure = nil
         playbackStartedAt = nil
         cancelStallWatchdog()
+        artworkLookupTask?.cancel()
+        artworkLookupTask = nil
         beginPlayback(station)
         history.record(station)
     }
@@ -462,6 +469,8 @@ final class PlaybackEngine: ObservableObject {
         lastFormatFailure = nil
         playbackStartedAt = nil
         cancelStallWatchdog()
+        artworkLookupTask?.cancel()
+        artworkLookupTask = nil
         sleepTimer?.invalidate()
         sleepTimer = nil
         sleepTimerDeadline = nil
@@ -813,6 +822,27 @@ final class PlaybackEngine: ObservableObject {
         )
         nowPlayingMetadata = metadata
         nowPlaying.applySongMetadata(metadata, station: station)
+
+        // Many radio streams carry text metadata only: look the artwork up in
+        // Apple's public catalog so the now playing bar shows album art.
+        guard metadata.artworkData == nil,
+              settings.lookupSongArtwork,
+              let artist = metadata.artist, !artist.isEmpty,
+              let title = metadata.title, !title.isEmpty else { return }
+        artworkLookupTask?.cancel()
+        artworkLookupTask = Task { [weak self] in
+            guard let self else { return }
+            guard let data = await self.artworkLookup.artworkData(artist: artist, title: title) else { return }
+            guard !Task.isCancelled else { return }
+            // Only apply if the same song is still playing.
+            guard let current = self.nowPlayingMetadata,
+                  current.title == title, current.artist == artist else { return }
+            let enriched = NowPlayingMetadata(title: title, artist: artist, artworkData: data)
+            self.nowPlayingMetadata = enriched
+            if let activeStation = self.state.station {
+                self.nowPlaying.applySongMetadata(enriched, station: activeStation)
+            }
+        }
     }
 
     private func handleReady() {
