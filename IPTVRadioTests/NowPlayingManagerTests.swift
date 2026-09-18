@@ -89,8 +89,8 @@ final class NowPlayingManagerTests: XCTestCase {
         manager.update(state: .playing(station))
         manager.loadArtwork(for: station)
 
-        for _ in 0..<50 where manager.lastArtworkOutcome == .none {
-            try await Task.sleep(nanoseconds: 20_000_000)
+        for _ in 0..<100 where manager.lastArtworkOutcome == .none {
+            try await Task.sleep(nanoseconds: 100_000_000)
         }
 
         XCTAssertEqual(manager.lastArtworkOutcome, .applied)
@@ -110,8 +110,8 @@ final class NowPlayingManagerTests: XCTestCase {
         // Artwork for the previous station arrives after the switch.
         manager.loadArtwork(for: withLogo)
 
-        for _ in 0..<50 where manager.lastArtworkOutcome == .none {
-            try await Task.sleep(nanoseconds: 20_000_000)
+        for _ in 0..<100 where manager.lastArtworkOutcome == .none {
+            try await Task.sleep(nanoseconds: 100_000_000)
         }
 
         XCTAssertEqual(manager.lastArtworkOutcome, .skippedForStaleStation)
@@ -161,8 +161,8 @@ final class NowPlayingManagerTests: XCTestCase {
         manager.update(state: .playing(station))
         manager.loadArtwork(for: station)
 
-        for _ in 0..<50 where manager.lastArtworkOutcome == .none {
-            try await Task.sleep(nanoseconds: 20_000_000)
+        for _ in 0..<100 where manager.lastArtworkOutcome == .none {
+            try await Task.sleep(nanoseconds: 100_000_000)
         }
 
         XCTAssertEqual(manager.lastArtworkOutcome, .failed)

@@ -213,7 +213,7 @@ final class NowPlayingManager {
     /// the main actor (all shared state is lock-guarded).
     func loadArtwork(for station: RadioStation) {
         guard let url = station.logoURL else { return }
-        Task.detached(priority: .utility) { [weak self] in
+        Task.detached { [weak self] in
             guard let self else { return }
             do {
                 let (data, response) = try await self.artworkLoader.data(from: url)
