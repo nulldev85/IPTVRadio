@@ -4,6 +4,7 @@ import SwiftUI
 struct StationRow: View {
     @EnvironmentObject private var playback: PlaybackEngine
     @EnvironmentObject private var favorites: FavoritesStore
+    @EnvironmentObject private var library: LibraryViewModel
 
     let station: RadioStation
 
@@ -13,7 +14,10 @@ struct StationRow: View {
 
     var body: some View {
         Button {
-            playback.play(station, in: nil)
+            // Favorites and history may hold station copies saved by older
+            // app versions (with stale stream URLs). Always play the fresh
+            // library copy when one is available.
+            playback.play(library.freshStation(matching: station), in: nil)
         } label: {
             HStack(spacing: 12) {
                 StationArtwork(logoURL: station.logoURL, size: 52)

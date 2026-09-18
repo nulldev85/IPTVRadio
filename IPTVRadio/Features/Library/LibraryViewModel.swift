@@ -195,9 +195,37 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    // MARK: Fresh station resolution
+
+    private var stationIndex: [String: RadioStation]?
+    private var stationIndexGeneratedAt: Date?
+
+    /// Resolves a station copy saved by an older app version (favorites,
+    /// history) to the current library's version, so playback always uses
+    /// fresh stream URLs and format candidates. Falls back to the given
+    /// station when no fresh match exists (e.g. offline).
+    func freshStation(matching station: RadioStation) -> RadioStation {
+        guard let snapshot else { return station }
+        if stationIndex == nil || stationIndexGeneratedAt != snapshot.generatedAt {
+            var index: [String: RadioStation] = [:]
+            for candidate in snapshot.allRadioStations {
+                index[Self.stationIndexKey(name: candidate.name, source: candidate.source)] = candidate
+            }
+            stationIndex = index
+            stationIndexGeneratedAt = snapshot.generatedAt
+        }
+        return stationIndex?[Self.stationIndexKey(name: station.name, source: station.source)] ?? station
+    }
+
+    private static func stationIndexKey(name: String, source: RadioStation.Source) -> String {
+        name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) + "|" + source.rawValue
+    }
+
     func clearCacheData() {
         libraryService.clearCaches()
         snapshot = nil
+        stationIndex = nil
+        stationIndexGeneratedAt = nil
         state = .idle
     }
 

@@ -75,4 +75,39 @@ final class LibraryLoadingRobustnessTests: XCTestCase {
         XCTAssertEqual(viewModel.state, .loaded)
         XCTAssertFalse(viewModel.radioStations.isEmpty)
     }
+
+    func testFreshStationResolvesCopiesSavedByOlderVersions() async {
+        let viewModel = await makeViewModel(
+            httpClient: MockHTTP.xtreamClient(),
+            timeout: 30,
+            folder: "fresh"
+        )
+        await viewModel.refresh()
+        guard let fresh = viewModel.radioStations.first(where: { $0.name.contains("SiriusXM Hits 1") }) else {
+            return XCTFail("Expected fresh station in library")
+        }
+        XCTAssertGreaterThanOrEqual(fresh.streamCandidates.count, 2)
+
+        // Simulate a favorite/history entry saved by an old app version:
+        // same name, but the old single URL and no alternatives.
+        let stale = RadioStation(
+            name: "SiriusXM Hits 1",
+            streamURL: URL(string: "https://provider.example.net:8080/live/testuser/testpass/8020.m3u8")!,
+            groupTitle: "SiriusXM",
+            source: .xtream
+        )
+        XCTAssertEqual(stale.streamCandidates.count, 1)
+
+        let resolved = viewModel.freshStation(matching: stale)
+        XCTAssertEqual(resolved.id, fresh.id, "Stale copies must resolve to the fresh library station")
+        XCTAssertGreaterThanOrEqual(resolved.streamCandidates.count, 2)
+
+        // Unknown stations fall back to the given copy.
+        let unknown = RadioStation(
+            name: "Not In Library",
+            streamURL: URL(string: "https://host.example/1.mp3")!,
+            source: .xtream
+        )
+        XCTAssertEqual(viewModel.freshStation(matching: unknown).id, unknown.id)
+    }
 }
