@@ -43,6 +43,10 @@ protocol AudioPlayerControlling: AnyObject {
     var onEnded: (() -> Void)? { get set }
     var onDiagnostics: ((StreamDiagnosticsSample) -> Void)? { get set }
     var onMetadata: ((StreamMetadataUpdate) -> Void)? { get set }
+    /// Playback is waiting for data (buffering).
+    var onStalled: (() -> Void)? { get set }
+    /// Playback (re)started after buffering.
+    var onPlaybackResumed: (() -> Void)? { get set }
     func load(url: URL)
     func play()
     func pause()
@@ -56,6 +60,8 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
     var onEnded: (() -> Void)?
     var onDiagnostics: ((StreamDiagnosticsSample) -> Void)?
     var onMetadata: ((StreamMetadataUpdate) -> Void)?
+    var onStalled: (() -> Void)?
+    var onPlaybackResumed: (() -> Void)?
 
     private let player = AVPlayer()
     private var statusObservation: NSKeyValueObservation?
@@ -72,9 +78,19 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
         super.init()
         rateObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
             guard let self else { return }
-            if player.timeControlStatus == .playing, !self.hasReportedReady {
-                self.hasReportedReady = true
-                self.onReady?()
+            switch player.timeControlStatus {
+            case .playing:
+                if !self.hasReportedReady {
+                    self.hasReportedReady = true
+                    self.onReady?()
+                }
+                self.onPlaybackResumed?()
+            case .waitingToPlayAtSpecifiedRate:
+                self.onStalled?()
+            case .paused:
+                break
+            @unknown default:
+                break
             }
         }
     }
@@ -341,6 +357,10 @@ final class PlaybackEngine: ObservableObject {
     private var activePlaybackURL: URL?
     /// Why the previously tried format failed (sanitized; no URLs).
     private var lastFormatFailure: String?
+    /// Reconnects if playback stays buffering for too long.
+    private var stallTask: Task<Void, Never>?
+    private var playbackStartedAt: Date?
+    private let stallTimeout: TimeInterval
 
     init(
         player: AudioPlayerControlling = AVAudioPlayerAdapter(),
@@ -351,7 +371,8 @@ final class PlaybackEngine: ObservableObject {
         nowPlaying: NowPlayingManager = NowPlayingManager(),
         http: HTTPClient = URLSessionHTTPClient.providerDefault,
         probeCache: HLSProbeCache = HLSProbeCache(),
-        candidateCache: PlaybackCandidateCache = PlaybackCandidateCache()
+        candidateCache: PlaybackCandidateCache = PlaybackCandidateCache(),
+        stallTimeout: TimeInterval = 12
     ) {
         self.player = player
         self.audioSession = audioSession
@@ -363,6 +384,7 @@ final class PlaybackEngine: ObservableObject {
         self.hlsProbe = HLSManifestProbe(http: http)
         self.probeCache = probeCache
         self.candidateCache = candidateCache
+        self.stallTimeout = stallTimeout
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
         nowPlaying.commandDelegate = self
@@ -394,6 +416,8 @@ final class PlaybackEngine: ObservableObject {
         probeResultForActiveStation = nil
         activePlaybackURL = nil
         lastFormatFailure = nil
+        playbackStartedAt = nil
+        cancelStallWatchdog()
         beginPlayback(station)
         history.record(station)
     }
@@ -436,6 +460,8 @@ final class PlaybackEngine: ObservableObject {
         probeResultForActiveStation = nil
         activePlaybackURL = nil
         lastFormatFailure = nil
+        playbackStartedAt = nil
+        cancelStallWatchdog()
         sleepTimer?.invalidate()
         sleepTimer = nil
         sleepTimerDeadline = nil
@@ -601,6 +627,7 @@ final class PlaybackEngine: ObservableObject {
     /// otherwise the normal backoff retry logic runs.
     private func handleStreamProblem(_ station: RadioStation) {
         cancelWatchdog()
+        cancelStallWatchdog()
         if !candidatePlayedSuccessfully, hasFurtherCandidates {
             candidateIndex += 1
             AppLogger.playback.info("Trying alternative stream format \(self.candidateIndex + 1) of \(self.streamCandidates.count)")
@@ -693,10 +720,16 @@ final class PlaybackEngine: ObservableObject {
         player.onEnded = { [weak self] in
             guard let self else { return }
             let endHandler = {
-                // Live streams should not end; treat as a dropped connection.
-                if let station = self.state.station, self.wantsPlayback {
-                    self.handleStreamProblem(station)
+                guard let station = self.state.station, self.wantsPlayback else { return }
+                // Live radio should never "end". If it does within a minute the
+                // endpoint is not a live stream (e.g. a finite sample file):
+                // skip to the next format instead of retrying it.
+                let playedFor = self.playbackStartedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+                if playedFor < 45, self.hasFurtherCandidates {
+                    AppLogger.playback.info("Stream ended quickly; skipping to the next format")
+                    self.candidatePlayedSuccessfully = false
                 }
+                self.handleStreamProblem(station)
             }
             if Thread.isMainThread {
                 MainActor.assumeIsolated(endHandler)
@@ -704,6 +737,46 @@ final class PlaybackEngine: ObservableObject {
                 Task { @MainActor in endHandler() }
             }
         }
+        player.onStalled = { [weak self] in
+            guard let self else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self.handleStall() }
+            } else {
+                Task { @MainActor in self.handleStall() }
+            }
+        }
+        player.onPlaybackResumed = { [weak self] in
+            guard let self else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self.cancelStallWatchdog() }
+            } else {
+                Task { @MainActor in self.cancelStallWatchdog() }
+            }
+        }
+    }
+
+    /// Buffering began while playing: if it does not recover within the stall
+    /// timeout, reconnect so audio does not silently stop.
+    private func handleStall() {
+        guard wantsPlayback, case .playing(let station) = state, stallTask == nil else { return }
+        AppLogger.playback.info("Playback is buffering")
+        stallTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((self?.stallTimeout ?? 12) * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await self?.stallWatchdogFired(station: station)
+        }
+    }
+
+    private func stallWatchdogFired(station: RadioStation) {
+        stallTask = nil
+        guard wantsPlayback, case .playing = state, state.station?.id == station.id else { return }
+        AppLogger.playback.error("Stream stalled too long; reconnecting")
+        handleStreamProblem(station)
+    }
+
+    private func cancelStallWatchdog() {
+        stallTask?.cancel()
+        stallTask = nil
     }
 
     private func handleDiagnosticsSample(_ sample: StreamDiagnosticsSample) {
@@ -745,9 +818,11 @@ final class PlaybackEngine: ObservableObject {
     private func handleReady() {
         cancelWatchdog()
         cancelRetry()
+        cancelStallWatchdog()
         retryAttempts = 0
         isBuffering = false
         candidatePlayedSuccessfully = true
+        playbackStartedAt = Date()
         if let station = state.station {
             // Remember which endpoint worked so the next play starts there.
             if let played = activePlaybackURL, let primary = streamCandidates.first {

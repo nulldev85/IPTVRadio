@@ -9,6 +9,8 @@ final class StubAudioPlayer: AudioPlayerControlling {
     var onEnded: (() -> Void)?
     var onDiagnostics: ((StreamDiagnosticsSample) -> Void)?
     var onMetadata: ((StreamMetadataUpdate) -> Void)?
+    var onStalled: (() -> Void)?
+    var onPlaybackResumed: (() -> Void)?
 
     private(set) var loadedURLs: [URL] = []
     private(set) var playCount = 0
@@ -33,7 +35,8 @@ final class PlaybackEngineTests: XCTestCase {
         retryLimit: Int = 2,
         timeout: Double = 15,
         http: HTTPClient = URLSessionHTTPClient.providerDefault,
-        audioOnlyProbe: Bool = false
+        audioOnlyProbe: Bool = false,
+        stallTimeout: TimeInterval = 12
     ) async -> (PlaybackEngine, StubAudioPlayer, ConnectivityMonitor, HistoryStore) {
         let settings = await SettingsStore(defaults: defaults)
         await MainActor.run {
@@ -52,7 +55,8 @@ final class PlaybackEngineTests: XCTestCase {
             history: history,
             http: http,
             probeCache: HLSProbeCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("probe-cache-\(UUID().uuidString)"))),
-            candidateCache: PlaybackCandidateCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("candidate-cache-\(UUID().uuidString)")))
+            candidateCache: PlaybackCandidateCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("candidate-cache-\(UUID().uuidString)"))),
+            stallTimeout: stallTimeout
         )
         return (engine, player, connectivity, history)
     }
@@ -450,7 +454,6 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertFalse(failure?.contains("edge.example.net") ?? true, "URLs must be scrubbed from failure reasons")
         XCTAssertTrue(failure?.contains("unsupported") ?? false, "Failure context remains visible for diagnosis")
     }
-}
 
     @MainActor
     func testProbeSkippedForTSStreams() async {
@@ -472,5 +475,68 @@ final class PlaybackEngineTests: XCTestCase {
 
         engine.play(s)
         XCTAssertEqual(player.loadedURLs, [s.streamURL], ".ts candidates load directly without probing")
+    }
+
+    // MARK: Stall recovery
+
+    @MainActor
+    func testProlongedStallTriggersReconnect() async {
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1,
+            stallTimeout: 0.4
+        )
+        let s = station("stall")
+        engine.play(s)
+        player.simulateReady()
+        XCTAssertEqual(engine.state, .playing(s))
+
+        // Playback stalls and never resumes: the engine reconnects.
+        player.onStalled?()
+        try? await Task.sleep(nanoseconds: 1_800_000_000)
+        XCTAssertTrue(player.loadedURLs.count >= 2, "A stalled stream must be reloaded")
+    }
+
+    @MainActor
+    func testBriefBufferingDoesNotReconnect() async {
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1,
+            stallTimeout: 0.4
+        )
+        let s = station("brief-stall")
+        engine.play(s)
+        player.simulateReady()
+        let loadsAfterStart = player.loadedURLs.count
+
+        // Buffering starts and resolves quickly: no reconnect.
+        player.onStalled?()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        player.onPlaybackResumed?()
+        try? await Task.sleep(nanoseconds: 800_000_000)
+
+        XCTAssertEqual(player.loadedURLs.count, loadsAfterStart, "Brief buffering must not reload the stream")
+        XCTAssertEqual(engine.state, .playing(s))
+    }
+
+    @MainActor
+    func testQuickStreamEndSkipsToNextFormat() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let primary = URL(string: "https://edge.example.net/live/u/p/finite.ts")!
+        let fallback = URL(string: "https://edge.example.net/live/u/p/live.m3u8")!
+        let s = RadioStation(
+            name: "Finite Sample",
+            streamURL: primary,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [fallback]
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        // The endpoint ends immediately (a finite file, not a live stream).
+        player.onEnded?()
+        XCTAssertEqual(player.loadedURLs, [primary, fallback],
+                       "A stream that ends immediately must be skipped for the next format")
     }
 }
