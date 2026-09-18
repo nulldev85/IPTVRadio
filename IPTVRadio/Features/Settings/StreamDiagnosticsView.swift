@@ -43,7 +43,7 @@ struct StreamDiagnosticsView: View {
             }
 
             Section {
-                Text("This app plays your provider's stream exactly as delivered — no transcoding, EQ or volume processing.\n\n“Observed bitrate” is the recent download rate and is highest right after playback starts; it does not describe audio quality. HLS streams often do not report audio bitrate figures at all.\n\nIf audio quality sounds low, switch “Stream format” in Settings ▸ Playback and compare — the format line above shows which option is playing.")
+                Text("This app plays your provider's stream exactly as delivered — no transcoding, EQ or volume processing.\n\n“Observed bitrate” is the recent download rate and is highest right after playback starts; it does not describe audio quality. HLS streams often do not report audio bitrate figures at all.\n\nIf audio quality sounds low, switch “Stream format” in Settings ▸ Playback and compare — the format line above shows which option is playing.\n\nIf this station came from an M3U playlist link and sounds worse than another player, sign in with your provider's Xtream portal details (server URL, username, password) instead — that plays the provider's original stream rather than a re-packaged copy.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } header: {
