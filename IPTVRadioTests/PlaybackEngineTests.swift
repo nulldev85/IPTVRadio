@@ -38,6 +38,15 @@ final class StubEndpointResolver: StreamEndpointResolving, @unchecked Sendable {
     }
 }
 
+/// Stub EPG provider for tests.
+final class StubEPGProvider: ShortEPGProviding, @unchecked Sendable {
+    var update: StreamMetadataUpdate?
+
+    func currentSongInfo(streamID: String) async -> StreamMetadataUpdate? {
+        update
+    }
+}
+
 final class PlaybackEngineTests: XCTestCase {
     private func makeEngine(
         defaults: UserDefaults,
@@ -47,6 +56,7 @@ final class PlaybackEngineTests: XCTestCase {
         audioOnlyProbe: Bool = false,
         artworkLookup: ArtworkLookupService? = nil,
         endpointResolver: StreamEndpointResolving = StubEndpointResolver(),
+        epgProvider: ShortEPGProviding? = nil,
         stallTimeout: TimeInterval = 12
     ) async -> (PlaybackEngine, StubAudioPlayer, ConnectivityMonitor, HistoryStore) {
         let settings = await SettingsStore(defaults: defaults)
@@ -71,6 +81,7 @@ final class PlaybackEngineTests: XCTestCase {
             candidateCache: PlaybackCandidateCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("candidate-cache-\(UUID().uuidString)"))),
             artworkLookup: artworkLookup,
             endpointResolver: endpointResolver,
+            epgProvider: epgProvider,
             stallTimeout: stallTimeout
         )
         return (engine, player, connectivity, history)
@@ -634,5 +645,36 @@ final class PlaybackEngineTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
         XCTAssertEqual(player.loadedURLs.first, primary, "Without a resolution the original endpoint is used")
+    }
+
+    // MARK: EPG song info
+
+    @MainActor
+    func testEPGProvidesSongInfoWhenStreamHasNone() async {
+        let provider = StubEPGProvider()
+        provider.update = StreamMetadataUpdate(title: "Around the World", artist: "Daft Punk", artworkData: nil)
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            epgProvider: provider
+        )
+        let s = RadioStation(
+            name: "EPG Station",
+            streamURL: URL(string: "https://host.example/live/u/p/55.m3u8")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "55"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+
+        for _ in 0..<50 where engine.nowPlayingMetadata?.title == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Around the World")
+        XCTAssertEqual(engine.nowPlayingMetadata?.artist, "Daft Punk")
+
+        engine.stop()
+        XCTAssertNil(engine.nowPlayingMetadata)
     }
 }

@@ -133,7 +133,8 @@ final class LibraryService: ObservableObject {
                     source: .xtream,
                     categoryID: stream.categoryID,
                     alternativeURLs: Array(unique.dropFirst()),
-                    analysisURL: analysisURL
+                    analysisURL: analysisURL,
+                    xtreamStreamID: stream.streamID
                 )
             }
 

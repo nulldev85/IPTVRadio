@@ -138,7 +138,8 @@ struct RadioStationDetector: Sendable {
                 logoURL: channel.logoURL,
                 tvgID: channel.tvgID,
                 source: channel.source,
-                alternativeStreamURLs: channel.alternativeURLs.isEmpty ? nil : channel.alternativeURLs
+                alternativeStreamURLs: channel.alternativeURLs.isEmpty ? nil : channel.alternativeURLs,
+                xtreamStreamID: channel.xtreamStreamID
             )
             if verdict.isSirius {
                 sirius.append(station)

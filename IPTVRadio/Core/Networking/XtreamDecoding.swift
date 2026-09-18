@@ -135,8 +135,7 @@ struct XtreamAuthResponse: Decodable, Equatable {
     }
 }
 
-struct XtreamLiveCategory: Decodable, Equatable {
-    var categoryID: String
+struct XtreamLiveCategory: Decodable, Equatable {    var categoryID: String
     var categoryName: String
     var parentID: String?
 
@@ -179,6 +178,47 @@ struct XtreamLiveStream: Decodable, Equatable {
 
 // MARK: - Decoding entry points
 
+/// Short EPG listing entry (song info for radio channels on many panels).
+struct XtreamEPGEntry: Decodable, Equatable {
+    var title: String?
+    var description: String?
+    var start: String?
+    var end: String?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: XtreamCodingKey.self)
+        title = Lenient.string(c, .init(stringValue: "title"))
+        description = Lenient.string(c, .init(stringValue: "description"))
+        start = Lenient.string(c, .init(stringValue: "start"))
+        end = Lenient.string(c, .init(stringValue: "end"))
+    }
+}
+
+/// Decodes EPG title text. Panels frequently base64-encode titles.
+enum EPGText {
+    static func decoded(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        // Base64 payloads contain no spaces; validate that the decoded text is
+        // printable before preferring it.
+        if !trimmed.contains(" "), trimmed.count >= 8,
+           let data = Data(base64Encoded: trimmed, options: [.ignoreUnknownCharacters]),
+           let decoded = String(data: data, encoding: .utf8) {
+            let cleaned = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty, cleaned.allSatisfy(Self.isPrintable) {
+                return cleaned
+            }
+        }
+        return trimmed
+    }
+
+    private static func isPrintable(_ character: Character) -> Bool {
+        if character.isLetter || character.isNumber || character.isWhitespace { return true }
+        return ".,!'&()/:;-_+?\"#*%".contains(character)
+    }
+}
+
 enum XtreamDecoder {
     static var decoder: JSONDecoder {
         let d = JSONDecoder()
@@ -208,6 +248,24 @@ enum XtreamDecoder {
         } catch {
             throw ProviderError.malformedResponse("Channel list was not valid JSON.")
         }
+    }
+
+    static func decodeShortEPG(_ data: Data) throws -> [XtreamEPGEntry] {
+        struct Wrapper: Decodable {
+            var epgListings: [XtreamEPGEntry]?
+
+            enum CodingKeys: String, CodingKey {
+                case epgListings = "epg_listings"
+            }
+        }
+        // Some panels wrap listings, others return a bare array.
+        if let wrapper = try? decoder.decode(Wrapper.self, from: data) {
+            return wrapper.epgListings ?? []
+        }
+        if let bare = try? decoder.decode([XtreamEPGEntry].self, from: data) {
+            return bare
+        }
+        return []
     }
 }
 

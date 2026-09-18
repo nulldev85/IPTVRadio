@@ -59,6 +59,19 @@ struct XtreamClient: Sendable {
             )
     }
 
+    func shortEPGURL(streamID: String) -> URL {
+        baseURL
+            .appendingPathComponent("player_api.php")
+            .appending(
+                queryItems: [
+                    URLQueryItem(name: "username", value: credentials.username),
+                    URLQueryItem(name: "password", value: credentials.password),
+                    URLQueryItem(name: "action", value: "get_short_epg"),
+                    URLQueryItem(name: "stream_id", value: streamID),
+                ]
+            )
+    }
+
     /// HLS manifest URL for a live stream id.
     func streamURL(streamID: String, format: String = "m3u8") -> URL {
         baseURL
@@ -97,6 +110,17 @@ struct XtreamClient: Sendable {
             throw mapHTTPStatus(response.statusCode)
         }
         return try XtreamDecoder.decodeLiveStreams(data)
+    }
+
+    /// Short EPG listings for a live stream. Radio panels commonly expose the
+    /// current song here ("Artist - Title"), which the app surfaces as song
+    /// info when the stream itself carries no metadata.
+    func shortEPG(streamID: String) async throws -> [XtreamEPGEntry] {
+        let (data, response) = try await perform(shortEPGURL(streamID: streamID))
+        guard (200..<300).contains(response.statusCode) else {
+            throw mapHTTPStatus(response.statusCode)
+        }
+        return try XtreamDecoder.decodeShortEPG(data)
     }
 
     // MARK: Internals

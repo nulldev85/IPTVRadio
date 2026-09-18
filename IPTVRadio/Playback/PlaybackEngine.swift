@@ -112,7 +112,7 @@ final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
         //
         // A forward buffer keeps live radio resilient to brief network
         // jitter (fewer stalls/buffering gaps) without a long start delay.
-        item.preferredForwardBufferDuration = 6
+        item.preferredForwardBufferDuration = 8
         scheduleDiagnostics(for: url, item: item)
         // Stream song metadata (ID3): powers the current-song artwork in the
         // now playing bar and the lock screen.
@@ -340,6 +340,7 @@ final class PlaybackEngine: ObservableObject {
     private let candidateCache: PlaybackCandidateCache
     private let artworkLookup: ArtworkLookupService
     private let endpointResolver: StreamEndpointResolving
+    private let epgProvider: ShortEPGProviding?
 
     private var watchdogTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
@@ -369,6 +370,8 @@ final class PlaybackEngine: ObservableObject {
     private var resolvedURLs: [String: URL] = [:]
     /// True once the stream itself provided song metadata (ID3).
     private var receivedSongInfoFromStream = false
+    /// Polls the provider's EPG for song info when the stream carries none.
+    private var epgTask: Task<Void, Never>?
 
     init(
         player: AudioPlayerControlling = AVAudioPlayerAdapter(),
@@ -382,6 +385,7 @@ final class PlaybackEngine: ObservableObject {
         candidateCache: PlaybackCandidateCache = PlaybackCandidateCache(),
         artworkLookup: ArtworkLookupService? = nil,
         endpointResolver: StreamEndpointResolving = StreamRedirectResolver(),
+        epgProvider: ShortEPGProviding? = nil,
         stallTimeout: TimeInterval = 12
     ) {
         self.player = player
@@ -396,6 +400,7 @@ final class PlaybackEngine: ObservableObject {
         self.candidateCache = candidateCache
         self.artworkLookup = artworkLookup ?? ArtworkLookupService(http: http)
         self.endpointResolver = endpointResolver
+        self.epgProvider = epgProvider
         self.stallTimeout = stallTimeout
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
@@ -433,6 +438,8 @@ final class PlaybackEngine: ObservableObject {
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
         artworkLookupTask = nil
+        epgTask?.cancel()
+        epgTask = nil
         beginPlayback(station)
         history.record(station)
     }
@@ -480,6 +487,8 @@ final class PlaybackEngine: ObservableObject {
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
         artworkLookupTask = nil
+        epgTask?.cancel()
+        epgTask = nil
         sleepTimer?.invalidate()
         sleepTimer = nil
         sleepTimerDeadline = nil
@@ -855,10 +864,12 @@ final class PlaybackEngine: ObservableObject {
         )
     }
 
-    /// Song metadata (artist/title/artwork) arriving from the stream.
-    private func handleMetadataUpdate(_ update: StreamMetadataUpdate) {
+    /// Song metadata (artist/title/artwork) arriving from the stream or EPG.
+    private func handleMetadataUpdate(_ update: StreamMetadataUpdate, fromStream: Bool = true) {
         guard let station = state.station else { return }
-        receivedSongInfoFromStream = true
+        if fromStream {
+            receivedSongInfoFromStream = true
+        }
         let metadata = NowPlayingMetadata(
             title: update.title,
             artist: update.artist,
@@ -906,6 +917,25 @@ final class PlaybackEngine: ObservableObject {
             state = .playing(station)
             nowPlaying.update(state: state, buffering: false)
             nowPlaying.loadArtwork(for: station)
+            startEPGPolling(for: station)
+        }
+    }
+
+    /// When the stream carries no song metadata, poll the provider's EPG for
+    /// the current song (radio panels commonly expose it there).
+    private func startEPGPolling(for station: RadioStation) {
+        epgTask?.cancel()
+        guard let provider = epgProvider, let streamID = station.xtreamStreamID, !streamID.isEmpty else { return }
+        epgTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.wantsPlayback, self.state.station?.id == station.id else { return }
+                // Stream metadata takes precedence when it exists at all.
+                if self.receivedSongInfoFromStream { return }
+                if let update = await provider.currentSongInfo(streamID: streamID) {
+                    self.handleMetadataUpdate(update, fromStream: false)
+                }
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
         }
     }
 

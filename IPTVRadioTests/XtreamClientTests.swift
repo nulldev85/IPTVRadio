@@ -123,7 +123,6 @@ final class XtreamClientTests: XCTestCase {
         )
         XCTAssertTrue(faction?.streamCandidates.contains { $0.absoluteString.hasPrefix("http://") } ?? false)
     }
-
     @MainActor
     func testHLSFirstPreferenceOrdersCandidates() async {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("lib-test-\(UUID().uuidString)")
@@ -140,6 +139,48 @@ final class XtreamClientTests: XCTestCase {
         let hits = snapshot.allRadioStations.first { $0.name.contains("SiriusXM Hits 1") }
         XCTAssertEqual(hits?.streamCandidates.map(\.pathExtension), ["mp3", "aac", "m3u8", "ts"],
                        "Audio-only endpoints lead in every mode; the preference orders the muxed streams")
+    }
+
+    // MARK: EPG (song info)
+
+    func testShortEPGDecodesListingsWithBase64Title() async throws {
+        let base64Title = Data("Daft Punk - Around the World".utf8).base64EncodedString()
+        let json = #"{"epg_listings":[{"title":"\#(base64Title)","description":"","start":"2026-09-18 02:00:00","end":"2026-09-18 02:05:00"}]}"#
+        let http = MockHTTP.client { request in
+            let url = request.url?.absoluteString ?? ""
+            if url.contains("get_short_epg") { return (200, Data(json.utf8)) }
+            return (200, Data(Fixtures.authResponseJSON.utf8))
+        }
+        let client = try XtreamClient(credentials: Fixtures.makeCredentials(), http: http)
+
+        let entries = try await client.shortEPG(streamID: "8020")
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(EPGText.decoded(entries.first?.title), "Daft Punk - Around the World")
+    }
+
+    func testEPGTextHandlesPlainAndMissingTitles() {
+        XCTAssertEqual(EPGText.decoded("Rock The Bells"), "Rock The Bells")
+        XCTAssertNil(EPGText.decoded(nil))
+        XCTAssertNil(EPGText.decoded("   "))
+    }
+
+    @MainActor
+    func testXtreamEPGProviderParsesCurrentSong() async throws {
+        let base64Title = Data("Daft Punk - Around the World".utf8).base64EncodedString()
+        let json = #"{"epg_listings":[{"title":"\#(base64Title)","description":"","start":"","end":""}]}"#
+        let http = MockHTTP.client { request in
+            let url = request.url?.absoluteString ?? ""
+            if url.contains("get_short_epg") { return (200, Data(json.utf8)) }
+            return (404, Data())
+        }
+        let store = MemorySecretStore()
+        let credentials = CredentialsStore(secrets: store)
+        try await credentials.save(CredentialsStore.StoredCredentials(xtream: Fixtures.makeCredentials(), m3uURL: nil))
+        let provider = XtreamEPGProvider(credentials: credentials, http: http)
+
+        let update = await provider.currentSongInfo(streamID: "8020")
+        XCTAssertEqual(update?.artist, "Daft Punk")
+        XCTAssertEqual(update?.title, "Around the World")
     }
 }
 

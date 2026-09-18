@@ -73,7 +73,8 @@ final class AppEnvironment: ObservableObject {
             connectivity: connectivity,
             history: history,
             nowPlaying: nowPlaying,
-            http: httpClient
+            http: httpClient,
+            epgProvider: uitestMode ? nil : XtreamEPGProvider(credentials: credentials, http: httpClient)
         )
         library = LibraryViewModel(
             libraryService: LibraryService(cache: cache),

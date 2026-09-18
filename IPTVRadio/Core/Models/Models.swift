@@ -18,6 +18,8 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
     /// Extra stream formats for the same station, tried in order if the
     /// primary URL fails (e.g. original MPEG-TS vs transcoded HLS).
     var alternativeStreamURLs: [URL]?
+    /// Xtream stream id, used to fetch song info from the provider's EPG API.
+    var xtreamStreamID: String?
 
     /// All candidate URLs, primary first, de-duplicated.
     var streamCandidates: [URL] {
@@ -36,7 +38,8 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
         logoURL: URL? = nil,
         tvgID: String? = nil,
         source: Source,
-        alternativeStreamURLs: [URL]? = nil
+        alternativeStreamURLs: [URL]? = nil,
+        xtreamStreamID: String? = nil
     ) {
         self.id = StationIdentifier.make(source: source, url: streamURL, name: name)
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -46,6 +49,7 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
         self.tvgID = tvgID
         self.source = source
         self.alternativeStreamURLs = alternativeStreamURLs
+        self.xtreamStreamID = xtreamStreamID
     }
 }
 
@@ -95,6 +99,8 @@ struct RawChannel: Hashable, Sendable {
     /// reordering (e.g. a `.ts` sibling would otherwise look like video);
     /// this is normally the URL exactly as the provider/playlist declared it.
     var analysisURL: URL?
+    /// Xtream stream id, for EPG-based song info.
+    var xtreamStreamID: String?
 
     init(
         name: String,
@@ -105,7 +111,8 @@ struct RawChannel: Hashable, Sendable {
         source: RadioStation.Source,
         categoryID: String? = nil,
         alternativeURLs: [URL] = [],
-        analysisURL: URL? = nil
+        analysisURL: URL? = nil,
+        xtreamStreamID: String? = nil
     ) {
         self.name = name
         self.url = url
@@ -116,6 +123,7 @@ struct RawChannel: Hashable, Sendable {
         self.categoryID = categoryID
         self.alternativeURLs = alternativeURLs
         self.analysisURL = analysisURL
+        self.xtreamStreamID = xtreamStreamID
     }
 }
 
