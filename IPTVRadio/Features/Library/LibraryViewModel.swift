@@ -101,7 +101,8 @@ final class LibraryViewModel: ObservableObject {
             return
         }
         let task = Task { @MainActor [weak self] in
-            await self?.performRefresh()
+            guard let self else { return }
+            await self.performRefresh()
         }
         refreshTask = task
         await task.value
