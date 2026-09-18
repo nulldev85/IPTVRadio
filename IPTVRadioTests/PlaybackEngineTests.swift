@@ -598,6 +598,7 @@ final class PlaybackEngineTests: XCTestCase {
         resolver.resolvedURL = URL(string: "https://cdn.example.net/final/stream.mp3")!
         let (engine, player, _, _) = await makeEngine(
             defaults: makeIsolatedDefaults(),
+            audioOnlyProbe: true,
             endpointResolver: resolver
         )
         let primary = URL(string: "https://host.example/live/u/p/1.mp3")!
@@ -622,6 +623,7 @@ final class PlaybackEngineTests: XCTestCase {
         resolver.resolvedURL = nil
         let (engine, player, _, _) = await makeEngine(
             defaults: makeIsolatedDefaults(),
+            audioOnlyProbe: true,
             endpointResolver: resolver
         )
         let primary = URL(string: "https://host.example/live/u/p/1.aac")!
