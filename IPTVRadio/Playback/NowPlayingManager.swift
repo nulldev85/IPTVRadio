@@ -192,10 +192,11 @@ final class NowPlayingManager {
     // MARK: Artwork
 
     /// Loads remote artwork asynchronously and applies it to the lock screen
-    /// only if the station is still the active one. Never blocks playback.
+    /// only if the station is still the active one. Never blocks playback or
+    /// the main actor (all shared state is lock-guarded).
     func loadArtwork(for station: RadioStation) {
         guard let url = station.logoURL else { return }
-        Task { [weak self] in
+        Task.detached(priority: .utility) { [weak self] in
             guard let self else { return }
             do {
                 let (data, response) = try await self.artworkSession.data(from: url)
