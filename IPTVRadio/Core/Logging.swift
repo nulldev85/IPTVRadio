@@ -51,4 +51,15 @@ struct Redactor {
         )
         return output
     }
+
+    /// Replaces any URL in a string with a placeholder. SECURITY: provider
+    /// URLs embed credentials in their path, so error messages shown to the
+    /// user (or logged) must never contain them.
+    static func scrubURLs(_ input: String) -> String {
+        input.replacingOccurrences(
+            of: "[a-zA-Z][a-zA-Z0-9+.\\-]*://[^\\s\"'<>]+",
+            with: "<stream-url>",
+            options: .regularExpression
+        )
+    }
 }

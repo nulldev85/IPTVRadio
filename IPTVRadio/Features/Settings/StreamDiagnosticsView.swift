@@ -26,6 +26,16 @@ struct StreamDiagnosticsView: View {
                     if let variants = diagnostics.availableVariants, variants > 0 {
                         LabeledContent("Variants in stream", value: "\(variants)")
                     }
+                    if let failure = diagnostics.lastFormatFailure {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Skipped a format")
+                                .font(.footnote.weight(.medium))
+                            Text(failure)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("diagnostics.previousFailure")
+                    }
                     if let bandwidth = diagnostics.declaredAudioBandwidth {
                         LabeledContent("Declared audio bandwidth", value: bitrate(bandwidth))
                     }

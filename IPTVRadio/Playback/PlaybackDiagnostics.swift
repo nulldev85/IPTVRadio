@@ -83,6 +83,8 @@ struct StreamDiagnostics: Equatable {
     var availableVariants: Int?
     /// Decoded audio codec/sample rate/channels, when known.
     var audioFormat: String?
+    /// Why the previously tried stream format failed (URLs scrubbed).
+    var lastFormatFailure: String?
 
     /// Best available single bitrate figure for compact display. Observed
     /// bitrate is intentionally excluded: it reflects the recent download

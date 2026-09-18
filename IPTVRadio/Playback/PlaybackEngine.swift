@@ -339,6 +339,8 @@ final class PlaybackEngine: ObservableObject {
     private var resolveTask: Task<Void, Never>?
     private var probeResultForActiveStation: HLSProbeResult?
     private var activePlaybackURL: URL?
+    /// Why the previously tried format failed (sanitized; no URLs).
+    private var lastFormatFailure: String?
 
     init(
         player: AudioPlayerControlling = AVAudioPlayerAdapter(),
@@ -391,6 +393,7 @@ final class PlaybackEngine: ObservableObject {
         nowPlayingMetadata = nil
         probeResultForActiveStation = nil
         activePlaybackURL = nil
+        lastFormatFailure = nil
         beginPlayback(station)
         history.record(station)
     }
@@ -432,6 +435,7 @@ final class PlaybackEngine: ObservableObject {
         nowPlayingMetadata = nil
         probeResultForActiveStation = nil
         activePlaybackURL = nil
+        lastFormatFailure = nil
         sleepTimer?.invalidate()
         sleepTimer = nil
         sleepTimerDeadline = nil
@@ -583,6 +587,8 @@ final class PlaybackEngine: ObservableObject {
 
     private func handlePlayerFailure(_ message: String) {
         guard let station = state.station ?? pendingStation else { return }
+        // Keep the reason so diagnostics can show why a format was skipped.
+        lastFormatFailure = Redactor.scrubURLs(message)
         if wantsPlayback {
             handleStreamProblem(station)
         } else {
@@ -719,7 +725,8 @@ final class PlaybackEngine: ObservableObject {
             declaredAudioBandwidth: probe?.declaredAudioBandwidth,
             manifestChecked: probe != nil,
             availableVariants: probe?.variantCount,
-            audioFormat: sample.audioFormat
+            audioFormat: sample.audioFormat,
+            lastFormatFailure: lastFormatFailure
         )
     }
 

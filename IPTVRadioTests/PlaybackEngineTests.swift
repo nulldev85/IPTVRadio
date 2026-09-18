@@ -421,6 +421,38 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testFormatFailureReasonIsCapturedAndScrubbed() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let primary = URL(string: "https://edge.example.net/live/user/pass/a.ts")!
+        let fallback = URL(string: "https://edge.example.net/live/user/pass/a.m3u8")!
+        let s = RadioStation(
+            name: "Failure Reason",
+            streamURL: primary,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [fallback]
+        )
+
+        engine.play(s)
+        player.simulateFailure("Cannot Open https://edge.example.net/live/user/pass/a.ts (unsupported)")
+        player.simulateReady()
+        player.onDiagnostics?(StreamDiagnosticsSample(
+            streamExtension: "m3u8",
+            indicatedBitrate: nil,
+            observedBitrate: nil,
+            averageAudioBitrate: nil,
+            audioTrackDataRate: nil,
+            mediaRequests: 1
+        ))
+
+        let failure = engine.streamDiagnostics?.lastFormatFailure
+        XCTAssertNotNil(failure)
+        XCTAssertFalse(failure?.contains("edge.example.net") ?? true, "URLs must be scrubbed from failure reasons")
+        XCTAssertTrue(failure?.contains("unsupported") ?? false, "Failure context remains visible for diagnosis")
+    }
+}
+
+    @MainActor
     func testProbeSkippedForTSStreams() async {
         let http = MockHTTP.client { _ in
             XCTFail("The manifest probe must not fetch a raw .ts stream")

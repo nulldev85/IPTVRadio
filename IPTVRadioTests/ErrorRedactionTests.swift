@@ -59,4 +59,14 @@ final class ErrorRedactionTests: XCTestCase {
         XCTAssertTrue(message.contains("HTTP"))
         XCTAssertFalse(message.contains("http://"))
     }
+
+    func testScrubURLsRemovesCredentialBearingStreamURLs() {
+        let message = "Cannot Open https://host.example:8080/live/user/pass/12345.m3u8 (unsupported format)"
+        let scrubbed = Redactor.scrubURLs(message)
+        XCTAssertFalse(scrubbed.contains("host.example"))
+        XCTAssertFalse(scrubbed.contains("12345"))
+        XCTAssertFalse(scrubbed.contains("user"))
+        XCTAssertTrue(scrubbed.contains("<stream-url>"))
+        XCTAssertTrue(scrubbed.contains("unsupported format"), "Non-URL context is preserved for diagnosis")
+    }
 }
