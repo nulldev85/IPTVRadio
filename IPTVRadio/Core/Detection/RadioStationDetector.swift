@@ -10,6 +10,12 @@ struct ChannelVerdict: Equatable {
     /// (Movies, Series, VOD, ...). Such channels never appear in the radio
     /// lineup, no matter how many name/format points they score.
     var matchedHardVideoGroup: Bool
+    /// True when the channel name looks like a sports fixture
+    /// ("Team A vs Team B", "Team A @ Team B") — an event, not a station.
+    var matchedEventName: Bool
+    /// True when the channel carries at least one explicit radio signal
+    /// (radio keyword in the name or group, radio tvg id, or /radio path).
+    var hasExplicitRadioSignal: Bool
 }
 
 /// Scores channels against configurable rules to detect audio/radio stations
@@ -60,7 +66,20 @@ struct RadioStationDetector: Sendable {
         if path.contains("/radio") || path.contains("aac") || path.contains("mp3") { score += 1 }
 
         let matchedHardVideoGroup = containsAny(group, Self.hardVideoGroupKeywords)
-        let isRadio = score >= rules.minimumRadioScore
+        let matchedEventName = Self.looksLikeSportsFixture(name)
+        let hasExplicitRadioSignal = containsAny(name, rules.radioNameKeywords)
+            || containsAny(group, rules.radioGroupKeywords)
+            || tvg.contains("radio")
+            || path.contains("/radio")
+        // `.m3u8` and `.ts` are shared by video and audio HLS, so they cannot
+        // prove a channel is radio on their own (sports team feeds, movie
+        // channels, etc. use them too). Radio additionally requires an
+        // explicit radio signal or an unambiguously audio extension.
+        let hasAudioOnlyExtension = !pathExtension.isEmpty
+            && pathExtension != "m3u8"
+            && pathExtension != "ts"
+            && rules.audioExtensions.contains(pathExtension)
+        let isRadio = score >= rules.minimumRadioScore && (hasExplicitRadioSignal || hasAudioOnlyExtension)
         let siriusScore = SiriusMatcher.score(
             name: channel.name,
             group: channel.group,
@@ -72,8 +91,16 @@ struct RadioStationDetector: Sendable {
             siriusScore: siriusScore,
             isRadio: isRadio,
             isSirius: siriusScore > 0,
-            matchedHardVideoGroup: matchedHardVideoGroup
+            matchedHardVideoGroup: matchedHardVideoGroup,
+            matchedEventName: matchedEventName,
+            hasExplicitRadioSignal: hasExplicitRadioSignal
         )
+    }
+
+    /// Sports fixtures are named "Team A vs Team B" or "Team A @ Team B".
+    /// Genuine radio stations are never named that way.
+    static func looksLikeSportsFixture(_ loweredName: String) -> Bool {
+        loweredName.contains(" vs ") || loweredName.contains(" vs. ") || loweredName.contains(" @ ")
     }
 
     /// Runs detection over all channels and produces a deduplicated snapshot.
@@ -90,6 +117,16 @@ struct RadioStationDetector: Sendable {
             // Radio only: channels in video categories (Movies, Series, VOD…)
             // are never shown, regardless of their score.
             if rules.excludeVideoChannels, verdict.matchedHardVideoGroup, !verdict.isSirius {
+                continue
+            }
+            // Sports/league/event categories hold team game feeds, not radio.
+            // They are kept only when the channel itself carries an explicit
+            // radio signal (so "Sports Talk Radio", "NBA Radio" survive).
+            let inSoftVideoGroup = containsAny(channel.group.lowercased(), rules.videoGroupKeywords)
+            if rules.excludeVideoChannels,
+               (inSoftVideoGroup || verdict.matchedEventName),
+               !verdict.hasExplicitRadioSignal,
+               !verdict.isSirius {
                 continue
             }
 

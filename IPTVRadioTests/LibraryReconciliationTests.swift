@@ -15,7 +15,8 @@ final class LibraryReconciliationTests: XCTestCase {
                 name: "Rock Radio",
                 url: URL(string: "https://host.example/live/u/p/1.m3u8")!,
                 group: "Music Radio",
-                source: .xtream
+                source: .xtream,
+                alternativeURLs: [URL(string: "https://host.example/live/u/p/1.mp3")!]
             )
         ])
         guard let station = snapshot.allRadioStations.first else {

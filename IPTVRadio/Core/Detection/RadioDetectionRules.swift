@@ -31,6 +31,13 @@ struct RadioDetectionRules: Codable, Hashable {
         videoGroupKeywords: [
             "movie", "movies", "series", "serie", "tv", "television", "vod", "4k",
             "sports", "sport", "kids", "documentary", "cinema", "ppv", "24/7", "shows",
+            // Sports leagues and event categories hold team game feeds, which
+            // are not radio stations.
+            "nba", "nfl", "mlb", "nhl", "wnba", "ncaa", "mls",
+            "football", "basketball", "baseball", "hockey", "soccer",
+            "tennis", "golf", "ufc", "mma", "boxing", "wrestling",
+            "formula 1", "f1", "motorsport", "espn", "dazn",
+            "live events", "events", "games", "matches",
         ],
         radioNameKeywords: [
             "radio", "fm", "am ", "siriusxm", "sirius xm", "sirius", "sxm", "hits",

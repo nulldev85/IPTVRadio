@@ -3,6 +3,60 @@ import UIKit
 import MediaPlayer
 @testable import IPTVRadio
 
+/// Deterministic artwork loader: no network, no URLSession timing.
+final class StubArtworkLoader: ArtworkDataLoading, @unchecked Sendable {
+    enum Behavior {
+        case image(Data)
+        case status(Int)
+        case failure
+    }
+
+    private let lock = NSLock()
+    private var behaviorStorage: Behavior = .failure
+    private var requests: [URL] = []
+
+    var behavior: Behavior {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return behaviorStorage
+        }
+        set {
+            lock.lock()
+            behaviorStorage = newValue
+            lock.unlock()
+        }
+    }
+
+    var requestedURLs: [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests
+    }
+
+    func data(from url: URL) async throws -> (Data, URLResponse) {
+        lock.lock()
+        requests.append(url)
+        let behavior = behaviorStorage
+        lock.unlock()
+
+        switch behavior {
+        case .image(let data):
+            let response = HTTPURLResponse(
+                url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil
+            )!
+            return (data, response)
+        case .status(let code):
+            let response = HTTPURLResponse(
+                url: url, statusCode: code, httpVersion: "HTTP/1.1", headerFields: nil
+            )!
+            return (Data(), response)
+        case .failure:
+            throw URLError(.badServerResponse)
+        }
+    }
+}
+
 @MainActor
 final class NowPlayingManagerTests: XCTestCase {
     private let artworkURL = URL(string: "https://logo.example/hits1.png")!
@@ -17,15 +71,6 @@ final class NowPlayingManagerTests: XCTestCase {
         )
     }
 
-    private func makeManager(artworkData: Data = Data()) -> NowPlayingManager {
-        MockURLProtocol.requestHandler = { _ in (200, artworkData) }
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
-        return NowPlayingManager(artworkSession: URLSession(configuration: config))
-    }
-
-    /// Rendered on the main actor before being captured by mock handlers,
-    /// since those handlers run on background threads.
     private func testImageData() -> Data {
         let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
             UIColor.systemRed.setFill()
@@ -35,26 +80,28 @@ final class NowPlayingManagerTests: XCTestCase {
     }
 
     func testArtworkAppliesWhenStationStillActive() async throws {
-        let manager = makeManager(artworkData: testImageData())
+        let loader = StubArtworkLoader()
+        loader.behavior = .image(testImageData())
+        let manager = NowPlayingManager(artworkLoader: loader)
         defer { manager.clear() }
         let station = makeStation("a", withLogo: true)
 
         manager.update(state: .playing(station))
         manager.loadArtwork(for: station)
 
-        // Wait for the async load to finish.
-        for _ in 0..<100 where manager.lastArtworkOutcome == .none {
-            try await Task.sleep(nanoseconds: 100_000_000)
+        for _ in 0..<50 where manager.lastArtworkOutcome == .none {
+            try await Task.sleep(nanoseconds: 20_000_000)
         }
 
         XCTAssertEqual(manager.lastArtworkOutcome, .applied)
         XCTAssertEqual(manager.lastAppliedArtworkStationID, station.id)
-        let info = manager.nowPlayingInfoForTesting
-        XCTAssertEqual(info?[MPMediaItemPropertyTitle] as? String, "Station a")
+        XCTAssertEqual(manager.nowPlayingInfoForTesting?[MPMediaItemPropertyTitle] as? String, "Station a")
     }
 
     func testStaleArtworkIsNotAppliedAfterStationChange() async throws {
-        let manager = makeManager(artworkData: testImageData())
+        let loader = StubArtworkLoader()
+        loader.behavior = .image(testImageData())
+        let manager = NowPlayingManager(artworkLoader: loader)
         defer { manager.clear() }
         let withLogo = makeStation("a", withLogo: true)
         let withoutLogo = makeStation("b", withLogo: false)
@@ -63,8 +110,8 @@ final class NowPlayingManagerTests: XCTestCase {
         // Artwork for the previous station arrives after the switch.
         manager.loadArtwork(for: withLogo)
 
-        for _ in 0..<100 where manager.lastArtworkOutcome == .none {
-            try await Task.sleep(nanoseconds: 100_000_000)
+        for _ in 0..<50 where manager.lastArtworkOutcome == .none {
+            try await Task.sleep(nanoseconds: 20_000_000)
         }
 
         XCTAssertEqual(manager.lastArtworkOutcome, .skippedForStaleStation)
@@ -74,7 +121,8 @@ final class NowPlayingManagerTests: XCTestCase {
     }
 
     func testStationChangeDropsPreviousArtwork() {
-        let manager = makeManager(artworkData: testImageData())
+        let loader = StubArtworkLoader()
+        let manager = NowPlayingManager(artworkLoader: loader)
         defer { manager.clear() }
         let a = makeStation("a", withLogo: true)
         let b = makeStation("b", withLogo: false)
@@ -89,37 +137,32 @@ final class NowPlayingManagerTests: XCTestCase {
     }
 
     func testStationWithoutLogoNeverRequestsArtwork() async throws {
-        var requestCount = 0
-        MockURLProtocol.requestHandler = { _ in
-            requestCount += 1
-            return (200, Data())
-        }
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
-        let manager = NowPlayingManager(artworkSession: URLSession(configuration: config))
+        let loader = StubArtworkLoader()
+        loader.behavior = .image(testImageData())
+        let manager = NowPlayingManager(artworkLoader: loader)
         defer { manager.clear() }
 
         let station = makeStation("c", withLogo: false)
         manager.update(state: .playing(station))
         manager.loadArtwork(for: station)
-        try await Task.sleep(nanoseconds: 600_000_000)
-        XCTAssertEqual(requestCount, 0, "No artwork request should be made without a logo URL")
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertTrue(loader.requestedURLs.isEmpty, "No artwork request should be made without a logo URL")
         XCTAssertEqual(manager.lastArtworkOutcome, .none)
     }
 
     func testFailedArtworkLoadIsReportedAndNonFatal() async throws {
-        MockURLProtocol.requestHandler = { _ in (404, Data()) }
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
-        let manager = NowPlayingManager(artworkSession: URLSession(configuration: config))
+        let loader = StubArtworkLoader()
+        loader.behavior = .status(404)
+        let manager = NowPlayingManager(artworkLoader: loader)
         defer { manager.clear() }
 
         let station = makeStation("d", withLogo: true)
         manager.update(state: .playing(station))
         manager.loadArtwork(for: station)
 
-        for _ in 0..<100 where manager.lastArtworkOutcome == .none {
-            try await Task.sleep(nanoseconds: 100_000_000)
+        for _ in 0..<50 where manager.lastArtworkOutcome == .none {
+            try await Task.sleep(nanoseconds: 20_000_000)
         }
 
         XCTAssertEqual(manager.lastArtworkOutcome, .failed)

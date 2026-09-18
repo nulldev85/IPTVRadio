@@ -12,6 +12,19 @@ enum NowPlayingCommand {
     case play, pause, toggle, stop, next, previous
 }
 
+/// Abstraction over artwork fetching (injectable for deterministic tests).
+protocol ArtworkDataLoading: Sendable {
+    func data(from url: URL) async throws -> (Data, URLResponse)
+}
+
+struct URLSessionArtworkLoader: ArtworkDataLoading {
+    let session: URLSession
+
+    func data(from url: URL) async throws -> (Data, URLResponse) {
+        try await session.data(from: url)
+    }
+}
+
 /// Owns lock-screen/Control Center integration: remote commands and
 /// now-playing metadata (title, artist, artwork, live flag).
 final class NowPlayingManager {
@@ -27,7 +40,7 @@ final class NowPlayingManager {
 
     private let infoCenter = MPNowPlayingInfoCenter.default()
     private let commandCenter = MPRemoteCommandCenter.shared()
-    private let artworkSession: URLSession
+    private let artworkLoader: ArtworkDataLoading
     private let metadataLock = NSLock()
     private var metadata: RadioStation?
     /// Current song info from the stream (ID3), when available.
@@ -40,8 +53,12 @@ final class NowPlayingManager {
 
     weak var commandDelegate: (any NowPlayingCommandDelegate)?
 
-    init(artworkSession: URLSession = .shared) {
-        self.artworkSession = artworkSession
+    convenience init(artworkSession: URLSession = .shared) {
+        self.init(artworkLoader: URLSessionArtworkLoader(session: artworkSession))
+    }
+
+    init(artworkLoader: ArtworkDataLoading) {
+        self.artworkLoader = artworkLoader
         Self.registerCommandsIfNeeded(onDispatch: { [weak self] command in
             self?.commandDelegate?.handle(command: command)
         })
@@ -199,7 +216,7 @@ final class NowPlayingManager {
         Task.detached(priority: .utility) { [weak self] in
             guard let self else { return }
             do {
-                let (data, response) = try await self.artworkSession.data(from: url)
+                let (data, response) = try await self.artworkLoader.data(from: url)
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode),
                       let image = UIImage(data: data) else {

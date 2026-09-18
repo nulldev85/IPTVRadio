@@ -110,6 +110,77 @@ final class RadioDetectionTests: XCTestCase {
         XCTAssertEqual(snapshot.allRadioStations.count, 1)
     }
 
+    func testSportsTeamEventChannelsAreExcluded() {
+        // Dedicated team game feeds are not radio stations.
+        let channel = RawChannel(
+            name: "Knicks vs Celtics",
+            url: URL(string: "https://host.example/live/user/pass/9001.m3u8")!,
+            group: "NBA",
+            source: .xtream
+        )
+        let snapshot = detector.buildSnapshot(channels: [channel])
+        XCTAssertTrue(snapshot.allRadioStations.isEmpty, "Team game feeds must not appear as radio")
+    }
+
+    func testTeamEventChannelInGenericGroupExcluded() {
+        let channel = RawChannel(
+            name: "Yankees vs Red Sox",
+            url: URL(string: "https://host.example/live/user/pass/9002.m3u8")!,
+            group: "Live Events",
+            source: .xtream
+        )
+        XCTAssertTrue(detector.buildSnapshot(channels: [channel]).allRadioStations.isEmpty)
+    }
+
+    func testLeagueRadioStationsAreKept() {
+        // League-branded radio stations keep their explicit radio signal.
+        let channel = RawChannel(
+            name: "NBA Radio",
+            url: URL(string: "https://host.example/live/user/pass/9003.m3u8")!,
+            group: "NBA",
+            source: .xtream
+        )
+        let snapshot = detector.buildSnapshot(channels: [channel])
+        XCTAssertEqual(snapshot.allRadioStations.count, 1)
+    }
+
+    func testSportsChannelWithRadioSignalInNameIsKept() {
+        let channel = RawChannel(
+            name: "ESPN Radio",
+            url: URL(string: "https://host.example/live/user/pass/9004.m3u8")!,
+            group: "Sports",
+            source: .xtream
+        )
+        let snapshot = detector.buildSnapshot(channels: [channel])
+        XCTAssertEqual(snapshot.allRadioStations.count, 1)
+    }
+
+    func testIndividualTeamChannelsWithoutRadioSignalsAreExcluded() {
+        // Providers expose dedicated team feeds named after a single team,
+        // often in neutral categories. They are not radio stations.
+        let channel = RawChannel(
+            name: "Knicks",
+            url: URL(string: "https://host.example/live/user/pass/7001.m3u8")!,
+            group: "Extra",
+            source: .xtream
+        )
+        XCTAssertTrue(
+            detector.buildSnapshot(channels: [channel]).allRadioStations.isEmpty,
+            "Team feeds with no radio signal must not appear as radio"
+        )
+    }
+
+    func testHLSVideoChannelInNeutralGroupIsNotRadio() {
+        // An HLS URL is used by video channels too and cannot prove radio.
+        let channel = RawChannel(
+            name: "Some Channel",
+            url: URL(string: "https://host.example/live/user/pass/42.m3u8")!,
+            group: "General",
+            source: .xtream
+        )
+        XCTAssertFalse(detector.classify(channel).isRadio)
+    }
+
     func testTVGIDRadioHintNotSufficientAlone() {
         let verdict = detector.classify(channel("The Mix 88", group: "General", path: "/live/88.stream", tvg: "radio-mix-88"))
         // TVG hint (+1) alone stays below the minimum score of 2.
