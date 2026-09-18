@@ -431,7 +431,7 @@ final class PlaybackEngine: ObservableObject {
         cancelWatchdog()
         if !candidatePlayedSuccessfully, hasFurtherCandidates {
             candidateIndex += 1
-            AppLogger.playback.info("Trying alternative stream format \(candidateIndex + 1) of \(streamCandidates.count)")
+            AppLogger.playback.info("Trying alternative stream format \(self.candidateIndex + 1) of \(self.streamCandidates.count)")
             state = .loading(station)
             isBuffering = true
             nowPlaying.update(state: state, buffering: true)
