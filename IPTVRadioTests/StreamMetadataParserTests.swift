@@ -3,10 +3,10 @@ import AVFoundation
 @testable import IPTVRadio
 
 final class StreamMetadataParserTests: XCTestCase {
-    private func id3Item(_ identifier: AVMetadataIdentifier, value: Any) -> AVMetadataItem {
+    private func id3Item(_ identifier: AVMetadataIdentifier, value: NSCopying & NSObjectProtocol) -> AVMetadataItem {
         let item = AVMutableMetadataItem()
         item.identifier = identifier
-        item.value = value as AnyObject
+        item.value = value
         return item
     }
 
