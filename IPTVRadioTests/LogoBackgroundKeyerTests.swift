@@ -75,7 +75,11 @@ final class LogoBackgroundKeyerTests: XCTestCase {
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
-        let offset = (y * cgImage.width + x) * 4
+        // Coordinates are in points; the backing bitmap may be scaled.
+        let scale = max(1, Int(image.scale.rounded()))
+        let pixelX = x * scale
+        let pixelY = y * scale
+        let offset = (pixelY * cgImage.width + pixelX) * 4
         guard offset + 3 < data.count else { return nil }
         return (data[offset], data[offset + 1], data[offset + 2], data[offset + 3])
     }
