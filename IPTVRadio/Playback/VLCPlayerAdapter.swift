@@ -27,6 +27,11 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
         hasReportedReady = false
         hasReportedFailure = false
         player.media = VLCMedia(url: url)
+        // The player protocol contract is "load prepares and starts the
+        // stream" (the engine never issues a separate play on load), so VLC
+        // must be told to start here — otherwise it idles and the engine's
+        // watchdog eventually reports a failure.
+        player.play()
     }
 
     func play() {
