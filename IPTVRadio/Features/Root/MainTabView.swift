@@ -21,8 +21,8 @@ struct MainTabView: View {
             tabContent { SearchView() }
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
 
-            tabContent { LibraryTabView() }
-                .tabItem { Label("Library", systemImage: "heart.text.square") }
+            tabContent { FavoritesTabView() }
+                .tabItem { Label("Favorites", systemImage: "heart") }
 
             tabContent { SettingsView() }
                 .tabItem { Label("Settings", systemImage: "gearshape") }

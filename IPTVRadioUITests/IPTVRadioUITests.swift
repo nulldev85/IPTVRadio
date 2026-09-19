@@ -72,11 +72,11 @@ final class IPTVRadioUITests: XCTestCase {
         let app = launch(scenario: "UITestFavorites")
 
         // Two stations were favorited by the mock scenario.
-        app.buttons["Library"].tap()
+        app.buttons["Favorites"].tap()
+        XCTAssertTrue(app.navigationBars["Favorites"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["SiriusXM Hits 1"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["Favorites"].exists)
 
-        // Favorites must be playable from the Library tab.
+        // Favorites must be playable from the Favorites tab.
         app.buttons["station.row.SiriusXM Hits 1"].firstMatch.tap()
         XCTAssertTrue(app.buttons["miniplayer.open"].waitForExistence(timeout: 8),
                       "Tapping a favorite must start playback")

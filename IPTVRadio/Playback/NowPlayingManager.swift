@@ -223,12 +223,15 @@ final class NowPlayingManager {
                     self.setOutcome(.failed)
                     return
                 }
+                // Key out uniform logo backgrounds so artwork looks clean on
+                // the dark lock screen.
+                let processed = LogoBackgroundKeyer.keyed(image)
                 // The station may have changed while the artwork was loading.
                 guard self.currentMetadata?.id == station.id else {
                     self.setOutcome(.skippedForStaleStation)
                     return
                 }
-                self.applyArtwork(image, for: station)
+                self.applyArtwork(processed, for: station)
             } catch {
                 self.setOutcome(.failed)
             }

@@ -153,6 +153,8 @@ struct AsyncArtworkImage: View {
 }
 
 /// Tiny in-memory artwork cache to avoid refetching logos while scrolling.
+/// Channel logos are background-keyed once so they sit cleanly on the dark
+/// (OLED) theme.
 actor ArtworkCache {
     static let shared = ArtworkCache()
     private var cache: [URL: UIImage] = [:]
@@ -169,8 +171,9 @@ actor ArtworkCache {
                 failed.insert(url)
                 return nil
             }
-            cache[url] = image
-            return image
+            let processed = LogoBackgroundKeyer.keyed(image)
+            cache[url] = processed
+            return processed
         } catch {
             failed.insert(url)
             return nil

@@ -15,7 +15,7 @@ authorization from their provider for every stream they configure.
 - Optional full list of all detected radio stations
 - Radio only: video/TV categories are never shown; search by station, genre, or metadata
 - Prefers a stream's dedicated audio-only rendition when offered (better quality, far less data than video variants)
-- Favorites and recently-played history (persisted locally)
+- Favorites tab (persisted locally; recent-play history is still recorded on device)
 - Full now-playing screen, mini player, sleep timer, retry/stop controls
 - Background audio, lock-screen & Control Center controls, now-playing metadata + artwork
 - Headphone/Bluetooth/AirPlay route changes, call/Siri interruption handling

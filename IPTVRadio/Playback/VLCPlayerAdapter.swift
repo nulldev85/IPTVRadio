@@ -26,7 +26,13 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     func load(url: URL) {
         hasReportedReady = false
         hasReportedFailure = false
-        player.media = VLCMedia(url: url)
+        let media = VLCMedia(url: url)
+        // Stability first: a generous network buffer keeps live radio smooth
+        // on jittery Wi-Fi and in cars on cellular, and the HTTP reconnect
+        // option lets VLC recover dropped connections by itself.
+        media.addOption(":network-caching=10000")
+        media.addOption(":http-reconnect")
+        player.media = media
         // The player protocol contract is "load prepares and starts the
         // stream" (the engine never issues a separate play on load), so VLC
         // must be told to start here — otherwise it idles and the engine's
