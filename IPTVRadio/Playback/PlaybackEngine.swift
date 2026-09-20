@@ -47,10 +47,17 @@ protocol AudioPlayerControlling: AnyObject {
     var onStalled: (() -> Void)? { get set }
     /// Playback (re)started after buffering.
     var onPlaybackResumed: (() -> Void)? { get set }
+    /// Extra time this engine needs before the stream can be considered
+    /// failed to start (deep-buffering engines need more than the default).
+    var startupGracePeriod: TimeInterval { get }
     func load(url: URL)
     func play()
     func pause()
     func stop()
+}
+
+extension AudioPlayerControlling {
+    var startupGracePeriod: TimeInterval { 0 }
 }
 
 /// AVPlayer-backed audio player for live HTTP/HLS radio streams.
@@ -656,8 +663,11 @@ final class PlaybackEngine: ObservableObject {
 
     private func startWatchdog(station: RadioStation) {
         let base = max(3, settings.streamTimeout)
-        // Probe alternative formats quickly; use the full timeout on the last one.
-        let timeout = hasFurtherCandidates ? min(base, 8) : base
+        // Probe alternative formats quickly; use the full timeout on the last
+        // one. Deep-buffering engines (compatibility/VLC) get extra startup
+        // time so healthy streams are never killed mid-connect.
+        let probe = hasFurtherCandidates ? min(base, 8) : base
+        let timeout = probe + player.startupGracePeriod
         watchdogTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             guard !Task.isCancelled else { return }

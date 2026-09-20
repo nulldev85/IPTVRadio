@@ -23,14 +23,20 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
         // Audio-only playback: no drawable is configured on purpose.
     }
 
+    /// Deep-buffering engine: give it extra startup time before the engine's
+    /// watchdog considers a stream failed.
+    var startupGracePeriod: TimeInterval { 8 }
+
     func load(url: URL) {
         hasReportedReady = false
         hasReportedFailure = false
         let media = VLCMedia(url: url)
-        // Stability first: a generous network buffer keeps live radio smooth
-        // on jittery Wi-Fi and in cars on cellular, and the HTTP reconnect
-        // option lets VLC recover dropped connections by itself.
-        media.addOption(":network-caching=10000")
+        // Live-radio tuning: a few seconds of network buffer absorbs jitter
+        // without delaying startup or forcing live-edge resyncs (a buffer that
+        // is too large makes VLC periodically jump back to the live edge,
+        // which sounds like constant stuttering). The HTTP reconnect option
+        // lets VLC recover dropped connections by itself.
+        media.addOption(":network-caching=4000")
         media.addOption(":http-reconnect")
         player.media = media
         // The player protocol contract is "load prepares and starts the

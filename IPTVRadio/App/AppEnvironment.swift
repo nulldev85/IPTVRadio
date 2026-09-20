@@ -68,9 +68,10 @@ final class AppEnvironment: ObservableObject {
 
         let nowPlaying = NowPlayingManager()
         let audioPlayer: AudioPlayerControlling
+        let engineKind = settings.playbackEngine
         if uitestMode {
             audioPlayer = MockAudioPlayer()
-        } else if settings.playbackEngine == .vlc {
+        } else if engineKind == .vlc {
             audioPlayer = VLCPlayerAdapter()
         } else {
             audioPlayer = AVAudioPlayerAdapter()
@@ -82,7 +83,10 @@ final class AppEnvironment: ObservableObject {
             history: history,
             nowPlaying: nowPlaying,
             http: httpClient,
-            epgProvider: uitestMode ? nil : XtreamEPGProvider(credentials: credentials, http: httpClient)
+            epgProvider: uitestMode ? nil : XtreamEPGProvider(credentials: credentials, http: httpClient),
+            // The compatibility engine buffers deeply, so it needs a longer
+            // stall threshold before the app forces a reconnect.
+            stallTimeout: engineKind == .vlc ? 25 : 12
         )
         library = LibraryViewModel(
             libraryService: LibraryService(cache: cache),
