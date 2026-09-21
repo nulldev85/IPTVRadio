@@ -70,16 +70,17 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
         //   nothing renders burns CPU and battery and starves the audio
         //   pipeline on a phone, especially in the background — a direct cause
         //   of dropouts. Radio never needs it.
-        // - `clock-jitter=0` / `clock-synchro=0` disable the input-clock
-        //   heuristics that make VLC distrust an IPTV stream's irregular PCR
-        //   timestamps and periodically resync to the live edge (audible as
-        //   constant stuttering). Disabling them is the standard fix, and it
+        // - `clock-jitter=0` disables the input-clock jitter heuristic that
+        //   makes VLC distrust an IPTV stream's irregular PCR timestamps and
+        //   periodically resync to the live edge — audible as the constant
+        //   stuttering this buffer was previously shrunk to avoid. Disabling it
         //   is what lets a real jitter buffer be used instead of a tiny one.
+        //   (If stuttering ever persists, `:clock-synchro=0` is the next knob;
+        //   it is left at VLC's automatic default here.)
         // - `network-caching` is the jitter buffer itself, in milliseconds.
         // - `http-reconnect` lets VLC recover a dropped connection by itself.
         media.addOption(":no-video")
         media.addOption(":clock-jitter=0")
-        media.addOption(":clock-synchro=0")
         media.addOption(":network-caching=4000")
         media.addOption(":http-reconnect")
         player.media = media
