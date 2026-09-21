@@ -4,6 +4,10 @@ import VLCKitSPM
 /// libVLC-backed player: the compatibility engine for streams AVPlayer cannot
 /// play — raw MPEG-TS, redirecting audio-only endpoints, and other formats
 /// providers serve that CFNetwork/AVPlayer refuses.
+///
+/// All mutable state here is touched only from the main thread: VLCKit
+/// dispatches its delegate callbacks onto the main queue, and the engine that
+/// drives `load`/`play`/`pause`/`stop` is main-actor isolated.
 final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
@@ -17,6 +21,23 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     private var hasReportedReady = false
     private var hasReportedFailure = false
 
+    /// Counts libVLC's time-changed events. libVLC stops emitting them as soon
+    /// as the input really stalls, so a rising count proves audio is still
+    /// flowing. That is what lets the engine tell a genuine stall from the
+    /// buffering notifications libVLC emits routinely while perfectly healthy.
+    /// Never reset: the engine only compares successive readings.
+    private var progressTicks: Double = 0
+
+    /// When the current media was loaded. Tearing down the previous media can
+    /// surface its own end/stop events a few milliseconds later; they must not
+    /// be mistaken for the new stream ending.
+    private var loadedAt: Date?
+
+    private var isSettlingAfterLoad: Bool {
+        guard let loadedAt else { return false }
+        return Date().timeIntervalSince(loadedAt) < 0.35
+    }
+
     override init() {
         super.init()
         player.delegate = self
@@ -27,15 +48,38 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     /// watchdog considers a stream failed.
     var startupGracePeriod: TimeInterval { 8 }
 
+    var playbackProgress: Double? { progressTicks }
+
     func load(url: URL) {
         hasReportedReady = false
         hasReportedFailure = false
+        // libVLC requires a stopped player before its media is swapped.
+        // Assigning media to a live player leaves the previous input thread
+        // running, which surfaces as overlapping audio or a player that never
+        // reports `playing` again. Every reload — format switch, reconnect
+        // after a stall — comes through here, so the stop belongs here.
+        player.stop()
+        loadedAt = Date()
+
         let media = VLCMedia(url: url)
-        // Live-radio tuning: a few seconds of network buffer absorbs jitter
-        // without delaying startup or forcing live-edge resyncs (a buffer that
-        // is too large makes VLC periodically jump back to the live edge,
-        // which sounds like constant stuttering). The HTTP reconnect option
-        // lets VLC recover dropped connections by itself.
+        // Live-radio tuning:
+        //
+        // - `no-video` matters more than it looks. Configuring no drawable
+        //   stops VLC *displaying* video but not decoding it, and provider
+        //   MPEG-TS feeds routinely carry a video track. Decoding a track
+        //   nothing renders burns CPU and battery and starves the audio
+        //   pipeline on a phone, especially in the background — a direct cause
+        //   of dropouts. Radio never needs it.
+        // - `clock-jitter=0` / `clock-synchro=0` disable the input-clock
+        //   heuristics that make VLC distrust an IPTV stream's irregular PCR
+        //   timestamps and periodically resync to the live edge (audible as
+        //   constant stuttering). Disabling them is the standard fix, and it
+        //   is what lets a real jitter buffer be used instead of a tiny one.
+        // - `network-caching` is the jitter buffer itself, in milliseconds.
+        // - `http-reconnect` lets VLC recover a dropped connection by itself.
+        media.addOption(":no-video")
+        media.addOption(":clock-jitter=0")
+        media.addOption(":clock-synchro=0")
         media.addOption(":network-caching=4000")
         media.addOption(":http-reconnect")
         player.media = media
@@ -57,6 +101,7 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     func stop() {
         player.stop()
         player.media = nil
+        loadedAt = nil
     }
 }
 
@@ -64,12 +109,18 @@ extension VLCPlayerAdapter: VLCMediaPlayerDelegate {
     func mediaPlayerStateChanged(_ aNotification: Notification) {
         switch player.state {
         case .playing:
+            // A state change back to playing is also progress: it keeps the
+            // stall check working even if time-changed events are sparse.
+            progressTicks += 1
             if !hasReportedReady {
                 hasReportedReady = true
                 onReady?()
             }
             onPlaybackResumed?()
         case .buffering, .opening:
+            // Informational on a live stream: libVLC reports buffering every
+            // time its cache refills. The engine treats this as a hint and
+            // confirms against `playbackProgress` before reconnecting.
             onStalled?()
         case .error:
             if !hasReportedFailure {
@@ -77,9 +128,18 @@ extension VLCPlayerAdapter: VLCMediaPlayerDelegate {
                 onFailure?("The compatibility engine could not open this stream.")
             }
         case .ended:
+            // Our own stop() during a reload can arrive here moments later;
+            // that is the previous media finishing, not this stream ending.
+            guard !isSettlingAfterLoad else { break }
             onEnded?()
         default:
             break
         }
+    }
+
+    /// libVLC reports playback progress several times a second while audio is
+    /// actually being rendered, and goes quiet the moment the input stalls.
+    func mediaPlayerTimeChanged(_ aNotification: Notification) {
+        progressTicks += 1
     }
 }

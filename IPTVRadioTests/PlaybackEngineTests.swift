@@ -13,6 +13,11 @@ final class StubAudioPlayer: AudioPlayerControlling {
     var onPlaybackResumed: (() -> Void)?
 
     private(set) var loadedURLs: [URL] = []
+    /// Simulated playback progress; nil models an engine that cannot report it.
+    private(set) var progressReading: Double?
+    /// When set, every reading advances — an engine whose audio keeps flowing
+    /// while it reports routine buffering.
+    var progressAdvancesPerReading = false
     private(set) var playCount = 0
     private(set) var pauseCount = 0
     private(set) var stopCount = 0
@@ -21,12 +26,19 @@ final class StubAudioPlayer: AudioPlayerControlling {
         loadedURLs.append(url)
     }
 
+    var playbackProgress: Double? {
+        guard let value = progressReading else { return nil }
+        if progressAdvancesPerReading { progressReading = value + 1 }
+        return value
+    }
+
     func play() { playCount += 1 }
     func pause() { pauseCount += 1 }
     func stop() { stopCount += 1 }
 
     func simulateReady() { onReady?() }
     func simulateFailure(_ message: String) { onFailure?(message) }
+    func setProgress(_ value: Double?) { progressReading = value }
 }
 
 /// Deterministic endpoint resolver for tests (no networking).
@@ -543,6 +555,83 @@ final class PlaybackEngineTests: XCTestCase {
 
         XCTAssertEqual(player.loadedURLs.count, loadsAfterStart, "Brief buffering must not reload the stream")
         XCTAssertEqual(engine.state, .playing(s))
+    }
+
+    @MainActor
+    func testRoutineBufferingWithFlowingAudioDoesNotReconnect() async {
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1,
+            stallTimeout: 0.4
+        )
+        let s = station("healthy-buffering")
+        engine.play(s)
+        player.simulateReady()
+        let loadsAfterStart = player.loadedURLs.count
+
+        // Live engines report buffering routinely as their network cache
+        // refills. While playback keeps advancing the stream is healthy and
+        // must be left alone: reconnecting on the report alone is what made
+        // audio drop every few seconds.
+        player.setProgress(0)
+        player.progressAdvancesPerReading = true
+        player.onStalled?()
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+
+        XCTAssertEqual(player.loadedURLs.count, loadsAfterStart,
+                       "Buffering must not tear down a stream whose audio still flows")
+        XCTAssertEqual(engine.state, .playing(s))
+        XCTAssertFalse(engine.isBuffering)
+    }
+
+    @MainActor
+    func testStalledAudioWithNoProgressReconnects() async {
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1,
+            stallTimeout: 0.4
+        )
+        let s = station("frozen")
+        engine.play(s)
+        player.simulateReady()
+
+        // Progress is frozen: this stall is real and must be recovered from.
+        player.setProgress(9)
+        player.onStalled?()
+        try? await Task.sleep(nanoseconds: 1_800_000_000)
+
+        XCTAssertTrue(player.loadedURLs.count >= 2, "A genuinely stalled stream must be reloaded")
+    }
+
+    @MainActor
+    func testBufferingIsSurfacedWhileAudioIsSilent() async {
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1,
+            stallTimeout: 4
+        )
+        let s = station("buffering-flag")
+        engine.play(s)
+        player.simulateReady()
+        XCTAssertFalse(engine.isBuffering)
+
+        player.setProgress(5)
+        player.onStalled?()
+        XCTAssertTrue(engine.isBuffering, "A silent stream must not look like it is playing")
+    }
+
+    @MainActor
+    func testFailureAfterStopDoesNotResurrectTheStation() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        let s = station("late-failure")
+        engine.play(s)
+        player.simulateReady()
+        engine.stop()
+
+        // A callback still in flight from the torn-down stream must not put a
+        // failed station back on screen after an explicit stop.
+        player.simulateFailure("socket closed")
+        XCTAssertEqual(engine.state, .stopped(nil))
     }
 
     @MainActor
