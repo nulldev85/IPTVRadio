@@ -50,11 +50,17 @@ final class StubEndpointResolver: StreamEndpointResolving, @unchecked Sendable {
     }
 }
 
-/// Stub EPG provider for tests.
-final class StubEPGProvider: ShortEPGProviding, @unchecked Sendable {
+/// Stub out-of-stream song source for tests.
+final class StubSongProvider: SongInfoProviding, @unchecked Sendable {
     var update: StreamMetadataUpdate?
+    let sourceName: String
 
-    func currentSongInfo(streamID: String) async -> StreamMetadataUpdate? {
+    init(sourceName: String = "stub source", update: StreamMetadataUpdate? = nil) {
+        self.sourceName = sourceName
+        self.update = update
+    }
+
+    func currentSong(for station: RadioStation) async -> StreamMetadataUpdate? {
         update
     }
 }
@@ -68,7 +74,7 @@ final class PlaybackEngineTests: XCTestCase {
         audioOnlyProbe: Bool = false,
         artworkLookup: ArtworkLookupService? = nil,
         endpointResolver: StreamEndpointResolving = StubEndpointResolver(),
-        epgProvider: ShortEPGProviding? = nil,
+        songProviders: [any SongInfoProviding] = [],
         stallTimeout: TimeInterval = 12
     ) async -> (PlaybackEngine, StubAudioPlayer, ConnectivityMonitor, HistoryStore) {
         let settings = await SettingsStore(defaults: defaults)
@@ -93,7 +99,7 @@ final class PlaybackEngineTests: XCTestCase {
             candidateCache: PlaybackCandidateCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("candidate-cache-\(UUID().uuidString)"))),
             artworkLookup: artworkLookup,
             endpointResolver: endpointResolver,
-            epgProvider: epgProvider,
+            songProviders: songProviders,
             stallTimeout: stallTimeout
         )
         return (engine, player, connectivity, history)
@@ -671,6 +677,48 @@ final class PlaybackEngineTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testFirstSourceWithASongWinsAndIsNamedInDiagnostics() async {
+        // Sources are ordered most authoritative first; a later source must not
+        // override an earlier one that answered.
+        let silent = StubSongProvider(sourceName: "provider EPG", update: nil)
+        let broadcaster = StubSongProvider(
+            sourceName: "SiriusXM channel metadata",
+            update: StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil)
+        )
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [silent, broadcaster]
+        )
+        let s = RadioStation(
+            name: "90s on 9",
+            streamURL: URL(string: "https://host.example/live/u/p/77.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "77"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<50 where engine.nowPlayingMetadata?.title == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(engine.nowPlayingMetadata?.artist, "Drake")
+        player.onDiagnostics?(StreamDiagnosticsSample(
+            streamExtension: "ts",
+            indicatedBitrate: nil,
+            observedBitrate: nil,
+            averageAudioBitrate: nil,
+            audioTrackDataRate: nil,
+            mediaRequests: 1
+        ))
+        XCTAssertEqual(
+            engine.streamDiagnostics?.songInfoSource, "SiriusXM channel metadata",
+            "Diagnostics must name which source answered, so a quiet broadcaster reads differently from a lookup that never reached anything"
+        )
+    }
+
     // MARK: Stream-format candidates
 
     @MainActor
@@ -901,12 +949,13 @@ final class PlaybackEngineTests: XCTestCase {
     // MARK: EPG song info
 
     @MainActor
-    func testEPGProvidesSongInfoWhenStreamHasNone() async {
-        let provider = StubEPGProvider()
-        provider.update = StreamMetadataUpdate(title: "Around the World", artist: "Daft Punk", artworkData: nil)
+    func testOutOfStreamSourceProvidesSongInfoWhenStreamHasNone() async {
+        let provider = StubSongProvider(
+            update: StreamMetadataUpdate(title: "Around the World", artist: "Daft Punk", artworkData: nil)
+        )
         let (engine, player, _, _) = await makeEngine(
             defaults: makeIsolatedDefaults(),
-            epgProvider: provider
+            songProviders: [provider]
         )
         let s = RadioStation(
             name: "EPG Station",

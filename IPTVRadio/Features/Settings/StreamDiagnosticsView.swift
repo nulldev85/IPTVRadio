@@ -24,6 +24,12 @@ struct StreamDiagnosticsView: View {
                     }
                     LabeledContent("Playback engine", value: diagnostics.playbackEngine.label)
                     LabeledContent("Song info from stream", value: diagnostics.songInfoFromStream ? "Received" : "Not provided")
+                    LabeledContent(
+                        "Song info source",
+                        value: diagnostics.songInfoFromStream
+                            ? "The stream itself"
+                            : (diagnostics.songInfoSource ?? "None answered")
+                    )
                     if songMetadataIsUnreadable(diagnostics) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("This engine cannot read song titles from HLS")

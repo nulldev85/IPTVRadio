@@ -120,6 +120,9 @@ struct StreamDiagnostics: Equatable {
     /// other was running — which is exactly what the "this engine cannot read
     /// song titles from HLS" hint keys off.
     var playbackEngine: PlaybackEngineKind
+    /// Which out-of-stream source supplied the current song, when one did.
+    /// Distinguishes "nothing publishes this track" from "the stream is quiet".
+    var songInfoSource: String?
     /// Every stream-format candidate for this station and what became of it.
     var candidates: [StreamCandidateReport] = []
     /// True when playback started at a remembered endpoint rather than the

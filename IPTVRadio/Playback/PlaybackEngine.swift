@@ -389,7 +389,7 @@ final class PlaybackEngine: ObservableObject {
     private let candidateCache: PlaybackCandidateCache
     private let artworkLookup: ArtworkLookupService
     private let endpointResolver: StreamEndpointResolving
-    private let epgProvider: ShortEPGProviding?
+    private let songProviders: [any SongInfoProviding]
 
     private var watchdogTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
@@ -424,6 +424,8 @@ final class PlaybackEngine: ObservableObject {
     private var resolvedURLs: [String: URL] = [:]
     /// True once the stream itself provided song metadata (ID3).
     private var receivedSongInfoFromStream = false
+    /// Which out-of-stream source supplied the current song, for diagnostics.
+    private var songInfoSource: String?
     /// Polls the provider's EPG for song info when the stream carries none.
     private var epgTask: Task<Void, Never>?
     /// True when the listener paused on purpose, so route changes (headphones,
@@ -447,7 +449,7 @@ final class PlaybackEngine: ObservableObject {
         candidateCache: PlaybackCandidateCache = PlaybackCandidateCache(),
         artworkLookup: ArtworkLookupService? = nil,
         endpointResolver: StreamEndpointResolving = StreamRedirectResolver(),
-        epgProvider: ShortEPGProviding? = nil,
+        songProviders: [any SongInfoProviding] = [],
         stallTimeout: TimeInterval = 12
     ) {
         self.player = player
@@ -461,7 +463,7 @@ final class PlaybackEngine: ObservableObject {
         self.candidateCache = candidateCache
         self.artworkLookup = artworkLookup ?? ArtworkLookupService(http: http)
         self.endpointResolver = endpointResolver
-        self.epgProvider = epgProvider
+        self.songProviders = songProviders
         self.stallTimeout = stallTimeout
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
@@ -499,6 +501,7 @@ final class PlaybackEngine: ObservableObject {
         lastFormatFailure = nil
         playbackStartedAt = nil
         receivedSongInfoFromStream = false
+        songInfoSource = nil
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
         artworkLookupTask = nil
@@ -555,6 +558,7 @@ final class PlaybackEngine: ObservableObject {
         lastFormatFailure = nil
         playbackStartedAt = nil
         receivedSongInfoFromStream = false
+        songInfoSource = nil
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
         artworkLookupTask = nil
@@ -1057,6 +1061,7 @@ final class PlaybackEngine: ObservableObject {
             lastFormatFailure: lastFormatFailure,
             songInfoFromStream: receivedSongInfoFromStream,
             playbackEngine: player.engineKind,
+            songInfoSource: songInfoSource,
             candidates: candidateReports(),
             startedAtRememberedEndpoint: startedAtRememberedEndpoint
         )
@@ -1137,7 +1142,7 @@ final class PlaybackEngine: ObservableObject {
             state = .playing(station)
             nowPlaying.update(state: state, buffering: false)
             nowPlaying.loadArtwork(for: station)
-            startEPGPolling(for: station)
+            startSongInfoPolling(for: station)
             // Emit a basic diagnostics sample immediately (the compatibility
             // engine has no access log; richer AVPlayer samples override this).
             handleDiagnosticsSample(StreamDiagnosticsSample(
@@ -1151,35 +1156,50 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
-    /// When the stream carries no song metadata, poll the provider's EPG for
-    /// the current song (radio panels commonly expose it there).
-    private func startEPGPolling(for station: RadioStation) {
+    /// Polls the out-of-stream song sources while the stream supplies none.
+    ///
+    /// Sources are tried in order, most authoritative first, and the first
+    /// answer wins. For a panel relaying a broadcaster's audio this is the only
+    /// place the current track exists at all — the stream carries no title and
+    /// the audio cannot be fingerprinted on device.
+    private func startSongInfoPolling(for station: RadioStation) {
         epgTask?.cancel()
-        guard let provider = epgProvider, let streamID = station.xtreamStreamID, !streamID.isEmpty else {
-            AppLogger.playback.info("No EPG song source for this station (no stream id)")
+        guard !songProviders.isEmpty else {
+            AppLogger.playback.info("No out-of-stream song source is configured")
             return
         }
         epgTask = Task { [weak self] in
             var loggedOutcome = false
             while !Task.isCancelled {
                 guard let self, self.wantsPlayback, self.state.station?.id == station.id else { return }
-                // Stream metadata takes precedence when it exists at all.
+                // A title from the stream itself outranks every other source.
                 if self.receivedSongInfoFromStream { return }
-                let update = await provider.currentSongInfo(streamID: streamID)
-                // Re-checked after the await: the stream's own title can arrive
-                // during a slow panel lookup, and it outranks the EPG.
-                if self.receivedSongInfoFromStream { return }
-                if let update {
-                    self.handleMetadataUpdate(update, fromStream: false)
+
+                var answered: String?
+                var found: StreamMetadataUpdate?
+                for provider in self.songProviders {
+                    if let song = await provider.currentSong(for: station) {
+                        answered = provider.sourceName
+                        found = song
+                        break
+                    }
+                    if Task.isCancelled { return }
                 }
-                // Logged once per station: whether the provider's EPG carries
-                // song info at all is the thing worth knowing when no track
-                // shows up, and it cannot be told apart from a silent stream
-                // without it. No titles or URLs are logged.
+
+                // Re-checked after the awaits: the stream's own title can
+                // arrive while a slow source is being polled, and it wins.
+                if self.receivedSongInfoFromStream { return }
+                if let found {
+                    self.songInfoSource = answered
+                    self.handleMetadataUpdate(found, fromStream: false)
+                }
+                // Logged once per station: which source answered, or that none
+                // did, is the only way to tell a silent broadcaster from a
+                // lookup that is simply not reaching anything.
                 if !loggedOutcome {
                     loggedOutcome = true
-                    let outcome = update == nil ? "returned nothing" : "supplied song info"
-                    AppLogger.playback.info("EPG song lookup \(outcome, privacy: .public)")
+                    let outcome = answered ?? "no source had a song"
+                    AppLogger.playback.info("Song lookup: \(outcome, privacy: .public)")
                 }
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
             }

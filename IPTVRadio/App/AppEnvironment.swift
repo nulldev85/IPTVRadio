@@ -83,7 +83,13 @@ final class AppEnvironment: ObservableObject {
             history: history,
             nowPlaying: nowPlaying,
             http: httpClient,
-            epgProvider: uitestMode ? nil : XtreamEPGProvider(credentials: credentials, http: httpClient),
+            // Ordered most authoritative first: the panel's own EPG knows the
+            // channel, and the broadcaster is consulted only when it has
+            // nothing — which for SiriusXM relays is most of the time.
+            songProviders: uitestMode ? [] : [
+                XtreamEPGProvider(credentials: credentials, http: httpClient),
+                SiriusXMNowPlayingProvider(http: httpClient),
+            ],
             // The compatibility engine buffers deeply, so it needs a longer
             // stall threshold before the app forces a reconnect.
             stallTimeout: engineKind == .vlc ? 25 : 12
