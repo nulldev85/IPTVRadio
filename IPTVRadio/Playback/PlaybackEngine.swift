@@ -1014,6 +1014,7 @@ final class PlaybackEngine: ObservableObject {
             audioFormat: sample.audioFormat,
             lastFormatFailure: lastFormatFailure,
             songInfoFromStream: receivedSongInfoFromStream,
+            playbackEngine: settings.playbackEngine,
             candidates: candidateReports(),
             startedAtRememberedEndpoint: startedAtRememberedEndpoint
         )

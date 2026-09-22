@@ -112,6 +112,9 @@ struct StreamDiagnostics: Equatable {
     var lastFormatFailure: String?
     /// True when the stream itself provided song info (ID3 metadata).
     var songInfoFromStream: Bool
+    /// Engine actually playing. It decides which kinds of song metadata can be
+    /// read at all, so it belongs next to the song-info line.
+    var playbackEngine: PlaybackEngineKind = .vlc
     /// Every stream-format candidate for this station and what became of it.
     var candidates: [StreamCandidateReport] = []
     /// True when playback started at a remembered endpoint rather than the

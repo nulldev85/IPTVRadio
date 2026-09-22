@@ -22,7 +22,18 @@ struct StreamDiagnosticsView: View {
                     if let audioFormat = diagnostics.audioFormat {
                         LabeledContent("Audio format", value: audioFormat)
                     }
+                    LabeledContent("Playback engine", value: diagnostics.playbackEngine.label)
                     LabeledContent("Song info from stream", value: diagnostics.songInfoFromStream ? "Received" : "Not provided")
+                    if songMetadataIsUnreadable(diagnostics) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("This engine cannot read song titles from HLS")
+                                .font(.footnote.weight(.medium))
+                            Text("HLS carries the current song as ID3 timed metadata inside the stream. The compatibility engine only reads ICY song titles, which HLS does not use, so no track can appear however good the stream is. Switch Playback engine to \"Standard (AVPlayer)\" in Settings ▸ Playback and relaunch the app to read them.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("diagnostics.engineCannotReadSongInfo")
+                    }
                     LabeledContent("Audio-only rendition", value: audioOnlyValue(diagnostics))
                     if let variants = diagnostics.availableVariants, variants > 0 {
                         LabeledContent("Variants in stream", value: "\(variants)")
@@ -111,6 +122,14 @@ struct StreamDiagnosticsView: View {
         case "": return "unknown"
         default: return streamExtension.uppercased()
         }
+    }
+
+    /// True when the engine in use structurally cannot surface this stream's
+    /// song metadata, as opposed to the stream simply not carrying any.
+    private func songMetadataIsUnreadable(_ diagnostics: StreamDiagnostics) -> Bool {
+        diagnostics.playbackEngine == .vlc
+            && diagnostics.streamType.lowercased() == "m3u8"
+            && !diagnostics.songInfoFromStream
     }
 
     private func outcomeText(_ outcome: StreamCandidateReport.Outcome) -> String {
