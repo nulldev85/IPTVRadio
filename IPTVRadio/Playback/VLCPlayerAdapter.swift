@@ -43,9 +43,6 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     private var lastEmittedMetadata: StreamMetadataUpdate?
     /// Safety net behind libVLC's meta-changed callback (see `pollMetadata`).
     private var metadataTimer: Timer?
-    /// File name of the loaded stream, used to recognise libVLC's fallback
-    /// title (see `StreamMetadataParser.isStreamFileName`).
-    private var mediaFileName: String?
 
     override init() {
         super.init()
@@ -78,7 +75,6 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
         // after a stall — comes through here, so the stop belongs here.
         player.stop()
         loadedAt = Date()
-        mediaFileName = url.lastPathComponent
 
         let media = VLCMedia(url: url)
         // Live-radio tuning:
@@ -125,7 +121,6 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     func stop() {
         stopMetadataPolling()
         lastEmittedMetadata = nil
-        mediaFileName = nil
         player.stop()
         player.media = nil
         loadedAt = nil
@@ -168,15 +163,18 @@ fileprivate extension VLCPlayerAdapter {
     /// artist and title into album art through its artwork lookup.
     func emitMetadataIfChanged() {
         guard let meta = player.media?.metaData else { return }
-        // `nowPlaying` is the ICY/Shoutcast field and is always a real song.
-        // `title` is only a song when it is not libVLC's file-name fallback —
-        // accepting that both shows a file name as the track and stops the
-        // engine consulting the provider's EPG.
-        let title = trimmed(meta.nowPlaying) ?? trimmed(meta.title).flatMap {
-            StreamMetadataParser.isStreamFileName($0, mediaFileName: mediaFileName) ? nil : $0
-        }
+        // Only `nowPlaying` — the ICY/Shoutcast stream title — is a song.
+        //
+        // `title` identifies the *station*: libVLC fills it from `icy-name`,
+        // or an MPEG-TS service name, or failing both the input's own file
+        // name. None of those is a track, and all three are harmful here,
+        // because any non-empty title convinces the engine that the stream
+        // supplies song info — which switches off the provider's EPG, the only
+        // source of the current track for streams carrying no metadata. A
+        // station name in the song slot is the visible half of that; losing the
+        // EPG is the expensive half.
         var update = StreamMetadataUpdate(
-            title: title,
+            title: trimmed(meta.nowPlaying),
             artist: trimmed(meta.artist) ?? trimmed(meta.albumArtist),
             artworkData: nil
         )
@@ -224,9 +222,14 @@ extension VLCPlayerAdapter: VLCMediaPlayerDelegate {
                 onFailure?("The compatibility engine could not open this stream.")
             }
         case .ended:
-            // Our own stop() during a reload can arrive here moments later;
-            // that is the previous media finishing, not this stream ending.
-            guard !isSettlingAfterLoad else { break }
+            // Our own stop() during a reload can surface here moments later,
+            // which is the previous media finishing rather than this stream
+            // ending. Only suppressed before this load has reported playing:
+            // afterwards the end is genuine, and dropping it leaves the engine
+            // in `.playing` with silence — its startup watchdog is already
+            // cancelled, so nothing would ever recover. Endpoints that serve a
+            // few hundred milliseconds of filler do exactly this.
+            guard !(isSettlingAfterLoad && !hasReportedReady) else { break }
             onEnded?()
         default:
             break

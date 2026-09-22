@@ -409,6 +409,11 @@ final class PlaybackEngine: ObservableObject {
     private var activePlaybackURL: URL?
     /// Why the previously tried format failed (sanitized; no URLs).
     private var lastFormatFailure: String?
+    /// Why *this* candidate failed. `lastFormatFailure` outlives a candidate by
+    /// design (diagnostics show the last skip), so it cannot be used to label a
+    /// specific one: a candidate that played and then ended would inherit the
+    /// previous candidate's reason and read as refused.
+    private var candidateFailureReason: String?
     /// Reconnects if playback stays buffering for too long.
     private var stallTask: Task<Void, Never>?
     private var playbackStartedAt: Date?
@@ -662,6 +667,15 @@ final class PlaybackEngine: ObservableObject {
     /// (radio quality/data win); results are cached so this is instant after
     /// the first play of a station.
     private func loadCurrentCandidate(_ station: RadioStation) {
+        // Any resolve or probe still running belongs to the candidate we are
+        // leaving. Its completion calls load(), so left alive it can hand the
+        // player a superseded URL seconds after a later candidate started
+        // playing — tearing down a working stream mid-song. The async paths
+        // below cancel it before starting their own; the fast paths return
+        // without ever reaching that line, so it is cancelled here for all of
+        // them.
+        resolveTask?.cancel()
+
         // Arm the watchdog before anything asynchronous. The probe and redirect
         // resolution below run on a shared session whose resource timeout is
         // far longer than its request timeout, so a provider that trickles
@@ -748,6 +762,7 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private func load(candidate: URL, probe: HLSProbeResult?, station: RadioStation) {
+        candidateFailureReason = nil
         probeResultForActiveStation = probe
         activePlaybackURL = candidate
         player.load(url: candidate)
@@ -790,6 +805,7 @@ final class PlaybackEngine: ObservableObject {
         AppLogger.playback.error("Stream timed out; trying next option")
         // Recorded so diagnostics distinguish a timeout from a refusal.
         lastFormatFailure = "Timed out waiting for the stream to start."
+        candidateFailureReason = lastFormatFailure
         handleStreamProblem(station)
     }
 
@@ -801,6 +817,7 @@ final class PlaybackEngine: ObservableObject {
               let station = state.station ?? pendingStation else { return }
         // Keep the reason so diagnostics can show why a format was skipped.
         lastFormatFailure = Redactor.scrubURLs(message)
+        candidateFailureReason = lastFormatFailure
         handleStreamProblem(station)
     }
 
@@ -815,7 +832,7 @@ final class PlaybackEngine: ObservableObject {
         cancelStallWatchdog()
         // A candidate that already played is not a failed format; it stalled.
         if !candidatePlayedSuccessfully {
-            candidateOutcomes[candidateIndex] = .failed(lastFormatFailure)
+            candidateOutcomes[candidateIndex] = .failed(candidateFailureReason)
         }
         if !candidatePlayedSuccessfully, hasFurtherCandidates {
             candidateIndex += 1
@@ -958,11 +975,12 @@ final class PlaybackEngine: ObservableObject {
         guard wantsPlayback, hasActiveLoad,
               case .playing(let station) = state, stallTask == nil else { return }
         AppLogger.playback.info("Playback is buffering")
-        // Tell the listener, so a silent stream never looks like it is playing.
-        if !isBuffering {
-            isBuffering = true
-            nowPlaying.update(state: state, buffering: true)
-        }
+        // In-app only. Pushing this to the lock screen would rebuild the now
+        // playing info on every routine buffering report, which flips the
+        // transport to paused and drops the channel artwork — several times a
+        // minute on a healthy stream. The engine does not yet know whether this
+        // is a real stall; that is what the monitor below decides.
+        isBuffering = true
         let baseline = player.playbackProgress
         stallTask = Task { [weak self] in
             await self?.monitorStall(station: station, baseline: baseline)
@@ -1003,7 +1021,6 @@ final class PlaybackEngine: ObservableObject {
     private func markPlaybackFlowing() {
         guard case .playing = state, isBuffering else { return }
         isBuffering = false
-        nowPlaying.update(state: state, buffering: false)
     }
 
     /// The player reported it resumed: stop watching and clear the indicator.
@@ -1107,8 +1124,14 @@ final class PlaybackEngine: ObservableObject {
         playbackStartedAt = Date()
         if let station = state.station {
             // Remember which endpoint worked so the next play starts there.
-            if let played = activePlaybackURL, let primary = streamCandidates.first {
-                candidateCache.record(played, for: primary, engine: player.engineKind)
+            // The candidate, not `activePlaybackURL`: an HLS probe or a
+            // resolved redirect plays a URL that is not in `streamCandidates`,
+            // and the lookup on the next play matches against that list — so
+            // recording the played URL leaves a memo that can never match, and
+            // silently disables the skip, the diagnostics and the retry for
+            // exactly the audio-only endpoints they exist for.
+            if candidateIndex < streamCandidates.count, let primary = streamCandidates.first {
+                candidateCache.record(streamCandidates[candidateIndex], for: primary, engine: player.engineKind)
             }
             AppLogger.playback.info("Stream ready (format \(self.candidateIndex + 1) of \(max(self.streamCandidates.count, 1)))")
             state = .playing(station)
@@ -1143,6 +1166,9 @@ final class PlaybackEngine: ObservableObject {
                 // Stream metadata takes precedence when it exists at all.
                 if self.receivedSongInfoFromStream { return }
                 let update = await provider.currentSongInfo(streamID: streamID)
+                // Re-checked after the await: the stream's own title can arrive
+                // during a slow panel lookup, and it outranks the EPG.
+                if self.receivedSongInfoFromStream { return }
                 if let update {
                     self.handleMetadataUpdate(update, fromStream: false)
                 }

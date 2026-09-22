@@ -265,10 +265,23 @@ final class XtreamClientTests: XCTestCase {
     }
 
     @MainActor
-    func testEPGFindsTheSongWhenTheTitleHoldsTheShowName() async throws {
-        // Panels commonly put the show in one field and the track in the other.
+    func testEPGDoesNotMineTheDescriptionForASongWhenATitleExists() async throws {
+        // Descriptions are prose, and prose contains dashes. Splitting one
+        // yields a well-formed artist and title that are not a song at all,
+        // which would then be shown as the current track and sent to the music
+        // catalogue for album art.
         let provider = try await makeProvider(
-            json: #"{"epg_listings":[{"title":"\#(b64("The Heat"))","description":"\#(b64("Drake - Nokia"))"}]}"#
+            json: #"{"epg_listings":[{"title":"\#(b64("The Heat"))","description":"\#(b64("Hip-hop and R&B - hosted live from Philadelphia"))"}]}"#
+        )
+        let update = await provider.currentSongInfo(streamID: "8020")
+        XCTAssertEqual(update?.title, "The Heat")
+        XCTAssertNil(update?.artist, "A programme blurb must not become an artist/title pair")
+    }
+
+    @MainActor
+    func testEPGUsesTheDescriptionOnlyWhenThereIsNoTitle() async throws {
+        let provider = try await makeProvider(
+            json: #"{"epg_listings":[{"title":"","description":"\#(b64("Drake - Nokia"))"}]}"#
         )
         let update = await provider.currentSongInfo(streamID: "8020")
         XCTAssertEqual(update?.artist, "Drake")

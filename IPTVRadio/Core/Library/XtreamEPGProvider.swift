@@ -25,30 +25,32 @@ final class XtreamEPGProvider: ShortEPGProviding, @unchecked Sendable {
         guard let entries = try? await client.shortEPG(streamID: streamID), !entries.isEmpty else { return nil }
         guard let entry = Self.currentEntry(in: entries) else { return nil }
 
-        // A song is reported as "Artist - Title". Panels use either field for
-        // it, and on a channel with real programming the other field holds the
-        // show name — so both are examined instead of trusting the title.
-        let texts = [EPGText.decoded(entry.title), EPGText.decoded(entry.description)]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-        guard let first = texts.first else { return nil }
-
-        for text in texts {
-            let parsed = StreamMetadataParser.splittingCombinedTitle(
-                StreamMetadataUpdate(title: text, artist: nil, artworkData: nil)
-            )
-            if parsed.artist != nil {
-                AppLogger.playback.info("EPG listing parsed as a song")
-                return parsed
-            }
+        // The title is the listing. A song appears there as "Artist - Title";
+        // anything else is programme information, such as a show name.
+        //
+        // The description is deliberately *not* searched for a song when a
+        // title exists. Descriptions are prose, and prose contains dashes: a
+        // blurb like "Hip-hop and R&B - hosted live from Philadelphia" splits
+        // into a perfectly well-formed artist and title, which would then be
+        // shown as the current track and sent to the music catalogue for album
+        // art. It is only consulted when there is no title at all.
+        guard let text = EPGText.decoded(entry.title) ?? EPGText.decoded(entry.description) else {
+            return nil
         }
 
-        // Nothing song-shaped: this is programme information, such as a show
-        // name. Worth displaying, but it is not a track — returning it without
-        // an artist is what keeps it out of the album-art lookup, which would
-        // otherwise search the music catalogue for a show title.
+        let parsed = StreamMetadataParser.splittingCombinedTitle(
+            StreamMetadataUpdate(title: text, artist: nil, artworkData: nil)
+        )
+        if parsed.artist != nil {
+            AppLogger.playback.info("EPG listing parsed as a song")
+            return parsed
+        }
+
+        // Programme information. Worth displaying, but it is not a track —
+        // returning it without an artist is what keeps it out of the album-art
+        // lookup, which would otherwise search for a show title.
         AppLogger.playback.info("EPG listing carries programme info only, no song")
-        return StreamMetadataUpdate(title: first, artist: nil, artworkData: nil)
+        return StreamMetadataUpdate(title: text, artist: nil, artworkData: nil)
     }
 
     /// Picks the listing that is actually on air.

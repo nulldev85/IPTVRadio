@@ -76,7 +76,15 @@ enum LogoBackgroundKeyer {
             bucket.blue += blue
             buckets[key] = bucket
         }
-        guard let dominant = buckets.values.max(by: { $0.weight < $1.weight }) else {
+        // Sorted by key on a tie: Dictionary iteration order varies per
+        // process, so `values.max(by:)` alone would key out the white plate on
+        // one launch and a brand-coloured border band on the next, punching a
+        // transparent hole through the logo — and cache whichever won.
+        guard let dominant = buckets.sorted(by: { lhs, rhs in
+            lhs.value.weight != rhs.value.weight
+                ? lhs.value.weight > rhs.value.weight
+                : lhs.key < rhs.key
+        }).first?.value else {
             return image
         }
         let redAverage = dominant.red / dominant.weight

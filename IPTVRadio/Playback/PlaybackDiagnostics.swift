@@ -114,7 +114,12 @@ struct StreamDiagnostics: Equatable {
     var songInfoFromStream: Bool
     /// Engine actually playing. It decides which kinds of song metadata can be
     /// read at all, so it belongs next to the song-info line.
-    var playbackEngine: PlaybackEngineKind = .vlc
+    ///
+    /// Deliberately not defaulted: a default would have to name one engine, and
+    /// any site that then forgot to pass it would claim that engine while the
+    /// other was running — which is exactly what the "this engine cannot read
+    /// song titles from HLS" hint keys off.
+    var playbackEngine: PlaybackEngineKind
     /// Every stream-format candidate for this station and what became of it.
     var candidates: [StreamCandidateReport] = []
     /// True when playback started at a remembered endpoint rather than the

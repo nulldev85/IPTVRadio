@@ -111,6 +111,13 @@ struct StationArtwork: View {
         .frame(width: size, height: size)
         .accessibilityHidden(true)
         .task(id: logoURL) {
+            // Reset first. This view keeps its position across station changes
+            // (the mini player and the now playing screen both reuse it), so
+            // leaving the previous station's image in place shows its logo for
+            // the whole of the next station's fetch — and permanently, for a
+            // station that has no logo at all and returns early below.
+            image = nil
+            didFail = false
             guard let logoURL else { return }
             let loaded = await ArtworkCache.shared.image(for: logoURL)
             image = loaded

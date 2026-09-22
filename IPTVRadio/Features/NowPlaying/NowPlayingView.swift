@@ -45,7 +45,10 @@ struct NowPlayingView: View {
             // The artwork grows with the sheet but is capped against height as
             // well as width, so the controls are never squeezed off the bottom
             // of a small screen.
-            let artworkSize = min(proxy.size.width - 48, max(160, proxy.size.height * 0.40))
+            // Clamped at the bottom: a GeometryReader can report a zero size on
+            // an initial or transition pass, and `width - 48` would then be
+            // negative — an invalid frame and an out-of-range font size.
+            let artworkSize = max(120, min(proxy.size.width - 48, max(160, proxy.size.height * 0.40)))
 
             VStack(spacing: 24) {
                 // Explicit close control rendered in the view body so dismissal
@@ -228,7 +231,6 @@ struct NowPlayingView: View {
     }
 }
 
-/// Sleep timer trigger button with active-timer indicator.
 /// Full-bleed artwork behind the now playing screen.
 ///
 /// The image is scaled to fill, blurred hard, and covered with a scrim. At that
@@ -290,6 +292,7 @@ private struct NowPlayingBackdrop: View {
     }
 }
 
+/// Sleep timer trigger button with active-timer indicator.
 struct SleepTimerButton: View {
     @EnvironmentObject private var playback: PlaybackEngine
     @Binding var showSheet: Bool
