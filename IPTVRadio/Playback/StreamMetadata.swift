@@ -50,18 +50,27 @@ enum StreamMetadataParser {
             }
         }
 
-        // Many radio streams carry "Artist - Title" in a single title frame.
-        if update.artist == nil, let title = update.title,
-           let separator = title.range(of: " - ") {
-            let artist = String(title[..<separator.lowerBound]).trimmingCharacters(in: .whitespaces)
-            let song = String(title[separator.upperBound...]).trimmingCharacters(in: .whitespaces)
-            if !artist.isEmpty, !song.isEmpty {
-                update.artist = artist
-                update.title = song
-            }
-        }
+        let split = splittingCombinedTitle(update)
+        return split.isEmpty ? nil : split
+    }
 
-        return update.isEmpty ? nil : update
+    /// Splits a combined "Artist - Title" field into its two parts.
+    ///
+    /// Radio streams overwhelmingly carry the current song this way — in an
+    /// ID3 title frame over HLS/TS, or in the ICY/Shoutcast stream title that
+    /// the compatibility engine reads. Both paths need the split, because the
+    /// lock screen shows artist and title separately and the artwork lookup
+    /// cannot search the catalog without an artist.
+    static func splittingCombinedTitle(_ update: StreamMetadataUpdate) -> StreamMetadataUpdate {
+        var update = update
+        guard update.artist == nil, let title = update.title,
+              let separator = title.range(of: " - ") else { return update }
+        let artist = String(title[..<separator.lowerBound]).trimmingCharacters(in: .whitespaces)
+        let song = String(title[separator.upperBound...]).trimmingCharacters(in: .whitespaces)
+        guard !artist.isEmpty, !song.isEmpty else { return update }
+        update.artist = artist
+        update.title = song
+        return update
     }
 
     private static func isTitle(_ item: AVMetadataItem) -> Bool {

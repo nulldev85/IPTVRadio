@@ -450,7 +450,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = IPTVRadio/Info.plist;
 				IPTVRADIO_BUNDLE_IDENTIFIER = "com.example.IPTVRadio";
-				INFOPLIST_KEY_CFBundleDisplayName = "IPTV Radio";
+				INFOPLIST_KEY_CFBundleDisplayName = Aether;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -482,7 +482,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = IPTVRadio/Info.plist;
 				IPTVRADIO_BUNDLE_IDENTIFIER = "com.example.IPTVRadio";
-				INFOPLIST_KEY_CFBundleDisplayName = "IPTV Radio";
+				INFOPLIST_KEY_CFBundleDisplayName = Aether;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

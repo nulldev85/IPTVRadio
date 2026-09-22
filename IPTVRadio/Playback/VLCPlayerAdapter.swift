@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import VLCKitSPM
 
 /// libVLC-backed player: the compatibility engine for streams AVPlayer cannot
@@ -38,10 +39,21 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
         return Date().timeIntervalSince(loadedAt) < 0.35
     }
 
+    /// Last song info handed to the engine, so the same song is not re-emitted.
+    private var lastEmittedMetadata: StreamMetadataUpdate?
+    /// Safety net behind libVLC's meta-changed callback (see `pollMetadata`).
+    private var metadataTimer: Timer?
+
     override init() {
         super.init()
         player.delegate = self
         // Audio-only playback: no drawable is configured on purpose.
+    }
+
+    deinit {
+        // The run loop holds the timer, not this object: without this it would
+        // keep firing for the lifetime of the app.
+        metadataTimer?.invalidate()
     }
 
     /// Deep-buffering engine: give it extra startup time before the engine's
@@ -53,6 +65,7 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     func load(url: URL) {
         hasReportedReady = false
         hasReportedFailure = false
+        lastEmittedMetadata = nil
         // libVLC requires a stopped player before its media is swapped.
         // Assigning media to a live player leaves the previous input thread
         // running, which surfaces as overlapping audio or a player that never
@@ -83,7 +96,11 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
         media.addOption(":clock-jitter=0")
         media.addOption(":network-caching=4000")
         media.addOption(":http-reconnect")
+        // Song info: libVLC reports the stream's ICY/Shoutcast title through
+        // the media's metadata, updating it whenever the song changes.
+        media.delegate = self
         player.media = media
+        startMetadataPolling()
         // The player protocol contract is "load prepares and starts the
         // stream" (the engine never issues a separate play on load), so VLC
         // must be told to start here — otherwise it idles and the engine's
@@ -100,9 +117,71 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     }
 
     func stop() {
+        stopMetadataPolling()
+        lastEmittedMetadata = nil
         player.stop()
         player.media = nil
         loadedAt = nil
+    }
+}
+
+// MARK: - Song metadata (ICY / stream metadata)
+
+extension VLCPlayerAdapter: VLCMediaDelegate {
+    /// libVLC parsed new metadata for the stream — usually a song change.
+    func mediaMetaDataDidChange(_ aMedia: VLCMedia) {
+        emitMetadataIfChanged()
+    }
+}
+
+fileprivate extension VLCPlayerAdapter {
+    /// libVLC's meta-changed callback is the primary signal. Some inputs
+    /// refresh the ICY title without emitting one, so a slow poll backs it up;
+    /// emission is change-gated, so an extra read costs nothing.
+    func startMetadataPolling() {
+        stopMetadataPolling()
+        let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            self?.emitMetadataIfChanged()
+        }
+        // .common keeps it firing while the user scrolls a list.
+        RunLoop.main.add(timer, forMode: .common)
+        metadataTimer = timer
+    }
+
+    func stopMetadataPolling() {
+        metadataTimer?.invalidate()
+        metadataTimer = nil
+    }
+
+    /// Reads the stream's current song info and forwards it when it changed.
+    ///
+    /// Radio streams put the song in the ICY "now playing" field, nearly always
+    /// as "Artist - Title"; `title`/`artist` are only populated by streams that
+    /// expose real tags. Text is enough on its own — the engine turns an
+    /// artist and title into album art through its artwork lookup.
+    func emitMetadataIfChanged() {
+        guard let meta = player.media?.metaData else { return }
+        var update = StreamMetadataUpdate(
+            title: trimmed(meta.nowPlaying) ?? trimmed(meta.title),
+            artist: trimmed(meta.artist) ?? trimmed(meta.albumArtist),
+            artworkData: nil
+        )
+        update = StreamMetadataParser.splittingCombinedTitle(update)
+        guard !update.isEmpty else { return }
+        guard update.title != lastEmittedMetadata?.title
+                || update.artist != lastEmittedMetadata?.artist else { return }
+        // Embedded art is rare on live radio but free when libVLC has it.
+        if let artwork = meta.artwork, let data = artwork.pngData() {
+            update.artworkData = data
+        }
+        lastEmittedMetadata = update
+        onMetadata?(update)
+    }
+
+    func trimmed(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let result = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return result.isEmpty ? nil : result
     }
 }
 
@@ -116,6 +195,8 @@ extension VLCPlayerAdapter: VLCMediaPlayerDelegate {
             if !hasReportedReady {
                 hasReportedReady = true
                 onReady?()
+                // Show the song straight away rather than after the first poll.
+                emitMetadataIfChanged()
             }
             onPlaybackResumed?()
         case .buffering, .opening:
