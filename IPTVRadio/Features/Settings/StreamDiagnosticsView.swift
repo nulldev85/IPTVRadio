@@ -24,12 +24,7 @@ struct StreamDiagnosticsView: View {
                     }
                     LabeledContent("Playback engine", value: diagnostics.playbackEngine.label)
                     LabeledContent("Song info from stream", value: diagnostics.songInfoFromStream ? "Received" : "Not provided")
-                    LabeledContent(
-                        "Song info source",
-                        value: diagnostics.songInfoFromStream
-                            ? "The stream itself"
-                            : (diagnostics.songInfoSource ?? "None answered")
-                    )
+                    LabeledContent("Song info source", value: songSourceValue(diagnostics))
                     if songMetadataIsUnreadable(diagnostics) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("This engine cannot read song titles from HLS")
@@ -59,6 +54,29 @@ struct StreamDiagnosticsView: View {
                     }
                     if let requests = diagnostics.mediaRequests {
                         LabeledContent("Media requests", value: "\(requests)")
+                    }
+                }
+                if !diagnostics.songSources.isEmpty {
+                    Section {
+                        ForEach(diagnostics.songSources) { report in
+                            VStack(alignment: .leading, spacing: 2) {
+                                LabeledContent {
+                                    Text(songOutcomeText(report.outcome))
+                                        .foregroundStyle(songOutcomeColor(report.outcome))
+                                } label: {
+                                    Text(report.source)
+                                }
+                                if let detail = report.detail {
+                                    Text(detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("Song lookup")
+                    } footer: {
+                        Text("Where the current track is looked up when the stream carries no metadata, and what each source answered. A show name is not a track: it is shown, but album art is only searched for once both an artist and a title are known.\n\nA status such as “HTTP 404” means the channel could not be matched by name at that source; “no song in response” means it was matched and is not playing a track right now.")
                     }
                 }
                 if !diagnostics.candidates.isEmpty {
@@ -141,6 +159,31 @@ struct StreamDiagnosticsView: View {
         diagnostics.playbackEngine == .vlc
             && diagnostics.streamType.lowercased() == "m3u8"
             && !diagnostics.songInfoFromStream
+    }
+
+    /// The song-info source line. Names the source and, when what it supplied
+    /// is a show name rather than a track, says so — naming the source alone
+    /// reads as "the song came from here".
+    private func songSourceValue(_ diagnostics: StreamDiagnostics) -> String {
+        if diagnostics.songInfoFromStream { return "The stream itself" }
+        guard let source = diagnostics.songInfoSource else { return "None answered" }
+        return diagnostics.songInfoIsProgrammeOnly ? "\(source) (show info only)" : source
+    }
+
+    private func songOutcomeText(_ outcome: SongSourceReport.Outcome) -> String {
+        switch outcome {
+        case .song: return "Track"
+        case .programme: return "Show info"
+        case .nothing: return "Nothing"
+        }
+    }
+
+    private func songOutcomeColor(_ outcome: SongSourceReport.Outcome) -> Color {
+        switch outcome {
+        case .song: return .green
+        case .programme: return .orange
+        case .nothing: return .secondary
+        }
     }
 
     private func outcomeText(_ outcome: StreamCandidateReport.Outcome) -> String {

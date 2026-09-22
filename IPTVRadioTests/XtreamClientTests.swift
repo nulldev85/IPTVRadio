@@ -178,7 +178,7 @@ final class XtreamClientTests: XCTestCase {
         try await credentials.save(CredentialsStore.StoredCredentials(xtream: Fixtures.makeCredentials(), m3uURL: nil))
         let provider = XtreamEPGProvider(credentials: credentials, http: http)
 
-        let update = await provider.currentSongInfo(streamID: "8020")
+        let update = await provider.currentSongInfo(streamID: "8020").update
         XCTAssertEqual(update?.artist, "Daft Punk")
         XCTAssertEqual(update?.title, "Around the World")
     }
@@ -259,7 +259,7 @@ final class XtreamClientTests: XCTestCase {
         let provider = try await makeProvider(
             json: #"{"epg_listings":[{"title":"\#(b64("The Heat with Mina SayWhat"))","description":""}]}"#
         )
-        let update = await provider.currentSongInfo(streamID: "8020")
+        let update = await provider.currentSongInfo(streamID: "8020").update
         XCTAssertEqual(update?.title, "The Heat with Mina SayWhat")
         XCTAssertNil(update?.artist, "A programme name must not be passed off as an artist/title pair")
     }
@@ -273,7 +273,7 @@ final class XtreamClientTests: XCTestCase {
         let provider = try await makeProvider(
             json: #"{"epg_listings":[{"title":"\#(b64("The Heat"))","description":"\#(b64("Hip-hop and R&B - hosted live from Philadelphia"))"}]}"#
         )
-        let update = await provider.currentSongInfo(streamID: "8020")
+        let update = await provider.currentSongInfo(streamID: "8020").update
         XCTAssertEqual(update?.title, "The Heat")
         XCTAssertNil(update?.artist, "A programme blurb must not become an artist/title pair")
     }
@@ -283,7 +283,7 @@ final class XtreamClientTests: XCTestCase {
         let provider = try await makeProvider(
             json: #"{"epg_listings":[{"title":"","description":"\#(b64("Drake - Nokia"))"}]}"#
         )
-        let update = await provider.currentSongInfo(streamID: "8020")
+        let update = await provider.currentSongInfo(streamID: "8020").update
         XCTAssertEqual(update?.artist, "Drake")
         XCTAssertEqual(update?.title, "Nokia")
     }

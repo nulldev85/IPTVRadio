@@ -426,6 +426,12 @@ final class PlaybackEngine: ObservableObject {
     private var receivedSongInfoFromStream = false
     /// Which out-of-stream source supplied the current song, for diagnostics.
     private var songInfoSource: String?
+    /// True when the current out-of-stream answer is a show name, not a track.
+    private var songInfoIsProgrammeOnly = false
+    /// What each song source did on the last poll. The only way, on a device
+    /// with no console, to tell "nothing publishes this track" apart from "the
+    /// lookup never reached anything".
+    private var songSourceReports: [SongSourceReport] = []
     /// Last sample published, so diagnostics can be rebuilt when something
     /// other than the player changes. The compatibility engine emits a sample
     /// only once, at startup, so without this every field derived from engine
@@ -507,6 +513,8 @@ final class PlaybackEngine: ObservableObject {
         playbackStartedAt = nil
         receivedSongInfoFromStream = false
         songInfoSource = nil
+        songInfoIsProgrammeOnly = false
+        songSourceReports = []
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
         artworkLookupTask = nil
@@ -564,6 +572,8 @@ final class PlaybackEngine: ObservableObject {
         playbackStartedAt = nil
         receivedSongInfoFromStream = false
         songInfoSource = nil
+        songInfoIsProgrammeOnly = false
+        songSourceReports = []
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
         artworkLookupTask = nil
@@ -1076,6 +1086,8 @@ final class PlaybackEngine: ObservableObject {
             songInfoFromStream: receivedSongInfoFromStream,
             playbackEngine: player.engineKind,
             songInfoSource: songInfoSource,
+            songInfoIsProgrammeOnly: songInfoIsProgrammeOnly,
+            songSources: songSourceReports,
             candidates: candidateReports(),
             startedAtRememberedEndpoint: startedAtRememberedEndpoint
         )
@@ -1172,10 +1184,12 @@ final class PlaybackEngine: ObservableObject {
 
     /// Polls the out-of-stream song sources while the stream supplies none.
     ///
-    /// Sources are tried in order, most authoritative first, and the first
-    /// answer wins. For a panel relaying a broadcaster's audio this is the only
-    /// place the current track exists at all — the stream carries no title and
-    /// the audio cannot be fingerprinted on device.
+    /// Sources are asked in order, most authoritative first. A real track ends
+    /// the pass; a show name does not, because a panel whose EPG always names
+    /// the current show would otherwise be the only source ever consulted. For a
+    /// panel relaying a broadcaster's audio this lookup is the only place the
+    /// current track exists at all — the stream carries no title and the audio
+    /// cannot be fingerprinted on device.
     private func startSongInfoPolling(for station: RadioStation) {
         epgTask?.cancel()
         guard !songProviders.isEmpty else {
@@ -1197,30 +1211,54 @@ final class PlaybackEngine: ObservableObject {
                 // have the actual song — would never be asked.
                 var song: (source: String, update: StreamMetadataUpdate)?
                 var programme: (source: String, update: StreamMetadataUpdate)?
+                var reports: [SongSourceReport] = []
                 for provider in self.songProviders {
                     let answer = await provider.currentSong(for: station)
                     if Task.isCancelled { return }
-                    guard let answer else { continue }
-                    if let artist = answer.artist, !artist.isEmpty {
-                        song = (provider.sourceName, answer)
-                        break
+                    var outcome = SongSourceReport.Outcome.nothing
+                    if answer.hasTitle, let update = answer.update {
+                        if answer.isSong {
+                            outcome = .song
+                            if song == nil { song = (provider.sourceName, update) }
+                        } else {
+                            outcome = .programme
+                            if programme == nil { programme = (provider.sourceName, update) }
+                        }
                     }
-                    if programme == nil {
-                        programme = (provider.sourceName, answer)
-                    }
+                    reports.append(
+                        SongSourceReport(
+                            source: provider.sourceName,
+                            outcome: outcome,
+                            detail: answer.note
+                        )
+                    )
+                    // A track is the best any source can do, so the search
+                    // stops there; the sources already asked stay in the
+                    // report, so the screen still shows the whole picture.
+                    if outcome == .song { break }
                 }
 
                 // Re-checked after the awaits: the stream's own title can
                 // arrive while a slow source is being polled, and it wins.
                 if self.receivedSongInfoFromStream { return }
+                self.songSourceReports = reports
                 if let best = song ?? programme {
                     self.songInfoSource = best.source
+                    self.songInfoIsProgrammeOnly = song == nil
                     self.handleMetadataUpdate(best.update, fromStream: false)
-                    // The compatibility engine publishes one sample at startup,
-                    // long before this; without a refresh the source shown in
-                    // diagnostics would stay "None answered" forever.
-                    self.refreshDiagnostics()
                 }
+                // The source is deliberately *not* cleared when a pass comes
+                // back empty: it describes what is on screen, and an empty pass
+                // leaves the previous answer displayed — clearing it would put
+                // "None answered" under a visible title. The per-source reports
+                // above carry the fresh result either way.
+                //
+                // The refresh is unconditional because the compatibility engine
+                // publishes exactly one sample, at startup, long before any
+                // lookup returns. Without it every song field on the
+                // diagnostics screen stays frozen at playback start, reading
+                // "None answered" even when a source did answer.
+                self.refreshDiagnostics()
                 // Logged once per station: which source answered, or that none
                 // did, is the only way to tell a silent broadcaster from a
                 // lookup that is simply not reaching anything.
@@ -1230,6 +1268,12 @@ final class PlaybackEngine: ObservableObject {
                         ?? programme.map { "programme info only, from \($0.source)" }
                         ?? "no source answered"
                     AppLogger.playback.info("Song lookup: \(outcome, privacy: .public)")
+                    for report in reports {
+                        guard let detail = report.detail else { continue }
+                        AppLogger.playback.info(
+                            "Song source \(report.source, privacy: .public): \(detail, privacy: .public)"
+                        )
+                    }
                 }
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
             }

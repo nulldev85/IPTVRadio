@@ -86,6 +86,32 @@ struct StreamCandidateReport: Equatable, Identifiable {
     var id: Int { index }
 }
 
+/// What one out-of-stream song source did on the last lookup.
+///
+/// Shown per source rather than collapsed into one line, because the useful
+/// question is never "is a song showing" but "which source failed, and how":
+/// an EPG listing a show, a metadata host answering 403 and a device with no
+/// network all look the same on the now-playing bar.
+struct SongSourceReport: Equatable, Identifiable {
+    /// The source's label, e.g. "provider EPG".
+    var source: String
+    /// What it produced: a song, programme info, or nothing.
+    var outcome: Outcome
+    /// The source's own note, already free of URLs and credentials.
+    var detail: String?
+
+    enum Outcome: Equatable {
+        /// A title *and* an artist: an actual track.
+        case song
+        /// A title with no artist — a show name, not a track.
+        case programme
+        /// Nothing usable came back.
+        case nothing
+    }
+
+    var id: String { source }
+}
+
 /// User-visible diagnostics for the currently playing stream.
 struct StreamDiagnostics: Equatable {
     var stationName: String
@@ -123,6 +149,13 @@ struct StreamDiagnostics: Equatable {
     /// Which out-of-stream source supplied the current song, when one did.
     /// Distinguishes "nothing publishes this track" from "the stream is quiet".
     var songInfoSource: String?
+    /// True when what that source supplied is programme information (a show
+    /// name) rather than a track. Kept separate from `songInfoSource` because
+    /// naming the source alone reads as "the song came from here", which is
+    /// exactly the confusion a show name in the now-playing bar causes.
+    var songInfoIsProgrammeOnly: Bool = false
+    /// Every out-of-stream source tried on the last lookup, and what it did.
+    var songSources: [SongSourceReport] = []
     /// Every stream-format candidate for this station and what became of it.
     var candidates: [StreamCandidateReport] = []
     /// True when playback started at a remembered endpoint rather than the

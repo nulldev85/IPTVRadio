@@ -17,7 +17,10 @@ import Foundation
 /// This is an unofficial source. It is treated accordingly: a fixed response
 /// model would stop working the day the shape changes, so the JSON is walked
 /// for a song, several channel slugs are attempted because the naming is not
-/// documented, and any failure is simply nil — the caller keeps what it had.
+/// documented, and a failure never disturbs playback — the caller keeps what it
+/// had. Each attempt's status is reported, though: with undocumented channel
+/// keys, "which key was tried and what came back" is the only way to tell a
+/// wrong guess from a refused request from a channel that is between songs.
 final class SiriusXMNowPlayingProvider: SongInfoProviding, @unchecked Sendable {
     private let http: HTTPClient
     private let host: String
@@ -30,21 +33,41 @@ final class SiriusXMNowPlayingProvider: SongInfoProviding, @unchecked Sendable {
 
     var sourceName: String { "SiriusXM channel metadata" }
 
-    func currentSong(for station: RadioStation) async -> StreamMetadataUpdate? {
+    func currentSong(for station: RadioStation) async -> SongLookup {
         let slugs = Self.candidateSlugs(for: station.name)
-        guard !slugs.isEmpty else { return nil }
+        guard !slugs.isEmpty else {
+            return .empty("station name yields no channel key")
+        }
 
+        // Each attempt's result is kept, not just the first success. With no
+        // published list of channel keys the trail *is* the diagnosis: "404,
+        // 404" means the names are wrong, "403" means the host refused us, and
+        // "200 no song" means the key is right and the channel simply is not
+        // playing a track. Those need three different fixes, and this is the
+        // only place that distinction can be observed from a device.
+        var trail: [String] = []
         for slug in slugs {
             guard let url = metadataURL(slug: slug) else { continue }
-            guard let (data, response) = try? await http.data(for: RequestBuilder.get(url, timeout: 8)),
-                  (200..<300).contains(response.statusCode),
-                  let json = try? JSONSerialization.jsonObject(with: data) else { continue }
+            let request = RequestBuilder.get(url, timeout: 8, userAgent: RequestBuilder.browserUserAgent)
+            guard let (data, response) = try? await http.data(for: request) else {
+                trail.append("\(slug): unreachable")
+                continue
+            }
+            guard (200..<300).contains(response.statusCode) else {
+                trail.append("\(slug): HTTP \(response.statusCode)")
+                continue
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: data) else {
+                trail.append("\(slug): not JSON")
+                continue
+            }
             if let song = Self.findSong(in: json) {
                 AppLogger.playback.info("SiriusXM metadata matched channel slug \(slug, privacy: .public)")
-                return StreamMetadataUpdate(title: song.title, artist: song.artist, artworkData: nil)
+                return .found(StreamMetadataUpdate(title: song.title, artist: song.artist, artworkData: nil))
             }
+            trail.append("\(slug): no song in response")
         }
-        return nil
+        return .empty(trail.isEmpty ? "no channel key could be built" : trail.joined(separator: ", "))
     }
 
     private func metadataURL(slug: String) -> URL? {
@@ -74,24 +97,87 @@ final class SiriusXMNowPlayingProvider: SongInfoProviding, @unchecked Sendable {
     /// brand ("siriusxmhits1"), others drop it ("shade45"). Rather than guess
     /// one rule, a few shapes are tried and the first that answers wins.
     static func candidateSlugs(for stationName: String) -> [String] {
-        let cleaned = stationName
-            .replacingOccurrences(of: "Radio:", with: " ", options: .caseInsensitive)
-            .replacingOccurrences(of: "Radio -", with: " ", options: .caseInsensitive)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleaned = Self.stripDecorations(stationName)
         guard !cleaned.isEmpty else { return [] }
 
-        let withBrand = slugify(cleaned)
-        let withoutBrand = slugify(
-            cleaned
-                .replacingOccurrences(of: "SiriusXM", with: " ", options: .caseInsensitive)
-                .replacingOccurrences(of: "SXM", with: " ", options: .caseInsensitive)
-        )
+        let brandless = cleaned
+            .replacingOccurrences(of: "SiriusXM", with: " ", options: .caseInsensitive)
+            .replacingOccurrences(of: "SXM", with: " ", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let brandlessSlug = slugify(brandless)
+        var shapes: [String] = []
+        // As named, then with the brand removed: SiriusXM's own keys sometimes
+        // keep it ("siriusxmhits1") and sometimes do not ("shade45").
+        shapes.append(slugify(cleaned))
+        shapes.append(brandlessSlug)
+        // A panel that drops the brand from a channel whose key keeps it: the
+        // brand has to be added back, not just removed.
+        if !brandlessSlug.isEmpty {
+            shapes.append("siriusxm" + brandlessSlug)
+        }
+        // Leading article dropped, both ways — "The Highway" is keyed both as
+        // "thehighway" and as "highway" across SiriusXM's own surfaces.
+        let articleless = slugify(Self.strippingLeadingArticle(brandless))
+        if articleless != brandlessSlug, !articleless.isEmpty {
+            shapes.append(articleless)
+            shapes.append("siriusxm" + articleless)
+        }
 
         var slugs: [String] = []
-        for slug in [withBrand, withoutBrand] where !slug.isEmpty {
+        for slug in shapes where !slug.isEmpty && slug != "siriusxm" {
             if !slugs.contains(slug) { slugs.append(slug) }
         }
-        return slugs
+        // Bounded: this runs every poll, and an unbounded list would mean a
+        // burst of requests every thirty seconds for a channel that will never
+        // match anyway.
+        return Array(slugs.prefix(5))
+    }
+
+    /// Removes the decorations panels add around a channel name.
+    ///
+    /// Lists are labelled for browsing, not for lookups: "Radio: SiriusXM FLY",
+    /// "USA: 90s on 9", "Octane HD". A section prefix before a colon and a
+    /// quality suffix are noise for every one of them.
+    private static func stripDecorations(_ stationName: String) -> String {
+        var text = stationName
+        // A short prefix before a colon is a section label ("Radio:", "USA
+        // MUSIC:"), not part of the channel. Short is the whole safeguard: a
+        // wrong strip does not just add a useless attempt, it removes the only
+        // name that could have matched, so a long prefix is left alone.
+        if let colon = text.firstIndex(of: ":") {
+            let label = text[..<colon]
+            let remainder = String(text[text.index(after: colon)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // Taken even when the remainder is empty: a name that is nothing but
+            // a section label ("Radio:") names no channel, and "radio" is not a
+            // key worth a request.
+            if label.count <= 12 {
+                text = remainder
+            }
+        }
+        text = text
+            .replacingOccurrences(of: "Radio -", with: " ", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Quality tags only. "Radio" is deliberately not in this list: it is
+        // part of plenty of real channel names, and stripping it would leave the
+        // actual name untried.
+        for suffix in ["FHD", "UHD", "HD", "SD"] {
+            if text.count > suffix.count,
+               text.lowercased().hasSuffix(" " + suffix.lowercased()) {
+                text = String(text.dropLast(suffix.count + 1))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return text
+    }
+
+    private static func strippingLeadingArticle(_ text: String) -> String {
+        let lowered = text.lowercased()
+        for article in ["the ", "a "] where lowered.hasPrefix(article) {
+            return String(text.dropFirst(article.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return text
     }
 
     private static func slugify(_ text: String) -> String {

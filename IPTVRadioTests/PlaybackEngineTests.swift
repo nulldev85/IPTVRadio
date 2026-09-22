@@ -53,15 +53,20 @@ final class StubEndpointResolver: StreamEndpointResolving, @unchecked Sendable {
 /// Stub out-of-stream song source for tests.
 final class StubSongProvider: SongInfoProviding, @unchecked Sendable {
     var update: StreamMetadataUpdate?
+    var note: String?
     let sourceName: String
+    /// Counts lookups, so a test can prove a source was (or was not) asked.
+    private(set) var askCount = 0
 
-    init(sourceName: String = "stub source", update: StreamMetadataUpdate? = nil) {
+    init(sourceName: String = "stub source", update: StreamMetadataUpdate? = nil, note: String? = nil) {
         self.sourceName = sourceName
         self.update = update
+        self.note = note
     }
 
-    func currentSong(for station: RadioStation) async -> StreamMetadataUpdate? {
-        update
+    func currentSong(for station: RadioStation) async -> SongLookup {
+        askCount += 1
+        return SongLookup(update: update, note: note)
     }
 }
 
@@ -750,6 +755,86 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(engine.nowPlayingMetadata?.title, "The Heat with a guest DJ")
         XCTAssertNil(engine.nowPlayingMetadata?.artist, "Programme info carries no artist, so no album art is attempted")
         XCTAssertEqual(engine.streamDiagnostics?.songInfoSource, "provider EPG")
+    }
+
+    @MainActor
+    func testDiagnosticsReportWhatEverySongSourceAnswered() async {
+        // "No song is showing" has at least five causes that look identical on
+        // the now-playing bar: no EPG id, an empty EPG, an EPG listing a show, a
+        // metadata host refusing the request, and no network. They need
+        // different fixes, and the app is installed from CI artifacts onto a
+        // device with no console — so the reason has to reach the screen.
+        let epg = StubSongProvider(
+            sourceName: "provider EPG",
+            update: StreamMetadataUpdate(title: "Mark Strigl on Ozzy's Boneyard", artist: nil, artworkData: nil),
+            note: "show info only, no track"
+        )
+        let broadcaster = StubSongProvider(
+            sourceName: "SiriusXM channel metadata",
+            update: nil,
+            note: "ozzysboneyard: HTTP 404"
+        )
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [epg, broadcaster]
+        )
+        let s = RadioStation(
+            name: "Ozzy's Boneyard",
+            streamURL: URL(string: "https://host.example/live/u/p/79.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "79"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<50 where (engine.streamDiagnostics?.songSources.count ?? 0) < 2 {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        let reports = engine.streamDiagnostics?.songSources ?? []
+        XCTAssertEqual(reports.map(\.source), ["provider EPG", "SiriusXM channel metadata"])
+        XCTAssertEqual(reports.first?.outcome, .programme)
+        XCTAssertEqual(reports.first?.detail, "show info only, no track")
+        XCTAssertEqual(reports.last?.outcome, .nothing)
+        XCTAssertEqual(
+            reports.last?.detail, "ozzysboneyard: HTTP 404",
+            "The broadcaster's status is the whole diagnosis when the EPG only has a show"
+        )
+        XCTAssertTrue(
+            engine.streamDiagnostics?.songInfoIsProgrammeOnly ?? false,
+            "A show name on screen must not be reported as though the song came from that source"
+        )
+    }
+
+    @MainActor
+    func testASourceIsNotAskedOnceAnEarlierOneSuppliedATrack() async {
+        let broadcaster = StubSongProvider(
+            sourceName: "SiriusXM channel metadata",
+            update: StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil)
+        )
+        let extra = StubSongProvider(sourceName: "last resort", update: nil)
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [broadcaster, extra]
+        )
+        let s = RadioStation(
+            name: "90s on 9",
+            streamURL: URL(string: "https://host.example/live/u/p/80.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "80"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<50 where engine.nowPlayingMetadata?.artist == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(engine.streamDiagnostics?.songSources.map(\.outcome), [.song])
+        XCTAssertEqual(extra.askCount, 0, "A track is the best answer available; nothing after it is worth asking")
+        XCTAssertFalse(engine.streamDiagnostics?.songInfoIsProgrammeOnly ?? true)
     }
 
     // MARK: Stream-format candidates

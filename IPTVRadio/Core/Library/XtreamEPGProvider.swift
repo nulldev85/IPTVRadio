@@ -4,7 +4,7 @@ import Foundation
 /// Radio panels commonly expose the current song there even though their
 /// streams carry no metadata.
 protocol ShortEPGProviding: Sendable {
-    func currentSongInfo(streamID: String) async -> StreamMetadataUpdate?
+    func currentSongInfo(streamID: String) async -> SongLookup
 }
 
 /// Xtream implementation: reads the provider's short EPG for the stream and
@@ -18,12 +18,19 @@ final class XtreamEPGProvider: ShortEPGProviding, @unchecked Sendable {
         self.http = http
     }
 
-    func currentSongInfo(streamID: String) async -> StreamMetadataUpdate? {
+    func currentSongInfo(streamID: String) async -> SongLookup {
         guard let stored = await credentials.load(),
               let xtream = stored.xtream,
-              let client = try? XtreamClient(credentials: xtream, http: http) else { return nil }
-        guard let entries = try? await client.shortEPG(streamID: streamID), !entries.isEmpty else { return nil }
-        guard let entry = Self.currentEntry(in: entries) else { return nil }
+              let client = try? XtreamClient(credentials: xtream, http: http) else {
+            return .empty("no provider credentials")
+        }
+        guard let entries = try? await client.shortEPG(streamID: streamID) else {
+            return .empty("EPG request failed")
+        }
+        guard !entries.isEmpty else { return .empty("EPG is empty for this channel") }
+        guard let entry = Self.currentEntry(in: entries) else {
+            return .empty("no listing on air")
+        }
 
         // The title is the listing. A song appears there as "Artist - Title";
         // anything else is programme information, such as a show name.
@@ -35,7 +42,7 @@ final class XtreamEPGProvider: ShortEPGProviding, @unchecked Sendable {
         // shown as the current track and sent to the music catalogue for album
         // art. It is only consulted when there is no title at all.
         guard let text = EPGText.decoded(entry.title) ?? EPGText.decoded(entry.description) else {
-            return nil
+            return .empty("listing has no text")
         }
 
         let parsed = StreamMetadataParser.splittingCombinedTitle(
@@ -43,14 +50,17 @@ final class XtreamEPGProvider: ShortEPGProviding, @unchecked Sendable {
         )
         if parsed.artist != nil {
             AppLogger.playback.info("EPG listing parsed as a song")
-            return parsed
+            return .found(parsed)
         }
 
         // Programme information. Worth displaying, but it is not a track —
         // returning it without an artist is what keeps it out of the album-art
         // lookup, which would otherwise search for a show title.
         AppLogger.playback.info("EPG listing carries programme info only, no song")
-        return StreamMetadataUpdate(title: text, artist: nil, artworkData: nil)
+        return .found(
+            StreamMetadataUpdate(title: text, artist: nil, artworkData: nil),
+            note: "show info only, no track"
+        )
     }
 
     /// Picks the listing that is actually on air.
