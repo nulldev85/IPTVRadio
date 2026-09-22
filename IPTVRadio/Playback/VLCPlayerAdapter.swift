@@ -65,6 +65,8 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
 
     var playbackProgress: Double? { progressTicks }
 
+    var engineKind: PlaybackEngineKind { .vlc }
+
     func load(url: URL) {
         hasReportedReady = false
         hasReportedFailure = false

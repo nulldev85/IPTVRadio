@@ -57,6 +57,11 @@ protocol AudioPlayerControlling: AnyObject {
     /// buffering notification — live engines emit those routinely while
     /// perfectly healthy, and acting on one tears down a working stream.
     var playbackProgress: Double? { get }
+    /// Which engine this actually is. Read from the player rather than from
+    /// the setting, because the setting only takes effect on the next launch —
+    /// after changing it the two disagree, and diagnostics must report what is
+    /// really playing.
+    var engineKind: PlaybackEngineKind { get }
     func load(url: URL)
     func play()
     func pause()
@@ -66,6 +71,7 @@ protocol AudioPlayerControlling: AnyObject {
 extension AudioPlayerControlling {
     var startupGracePeriod: TimeInterval { 0 }
     var playbackProgress: Double? { nil }
+    var engineKind: PlaybackEngineKind { .avplayer }
 }
 
 /// AVPlayer-backed audio player for live HTTP/HLS radio streams.
@@ -570,7 +576,7 @@ final class PlaybackEngine: ObservableObject {
     func retryPreferredFormats() {
         guard let station = state.station ?? pendingStation else { return }
         if let primary = station.streamCandidates.first {
-            candidateCache.forget(for: primary)
+            candidateCache.forget(for: primary, engine: player.engineKind)
         }
         AppLogger.playback.info("Re-probing stream formats from the preferred option")
         play(station)
@@ -648,7 +654,7 @@ final class PlaybackEngine: ObservableObject {
         // Skip endpoints that failed last time: start at the remembered winner.
         if candidateIndex == 0,
            let primary = streamCandidates.first,
-           let remembered = candidateCache.successfulURL(for: primary),
+           let remembered = candidateCache.successfulURL(for: primary, engine: player.engineKind),
            let index = streamCandidates.firstIndex(where: { $0.absoluteString == remembered }) {
             candidateIndex = index
             startedAtRememberedEndpoint = index > 0
@@ -1014,7 +1020,7 @@ final class PlaybackEngine: ObservableObject {
             audioFormat: sample.audioFormat,
             lastFormatFailure: lastFormatFailure,
             songInfoFromStream: receivedSongInfoFromStream,
-            playbackEngine: settings.playbackEngine,
+            playbackEngine: player.engineKind,
             candidates: candidateReports(),
             startedAtRememberedEndpoint: startedAtRememberedEndpoint
         )
@@ -1083,7 +1089,7 @@ final class PlaybackEngine: ObservableObject {
         if let station = state.station {
             // Remember which endpoint worked so the next play starts there.
             if let played = activePlaybackURL, let primary = streamCandidates.first {
-                candidateCache.record(played, for: primary)
+                candidateCache.record(played, for: primary, engine: player.engineKind)
             }
             AppLogger.playback.info("Stream ready (format \(self.candidateIndex + 1) of \(max(self.streamCandidates.count, 1)))")
             state = .playing(station)
