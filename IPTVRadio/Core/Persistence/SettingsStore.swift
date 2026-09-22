@@ -20,7 +20,7 @@ enum PlaybackEngineKind: String, CaseIterable, Identifiable, Codable {
         case .vlc:
             return "Plays the widest range of provider streams, including raw MPEG-TS and audio-only endpoints."
         case .avplayer:
-            return "Apple's built-in engine. Use it if the compatibility engine has trouble with your provider."
+            return "Apple's built-in engine. Reads song titles a stream embeds as ID3, but cannot play raw MPEG-TS — a provider that serves it falls back to a re-packaged HLS copy, which sounds worse."
         }
     }
 }
