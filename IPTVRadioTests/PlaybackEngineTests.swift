@@ -733,6 +733,41 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testForgetRememberedFormatStopsWithoutReplaying() async {
+        // Retrying replays at once, so a connection is open again exactly when
+        // the preferred endpoints are probed — and a panel that caps
+        // connections refuses a second one with the same 403 it uses for a
+        // format it will not serve. Stopping instead lets the next play probe
+        // with nothing else open, which is the only way to tell those apart.
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let mp3 = URL(string: "https://edge.example.net/live/u/p/3.mp3")!
+        let ts = URL(string: "https://edge.example.net/live/u/p/3.ts")!
+        let s = RadioStation(
+            name: "Clean probe",
+            streamURL: mp3,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [ts]
+        )
+
+        engine.play(s)
+        player.simulateFailure("mp3 unavailable")
+        player.simulateReady()
+        let loadsBeforeForgetting = player.loadedURLs.count
+
+        engine.forgetRememberedFormat()
+        XCTAssertEqual(engine.state, .stopped(nil), "Forgetting must stop, not replay")
+        XCTAssertEqual(
+            player.loadedURLs.count, loadsBeforeForgetting,
+            "Nothing may be loaded: an open connection is what confuses the probe"
+        )
+
+        // The next play starts at the preferred format again.
+        engine.play(s)
+        XCTAssertEqual(player.loadedURLs.last, mp3)
+    }
+
+    @MainActor
     func testSkippedCandidatesAreReportedAsSkippedNotUntried() async {
         let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
         let mp3 = URL(string: "https://edge.example.net/live/u/p/2.mp3")!

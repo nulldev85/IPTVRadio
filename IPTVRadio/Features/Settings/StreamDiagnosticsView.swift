@@ -76,12 +76,17 @@ struct StreamDiagnosticsView: View {
                             playback.retryPreferredFormats()
                         }
                         .accessibilityIdentifier("diagnostics.retryPreferredFormats")
+                        Button("Forget format and stop") {
+                            playback.forgetRememberedFormat()
+                        }
+                        .accessibilityIdentifier("diagnostics.forgetRememberedFormat")
                     } header: {
                         Text("Stream formats tried")
                     } footer: {
-                        Text(diagnostics.startedAtRememberedEndpoint
+                        Text("Retrying replays the station straight away, so a connection is open again while the preferred formats are probed — and a panel that caps connections refuses a second one with the same 403 it uses for a format it will not serve. To tell those apart, use “Forget format and stop”, wait a minute for the provider to release the connection, then play the station again: the probe then runs with nothing else open.\n\n"
+                             + (diagnostics.startedAtRememberedEndpoint
                              ? "This station starts on a remembered endpoint, so the formats above it are skipped rather than retried. That keeps starts fast, but the audio-only formats (MP3/AAC) are the ones that carry per-song titles — retry to probe them again."
-                             : "Formats are tried in order. The audio-only ones (MP3/AAC) are preferred: they carry the original audio and are the only formats that publish per-song titles.")
+                             : "Formats are tried in order. The audio-only ones (MP3/AAC) are preferred: they carry the original audio and are the only formats that publish per-song titles."))
                     }
                 }
 

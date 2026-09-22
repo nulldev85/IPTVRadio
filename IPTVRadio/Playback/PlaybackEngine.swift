@@ -565,6 +565,25 @@ final class PlaybackEngine: ObservableObject {
         play(station)
     }
 
+    /// Forgets the remembered endpoint and stops, without replaying.
+    ///
+    /// `retryPreferredFormats()` replays at once, which reopens a connection to
+    /// the provider at the very moment the preferred endpoints are probed. On a
+    /// panel that caps concurrent connections that is itself a cause of
+    /// failure, and the panel answers a refused format and a refused second
+    /// connection with the same 403 — so a retry cannot tell them apart.
+    ///
+    /// Clearing the memo and stopping leaves the next manual play to probe from
+    /// the top with nothing else open, which can.
+    func forgetRememberedFormat() {
+        guard let station = state.station ?? pendingStation else { return }
+        if let primary = station.streamCandidates.first {
+            candidateCache.forget(for: primary, engine: player.engineKind)
+        }
+        AppLogger.playback.info("Forgot the remembered format and stopped; the next play probes from the top")
+        stop()
+    }
+
     /// Forgets the remembered endpoint for this station and replays from the
     /// preferred stream format.
     ///
