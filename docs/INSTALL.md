@@ -2,11 +2,48 @@
 
 ## Which artifact do I have?
 
+Every workflow run produces the first two; the third appears only when signing
+secrets are configured.
+
 | Artifact | Installable on iPhone? |
 | --- | --- |
 | `IPTVRadio-unsigned-simulator-build` | **No.** Diagnostic build for the iOS Simulator (Xcode ▸ Devices & Simulators, or `xcrun simctl install`). Cannot be installed on physical devices. |
+| `IPTVRadio-unsigned-device-ipa` | **Not directly.** A real arm64 device build (`Payload/IPTVRadio.app`, iphoneos SDK, Release) with signing disabled. iOS refuses unsigned code, so it must be re-signed first — see below. |
 | `IPTVRadio-signed-ipa` | **Yes**, when installed through a method authorized by its provisioning profile (below). |
 | GitHub Release `v*` asset | Same as the IPA above when the release contains a signed IPA; the simulator-only asset is diagnostic. |
+
+CI can always *build* a device IPA, but it can only *sign* one when the signing
+secrets in `docs/SECRETS.md` are present — a signing certificate and provisioning
+profile are issued by Apple against a developer account, so no workflow
+configuration can substitute for them. Until they are set, `SIGNING_SECRETS_PRESENT`
+is `false` in the Package App job log and the signing steps are skipped by design.
+
+## Testing a change without any signing setup
+
+In rough order of least friction:
+
+1. **Build and run from Xcode** (needs a Mac, no paid account). Open
+   `IPTVRadio.xcodeproj`, pick your iPhone, set Signing & Capabilities to your
+   personal team, and press Cmd+R. Xcode signs it for you with a free Apple ID —
+   the provisioning lasts 7 days, which is ample for testing, and you get live
+   Console output.
+2. **Install the simulator build** (needs a Mac). Real streams play, so playback
+   behaviour is exercised; background audio, route changes and on-device CPU cost
+   are not representative.
+3. **Re-sign the unsigned device IPA** (no Mac required). See below.
+
+## Re-signing the unsigned device IPA
+
+`IPTVRadio-unsigned-device-ipa` is packaged in the layout re-signing tools expect,
+so it can be signed with your own Apple ID and installed on your own device. The
+app imposes no requirement here, and any third-party tool must be used in line
+with its own terms. Two notes specific to this app:
+
+- The default bundle identifier is `com.example.IPTVRadio`. Free Apple ID signing
+  needs an identifier unique to you, so override it when re-signing (or build with
+  `IPTVRADIO_BUNDLE_IDENTIFIER=com.yourname.IPTVRadio`).
+- VLCKit is an embedded framework. Whatever re-signs the app must re-sign embedded
+  frameworks too, or the app will crash at launch.
 
 ## Install a signed IPA
 
