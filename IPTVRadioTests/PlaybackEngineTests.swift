@@ -635,6 +635,43 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testOnlyARealTitleCountsAsStreamSuppliedSongInfo() async {
+        // receivedSongInfoFromStream switches off the provider's EPG, which for
+        // streams carrying no metadata is the only source of the current song.
+        // Artwork alone must not set it; a real title must.
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        let s = station("song-info-flag")
+        engine.play(s)
+        player.simulateReady()
+
+        func refreshDiagnostics() {
+            player.onDiagnostics?(StreamDiagnosticsSample(
+                streamExtension: "ts",
+                indicatedBitrate: nil,
+                observedBitrate: nil,
+                averageAudioBitrate: nil,
+                audioTrackDataRate: nil,
+                mediaRequests: 1
+            ))
+        }
+
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+        player.onMetadata?(StreamMetadataUpdate(title: nil, artist: nil, artworkData: png))
+        refreshDiagnostics()
+        XCTAssertFalse(
+            engine.streamDiagnostics?.songInfoFromStream ?? true,
+            "Artwork with no title must leave the EPG as the song source"
+        )
+
+        player.onMetadata?(StreamMetadataUpdate(title: "Digital Love", artist: "Daft Punk", artworkData: nil))
+        refreshDiagnostics()
+        XCTAssertTrue(
+            engine.streamDiagnostics?.songInfoFromStream ?? false,
+            "A real title from the stream must take precedence over the EPG"
+        )
+    }
+
+    @MainActor
     func testQuickStreamEndSkipsToNextFormat() async {
         let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
         let primary = URL(string: "https://edge.example.net/live/u/p/finite.ts")!

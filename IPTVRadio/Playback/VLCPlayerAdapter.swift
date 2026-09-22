@@ -43,6 +43,9 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     private var lastEmittedMetadata: StreamMetadataUpdate?
     /// Safety net behind libVLC's meta-changed callback (see `pollMetadata`).
     private var metadataTimer: Timer?
+    /// File name of the loaded stream, used to recognise libVLC's fallback
+    /// title (see `StreamMetadataParser.isStreamFileName`).
+    private var mediaFileName: String?
 
     override init() {
         super.init()
@@ -73,6 +76,7 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
         // after a stall — comes through here, so the stop belongs here.
         player.stop()
         loadedAt = Date()
+        mediaFileName = url.lastPathComponent
 
         let media = VLCMedia(url: url)
         // Live-radio tuning:
@@ -119,6 +123,7 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     func stop() {
         stopMetadataPolling()
         lastEmittedMetadata = nil
+        mediaFileName = nil
         player.stop()
         player.media = nil
         loadedAt = nil
@@ -161,8 +166,15 @@ fileprivate extension VLCPlayerAdapter {
     /// artist and title into album art through its artwork lookup.
     func emitMetadataIfChanged() {
         guard let meta = player.media?.metaData else { return }
+        // `nowPlaying` is the ICY/Shoutcast field and is always a real song.
+        // `title` is only a song when it is not libVLC's file-name fallback —
+        // accepting that both shows a file name as the track and stops the
+        // engine consulting the provider's EPG.
+        let title = trimmed(meta.nowPlaying) ?? trimmed(meta.title).flatMap {
+            StreamMetadataParser.isStreamFileName($0, mediaFileName: mediaFileName) ? nil : $0
+        }
         var update = StreamMetadataUpdate(
-            title: trimmed(meta.nowPlaying) ?? trimmed(meta.title),
+            title: title,
             artist: trimmed(meta.artist) ?? trimmed(meta.albumArtist),
             artworkData: nil
         )

@@ -96,6 +96,38 @@ final class StreamMetadataParserTests: XCTestCase {
         XCTAssertEqual(split.title, " - Digital Love")
     }
 
+    // MARK: libVLC's file-name fallback
+    //
+    // libVLC reports the input's file name as `title` when a stream carries no
+    // tags. Accepting it shows "1079989.ts" as the song AND makes the engine
+    // stop consulting the provider's EPG, which for such streams is the only
+    // source of the current track.
+
+    func testRejectsTheStreamsOwnFileNameAsATitle() {
+        XCTAssertTrue(StreamMetadataParser.isStreamFileName("1079989.ts", mediaFileName: "1079989.ts"))
+    }
+
+    func testRejectsAFileNameEvenWithoutKnowingTheStreamsName() {
+        XCTAssertTrue(StreamMetadataParser.isStreamFileName("1079989.ts", mediaFileName: nil))
+        XCTAssertTrue(StreamMetadataParser.isStreamFileName("channel_42.m3u8", mediaFileName: nil))
+    }
+
+    func testFileNameMatchIgnoresCase() {
+        XCTAssertTrue(StreamMetadataParser.isStreamFileName("1079989.TS", mediaFileName: "1079989.ts"))
+    }
+
+    func testKeepsRealSongTitles() {
+        XCTAssertFalse(StreamMetadataParser.isStreamFileName("Digital Love", mediaFileName: "1079989.ts"))
+        XCTAssertFalse(StreamMetadataParser.isStreamFileName(
+            "Daft Punk - Digital Love", mediaFileName: "1079989.ts"
+        ))
+    }
+
+    func testKeepsATitleThatMerelyEndsInAContainerWord() {
+        // A real title with spaces is not a file name, even ending in ".mp3".
+        XCTAssertFalse(StreamMetadataParser.isStreamFileName("Digital Love.mp3", mediaFileName: nil))
+    }
+
     func testNowPlayingMetadataDecodesArtworkImage() {
         // Tiny valid 1x1 PNG.
         let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")

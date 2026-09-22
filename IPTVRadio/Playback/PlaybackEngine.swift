@@ -984,7 +984,11 @@ final class PlaybackEngine: ObservableObject {
     /// Song metadata (artist/title/artwork) arriving from the stream or EPG.
     private func handleMetadataUpdate(_ update: StreamMetadataUpdate, fromStream: Bool = true) {
         guard let station = state.station else { return }
-        if fromStream {
+        // Only a real title counts. This flag switches off the provider's EPG,
+        // so anything less — artwork alone, or a title the adapter could not
+        // vouch for — must not set it, or it silences the one source that has
+        // the song for streams carrying no metadata of their own.
+        if fromStream, let title = update.title, !title.isEmpty {
             receivedSongInfoFromStream = true
         }
         let metadata = NowPlayingMetadata(
@@ -1052,14 +1056,28 @@ final class PlaybackEngine: ObservableObject {
     /// the current song (radio panels commonly expose it there).
     private func startEPGPolling(for station: RadioStation) {
         epgTask?.cancel()
-        guard let provider = epgProvider, let streamID = station.xtreamStreamID, !streamID.isEmpty else { return }
+        guard let provider = epgProvider, let streamID = station.xtreamStreamID, !streamID.isEmpty else {
+            AppLogger.playback.info("No EPG song source for this station (no stream id)")
+            return
+        }
         epgTask = Task { [weak self] in
+            var loggedOutcome = false
             while !Task.isCancelled {
                 guard let self, self.wantsPlayback, self.state.station?.id == station.id else { return }
                 // Stream metadata takes precedence when it exists at all.
                 if self.receivedSongInfoFromStream { return }
-                if let update = await provider.currentSongInfo(streamID: streamID) {
+                let update = await provider.currentSongInfo(streamID: streamID)
+                if let update {
                     self.handleMetadataUpdate(update, fromStream: false)
+                }
+                // Logged once per station: whether the provider's EPG carries
+                // song info at all is the thing worth knowing when no track
+                // shows up, and it cannot be told apart from a silent stream
+                // without it. No titles or URLs are logged.
+                if !loggedOutcome {
+                    loggedOutcome = true
+                    let outcome = update == nil ? "returned nothing" : "supplied song info"
+                    AppLogger.playback.info("EPG song lookup \(outcome, privacy: .public)")
                 }
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
             }

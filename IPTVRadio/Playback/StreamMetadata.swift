@@ -73,6 +73,33 @@ enum StreamMetadataParser {
         return update
     }
 
+    /// True when a reported "title" is really just the stream's file name.
+    ///
+    /// libVLC falls back to the input's file name for `title` when a stream
+    /// carries no tags of its own, so a raw MPEG-TS channel reports something
+    /// like "1079989.ts". Treating that as a song is doubly wrong: it replaces
+    /// the station name with a file name on screen, and it convinces the engine
+    /// the stream supplies song info — which switches off the provider's EPG,
+    /// the only place channels like these publish the current track.
+    static func isStreamFileName(_ value: String, mediaFileName: String?) -> Bool {
+        let candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let mediaFileName,
+           candidate.caseInsensitiveCompare(mediaFileName) == .orderedSame {
+            return true
+        }
+        // Providers also report the bare name, and no song title carries a
+        // container extension.
+        let containers: Set<String> = [
+            "ts", "m3u8", "m3u", "mpd", "mp3", "aac", "aacp", "m4a", "mp4", "mkv"
+        ]
+        guard containers.contains((candidate as NSString).pathExtension.lowercased()) else {
+            return false
+        }
+        // Require a file-name-shaped stem, so a genuine title that happens to
+        // end in one of those words is kept.
+        return !(candidate as NSString).deletingPathExtension.contains(" ")
+    }
+
     private static func isTitle(_ item: AVMetadataItem) -> Bool {
         if item.identifier == .id3MetadataTitleDescription { return true }
         if item.commonKey == .commonKeyTitle { return true }
