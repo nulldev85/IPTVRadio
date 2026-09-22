@@ -426,6 +426,11 @@ final class PlaybackEngine: ObservableObject {
     private var receivedSongInfoFromStream = false
     /// Which out-of-stream source supplied the current song, for diagnostics.
     private var songInfoSource: String?
+    /// Last sample published, so diagnostics can be rebuilt when something
+    /// other than the player changes. The compatibility engine emits a sample
+    /// only once, at startup, so without this every field derived from engine
+    /// state stays frozen at the moment playback began.
+    private var lastDiagnosticsSample: StreamDiagnosticsSample?
     /// Polls the provider's EPG for song info when the stream carries none.
     private var epgTask: Task<Void, Never>?
     /// True when the listener paused on purpose, so route changes (headphones,
@@ -1021,6 +1026,14 @@ final class PlaybackEngine: ObservableObject {
         handleStreamProblem(station)
     }
 
+    /// Rebuilds diagnostics from the last sample, for state the player does not
+    /// report — the song source above all, which arrives seconds after the
+    /// engine's only sample on the compatibility engine.
+    private func refreshDiagnostics() {
+        guard let sample = lastDiagnosticsSample else { return }
+        handleDiagnosticsSample(sample)
+    }
+
     /// Playback is confirmed to be flowing again: drop the buffering indicator.
     private func markPlaybackFlowing() {
         guard case .playing = state, isBuffering else { return }
@@ -1040,6 +1053,7 @@ final class PlaybackEngine: ObservableObject {
 
     private func handleDiagnosticsSample(_ sample: StreamDiagnosticsSample) {
         guard let station = state.station else { return }
+        lastDiagnosticsSample = sample
         let probe = probeResultForActiveStation
         let usingAudioOnly = probe?.audioOnlyURL != nil && activePlaybackURL == probe?.audioOnlyURL
         streamDiagnostics = StreamDiagnostics(
@@ -1175,30 +1189,46 @@ final class PlaybackEngine: ObservableObject {
                 // A title from the stream itself outranks every other source.
                 if self.receivedSongInfoFromStream { return }
 
-                var answered: String?
-                var found: StreamMetadataUpdate?
+                // A title *with an artist* is a track; a title alone is
+                // programme information, such as a show name. The first
+                // non-nil answer is therefore not good enough to stop on: a
+                // panel whose EPG always names the current show would answer
+                // every time and the broadcaster — the one source that may
+                // have the actual song — would never be asked.
+                var song: (source: String, update: StreamMetadataUpdate)?
+                var programme: (source: String, update: StreamMetadataUpdate)?
                 for provider in self.songProviders {
-                    if let song = await provider.currentSong(for: station) {
-                        answered = provider.sourceName
-                        found = song
+                    let answer = await provider.currentSong(for: station)
+                    if Task.isCancelled { return }
+                    guard let answer else { continue }
+                    if let artist = answer.artist, !artist.isEmpty {
+                        song = (provider.sourceName, answer)
                         break
                     }
-                    if Task.isCancelled { return }
+                    if programme == nil {
+                        programme = (provider.sourceName, answer)
+                    }
                 }
 
                 // Re-checked after the awaits: the stream's own title can
                 // arrive while a slow source is being polled, and it wins.
                 if self.receivedSongInfoFromStream { return }
-                if let found {
-                    self.songInfoSource = answered
-                    self.handleMetadataUpdate(found, fromStream: false)
+                if let best = song ?? programme {
+                    self.songInfoSource = best.source
+                    self.handleMetadataUpdate(best.update, fromStream: false)
+                    // The compatibility engine publishes one sample at startup,
+                    // long before this; without a refresh the source shown in
+                    // diagnostics would stay "None answered" forever.
+                    self.refreshDiagnostics()
                 }
                 // Logged once per station: which source answered, or that none
                 // did, is the only way to tell a silent broadcaster from a
                 // lookup that is simply not reaching anything.
                 if !loggedOutcome {
                     loggedOutcome = true
-                    let outcome = answered ?? "no source had a song"
+                    let outcome = song.map { "song from \($0.source)" }
+                        ?? programme.map { "programme info only, from \($0.source)" }
+                        ?? "no source answered"
                     AppLogger.playback.info("Song lookup: \(outcome, privacy: .public)")
                 }
                 try? await Task.sleep(nanoseconds: 30_000_000_000)

@@ -678,17 +678,23 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testFirstSourceWithASongWinsAndIsNamedInDiagnostics() async {
-        // Sources are ordered most authoritative first; a later source must not
-        // override an earlier one that answered.
-        let silent = StubSongProvider(sourceName: "provider EPG", update: nil)
+    func testARealSongOutranksAnEarlierSourcesProgrammeInfo() async {
+        // The decisive case. A panel whose EPG always names the current show
+        // answers every poll, so stopping at the first non-nil answer meant the
+        // broadcaster — the only source that may carry the actual track — was
+        // never asked. A title with an artist is a song; a title alone is
+        // programme info and must not end the search.
+        let epg = StubSongProvider(
+            sourceName: "provider EPG",
+            update: StreamMetadataUpdate(title: "90s on 9 with a guest DJ", artist: nil, artworkData: nil)
+        )
         let broadcaster = StubSongProvider(
             sourceName: "SiriusXM channel metadata",
             update: StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil)
         )
         let (engine, player, _, _) = await makeEngine(
             defaults: makeIsolatedDefaults(),
-            songProviders: [silent, broadcaster]
+            songProviders: [epg, broadcaster]
         )
         let s = RadioStation(
             name: "90s on 9",
@@ -705,18 +711,45 @@ final class PlaybackEngineTests: XCTestCase {
         }
 
         XCTAssertEqual(engine.nowPlayingMetadata?.artist, "Drake")
-        player.onDiagnostics?(StreamDiagnosticsSample(
-            streamExtension: "ts",
-            indicatedBitrate: nil,
-            observedBitrate: nil,
-            averageAudioBitrate: nil,
-            audioTrackDataRate: nil,
-            mediaRequests: 1
-        ))
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Nokia")
+        // No further sample is pushed here on purpose: the compatibility engine
+        // emits exactly one, at startup, long before any lookup returns. The
+        // source must still be current, or the row cannot answer the question
+        // it exists for.
         XCTAssertEqual(
             engine.streamDiagnostics?.songInfoSource, "SiriusXM channel metadata",
-            "Diagnostics must name which source answered, so a quiet broadcaster reads differently from a lookup that never reached anything"
+            "Diagnostics must refresh when the song source changes, not stay frozen at playback start"
         )
+    }
+
+    @MainActor
+    func testProgrammeInfoIsUsedWhenNoSourceHasASong() async {
+        let epg = StubSongProvider(
+            sourceName: "provider EPG",
+            update: StreamMetadataUpdate(title: "The Heat with a guest DJ", artist: nil, artworkData: nil)
+        )
+        let broadcaster = StubSongProvider(sourceName: "SiriusXM channel metadata", update: nil)
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [epg, broadcaster]
+        )
+        let s = RadioStation(
+            name: "The Heat",
+            streamURL: URL(string: "https://host.example/live/u/p/78.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "78"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<50 where engine.nowPlayingMetadata?.title == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "The Heat with a guest DJ")
+        XCTAssertNil(engine.nowPlayingMetadata?.artist, "Programme info carries no artist, so no album art is attempted")
+        XCTAssertEqual(engine.streamDiagnostics?.songInfoSource, "provider EPG")
     }
 
     // MARK: Stream-format candidates
