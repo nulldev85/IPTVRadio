@@ -418,6 +418,11 @@ final class PlaybackEngine: ObservableObject {
     /// True when the listener paused on purpose, so route changes (headphones,
     /// Bluetooth) do not restart a stream they deliberately silenced.
     private var userPaused = false
+    /// What became of each stream-format candidate, keyed by its index.
+    private var candidateOutcomes: [Int: StreamCandidateReport.Outcome] = [:]
+    /// True when this play began at a remembered endpoint rather than the
+    /// preferred one.
+    private var startedAtRememberedEndpoint = false
 
     init(
         player: AudioPlayerControlling = AVAudioPlayerAdapter(),
@@ -474,6 +479,8 @@ final class PlaybackEngine: ObservableObject {
         streamCandidates = station.streamCandidates
         candidateIndex = 0
         candidatePlayedSuccessfully = false
+        candidateOutcomes = [:]
+        startedAtRememberedEndpoint = false
         streamDiagnostics = nil
         nowPlayingMetadata = nil
         probeResultForActiveStation = nil
@@ -552,6 +559,23 @@ final class PlaybackEngine: ObservableObject {
         play(station)
     }
 
+    /// Forgets the remembered endpoint for this station and replays from the
+    /// preferred stream format.
+    ///
+    /// The remembered endpoint keeps later plays fast, but it also means one
+    /// early failure can hold a station on a fallback format indefinitely. On a
+    /// radio app that is expensive: the audio-only endpoints tried first carry
+    /// both the better audio and the only per-song metadata a stream provides,
+    /// so there has to be a way to ask for them again.
+    func retryPreferredFormats() {
+        guard let station = state.station ?? pendingStation else { return }
+        if let primary = station.streamCandidates.first {
+            candidateCache.forget(for: primary)
+        }
+        AppLogger.playback.info("Re-probing stream formats from the preferred option")
+        play(station)
+    }
+
     func nextStation() {
         navigate(offset: 1)
     }
@@ -627,6 +651,12 @@ final class PlaybackEngine: ObservableObject {
            let remembered = candidateCache.successfulURL(for: primary),
            let index = streamCandidates.firstIndex(where: { $0.absoluteString == remembered }) {
             candidateIndex = index
+            startedAtRememberedEndpoint = index > 0
+            // Surfaced in diagnostics: otherwise the preferred formats look
+            // untried rather than deliberately jumped over.
+            for earlier in 0..<index where candidateOutcomes[earlier] == nil {
+                candidateOutcomes[earlier] = .skipped
+            }
         }
 
         let candidate = currentCandidateURL(for: station)
@@ -733,6 +763,8 @@ final class PlaybackEngine: ObservableObject {
     private func watchdogFired(station: RadioStation) {
         guard state.isBusy, wantsPlayback else { return }
         AppLogger.playback.error("Stream timed out; trying next option")
+        // Recorded so diagnostics distinguish a timeout from a refusal.
+        lastFormatFailure = "Timed out waiting for the stream to start."
         handleStreamProblem(station)
     }
 
@@ -756,6 +788,10 @@ final class PlaybackEngine: ObservableObject {
     private func handleStreamProblem(_ station: RadioStation) {
         cancelWatchdog()
         cancelStallWatchdog()
+        // A candidate that already played is not a failed format; it stalled.
+        if !candidatePlayedSuccessfully {
+            candidateOutcomes[candidateIndex] = .failed(lastFormatFailure)
+        }
         if !candidatePlayedSuccessfully, hasFurtherCandidates {
             candidateIndex += 1
             AppLogger.playback.info("Trying alternative stream format \(self.candidateIndex + 1) of \(self.streamCandidates.count)")
@@ -977,8 +1013,21 @@ final class PlaybackEngine: ObservableObject {
             availableVariants: probe?.variantCount,
             audioFormat: sample.audioFormat,
             lastFormatFailure: lastFormatFailure,
-            songInfoFromStream: receivedSongInfoFromStream
+            songInfoFromStream: receivedSongInfoFromStream,
+            candidates: candidateReports(),
+            startedAtRememberedEndpoint: startedAtRememberedEndpoint
         )
+    }
+
+    /// Every candidate for the current station and what became of it.
+    private func candidateReports() -> [StreamCandidateReport] {
+        streamCandidates.enumerated().map { offset, url in
+            StreamCandidateReport(
+                index: offset + 1,
+                format: url.pathExtension.lowercased(),
+                outcome: candidateOutcomes[offset] ?? .notTried
+            )
+        }
     }
 
     /// Song metadata (artist/title/artwork) arriving from the stream or EPG.
@@ -1028,6 +1077,7 @@ final class PlaybackEngine: ObservableObject {
         retryAttempts = 0
         isBuffering = false
         candidatePlayedSuccessfully = true
+        candidateOutcomes[candidateIndex] = .playing
         playbackStartedAt = Date()
         if let station = state.station {
             // Remember which endpoint worked so the next play starts there.

@@ -44,6 +44,36 @@ struct StreamDiagnosticsView: View {
                         LabeledContent("Media requests", value: "\(requests)")
                     }
                 }
+                if !diagnostics.candidates.isEmpty {
+                    Section {
+                        ForEach(diagnostics.candidates) { candidate in
+                            LabeledContent {
+                                Text(outcomeText(candidate.outcome))
+                                    .foregroundStyle(outcomeColor(candidate.outcome))
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(candidate.index). \(formatName(candidate.format))")
+                                    if case .failed(let reason) = candidate.outcome, let reason {
+                                        Text(reason)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                        Button("Retry preferred formats") {
+                            playback.retryPreferredFormats()
+                        }
+                        .accessibilityIdentifier("diagnostics.retryPreferredFormats")
+                    } header: {
+                        Text("Stream formats tried")
+                    } footer: {
+                        Text(diagnostics.startedAtRememberedEndpoint
+                             ? "This station starts on a remembered endpoint, so the formats above it are skipped rather than retried. That keeps starts fast, but the audio-only formats (MP3/AAC) are the ones that carry per-song titles — retry to probe them again."
+                             : "Formats are tried in order. The audio-only ones (MP3/AAC) are preferred: they carry the original audio and are the only formats that publish per-song titles.")
+                    }
+                }
+
                 Section {
                     Text("Updated \(diagnostics.updatedAt.formatted(date: .omitted, time: .standard))")
                         .font(.footnote)
@@ -80,6 +110,23 @@ struct StreamDiagnosticsView: View {
         case "m3u8": return "HLS (.m3u8)"
         case "": return "unknown"
         default: return streamExtension.uppercased()
+        }
+    }
+
+    private func outcomeText(_ outcome: StreamCandidateReport.Outcome) -> String {
+        switch outcome {
+        case .playing: return "Playing"
+        case .failed: return "Failed"
+        case .notTried: return "Not tried"
+        case .skipped: return "Skipped"
+        }
+    }
+
+    private func outcomeColor(_ outcome: StreamCandidateReport.Outcome) -> Color {
+        switch outcome {
+        case .playing: return .green
+        case .failed: return .orange
+        case .notTried, .skipped: return .secondary
         }
     }
 

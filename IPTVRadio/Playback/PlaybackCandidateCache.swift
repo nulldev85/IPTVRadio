@@ -21,6 +21,21 @@ final class PlaybackCandidateCache {
         return winners[primaryURL.absoluteString]
     }
 
+    /// Drops the remembered winner so the next play probes from the preferred
+    /// candidate again.
+    ///
+    /// The memo makes later plays fast, but it also means a single early
+    /// failure can keep a station on a fallback format for good — which for a
+    /// radio app costs both the better audio of the audio-only endpoints and
+    /// the song metadata only they carry. This is the way back.
+    func forget(for primaryURL: URL) {
+        lock.lock()
+        winners.removeValue(forKey: primaryURL.absoluteString)
+        let snapshot = winners
+        lock.unlock()
+        fileStore.save(snapshot, filename: filename)
+    }
+
     func record(_ successfulURL: URL, for primaryURL: URL) {
         lock.lock()
         winners[primaryURL.absoluteString] = successfulURL.absoluteString

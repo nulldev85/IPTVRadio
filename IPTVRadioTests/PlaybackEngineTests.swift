@@ -671,6 +671,96 @@ final class PlaybackEngineTests: XCTestCase {
         )
     }
 
+    // MARK: Stream-format candidates
+
+    @MainActor
+    func testDiagnosticsReportEveryCandidateOutcome() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let mp3 = URL(string: "https://edge.example.net/live/u/p/1.mp3")!
+        let ts = URL(string: "https://edge.example.net/live/u/p/1.ts")!
+        let hls = URL(string: "https://edge.example.net/live/u/p/1.m3u8")!
+        let s = RadioStation(
+            name: "Candidates",
+            streamURL: mp3,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [ts, hls]
+        )
+
+        engine.play(s)
+        player.simulateFailure("Cannot open the audio endpoint")
+        player.simulateReady()
+
+        let reports = engine.streamDiagnostics?.candidates ?? []
+        XCTAssertEqual(reports.map(\.format), ["mp3", "ts", "m3u8"])
+        if case .failed(let reason) = reports.first?.outcome {
+            XCTAssertNotNil(reason, "A rejected format should carry its reason")
+        } else {
+            XCTFail("The audio-only candidate must be recorded as failed, got \(String(describing: reports.first?.outcome))")
+        }
+        XCTAssertEqual(reports[1].outcome, .playing)
+        XCTAssertEqual(
+            reports[2].outcome, .notTried,
+            "A candidate never reached must not be reported as a failure"
+        )
+    }
+
+    @MainActor
+    func testRetryPreferredFormatsUnpinsARememberedEndpoint() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let mp3 = URL(string: "https://edge.example.net/live/u/p/1.mp3")!
+        let ts = URL(string: "https://edge.example.net/live/u/p/1.ts")!
+        let s = RadioStation(
+            name: "Pinned",
+            streamURL: mp3,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [ts]
+        )
+
+        engine.play(s)
+        player.simulateFailure("mp3 unavailable")
+        player.simulateReady()
+        engine.stop()
+
+        engine.play(s)
+        XCTAssertEqual(player.loadedURLs.last, ts, "Later plays start at the remembered endpoint")
+
+        // That memo is what can hold a station on a format carrying no song
+        // metadata, so asking for the preferred formats again has to work.
+        engine.retryPreferredFormats()
+        XCTAssertEqual(player.loadedURLs.last, mp3, "Retrying must probe the preferred format again")
+    }
+
+    @MainActor
+    func testSkippedCandidatesAreReportedAsSkippedNotUntried() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let mp3 = URL(string: "https://edge.example.net/live/u/p/2.mp3")!
+        let ts = URL(string: "https://edge.example.net/live/u/p/2.ts")!
+        let s = RadioStation(
+            name: "Skipping",
+            streamURL: mp3,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [ts]
+        )
+
+        engine.play(s)
+        player.simulateFailure("mp3 unavailable")
+        player.simulateReady()
+        engine.stop()
+
+        engine.play(s)
+        player.simulateReady()
+
+        let reports = engine.streamDiagnostics?.candidates ?? []
+        XCTAssertEqual(
+            reports.first?.outcome, .skipped,
+            "Jumped-over formats must read as skipped, not untried"
+        )
+        XCTAssertTrue(engine.streamDiagnostics?.startedAtRememberedEndpoint ?? false)
+    }
+
     @MainActor
     func testQuickStreamEndSkipsToNextFormat() async {
         let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
