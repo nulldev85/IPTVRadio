@@ -184,6 +184,12 @@ struct XtreamEPGEntry: Decodable, Equatable {
     var description: String?
     var start: String?
     var end: String?
+    /// Panels flag the listing that is on air with `now_playing`.
+    var nowPlaying: Int?
+    /// Unix timestamps. Preferred over `start`/`end`, which are formatted in
+    /// the panel's own timezone and cannot be compared to "now" reliably.
+    var startTimestamp: Double?
+    var stopTimestamp: Double?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: XtreamCodingKey.self)
@@ -191,6 +197,9 @@ struct XtreamEPGEntry: Decodable, Equatable {
         description = Lenient.string(c, .init(stringValue: "description"))
         start = Lenient.string(c, .init(stringValue: "start"))
         end = Lenient.string(c, .init(stringValue: "end"))
+        nowPlaying = Lenient.int(c, .init(stringValue: "now_playing"))
+        startTimestamp = Lenient.double(c, .init(stringValue: "start_timestamp"))
+        stopTimestamp = Lenient.double(c, .init(stringValue: "stop_timestamp"))
     }
 }
 

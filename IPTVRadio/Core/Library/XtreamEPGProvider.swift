@@ -23,20 +23,49 @@ final class XtreamEPGProvider: ShortEPGProviding, @unchecked Sendable {
               let xtream = stored.xtream,
               let client = try? XtreamClient(credentials: xtream, http: http) else { return nil }
         guard let entries = try? await client.shortEPG(streamID: streamID), !entries.isEmpty else { return nil }
+        guard let entry = Self.currentEntry(in: entries) else { return nil }
 
-        // The latest listing normally covers "now".
-        guard let entry = entries.last else { return nil }
-        let text = EPGText.decoded(entry.title)
-            ?? EPGText.decoded(entry.description)
-        guard let text, !text.isEmpty else { return nil }
+        // A song is reported as "Artist - Title". Panels use either field for
+        // it, and on a channel with real programming the other field holds the
+        // show name — so both are examined instead of trusting the title.
+        let texts = [EPGText.decoded(entry.title), EPGText.decoded(entry.description)]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+        guard let first = texts.first else { return nil }
 
-        if let separator = text.range(of: " - ") {
-            let artist = String(text[..<separator.lowerBound]).trimmingCharacters(in: .whitespaces)
-            let title = String(text[separator.upperBound...]).trimmingCharacters(in: .whitespaces)
-            if !artist.isEmpty, !title.isEmpty {
-                return StreamMetadataUpdate(title: title, artist: artist, artworkData: nil)
+        for text in texts {
+            let parsed = StreamMetadataParser.splittingCombinedTitle(
+                StreamMetadataUpdate(title: text, artist: nil, artworkData: nil)
+            )
+            if parsed.artist != nil {
+                AppLogger.playback.info("EPG listing parsed as a song")
+                return parsed
             }
         }
-        return StreamMetadataUpdate(title: text, artist: nil, artworkData: nil)
+
+        // Nothing song-shaped: this is programme information, such as a show
+        // name. Worth displaying, but it is not a track — returning it without
+        // an artist is what keeps it out of the album-art lookup, which would
+        // otherwise search the music catalogue for a show title.
+        AppLogger.playback.info("EPG listing carries programme info only, no song")
+        return StreamMetadataUpdate(title: first, artist: nil, artworkData: nil)
+    }
+
+    /// Picks the listing that is actually on air.
+    ///
+    /// Panels mark it with `now_playing`; otherwise the timestamps decide. The
+    /// previous fallback took the *last* listing, which is the one furthest in
+    /// the future: `get_short_epg` returns listings in ascending start order,
+    /// so "now" sits at the front, not the back.
+    static func currentEntry(in entries: [XtreamEPGEntry]) -> XtreamEPGEntry? {
+        if let flagged = entries.first(where: { ($0.nowPlaying ?? 0) == 1 }) {
+            return flagged
+        }
+        let now = Date().timeIntervalSince1970
+        let covering = entries.first { entry in
+            guard let start = entry.startTimestamp, let stop = entry.stopTimestamp else { return false }
+            return start <= now && now < stop
+        }
+        return covering ?? entries.first
     }
 }
