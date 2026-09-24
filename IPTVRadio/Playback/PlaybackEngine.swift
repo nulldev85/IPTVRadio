@@ -29,7 +29,6 @@ final class PlaybackEngine: ObservableObject {
     private let probeCache: HLSProbeCache
     private let candidateCache: PlaybackCandidateCache
     private let artworkLookup: ArtworkLookupService
-    private let endpointResolver: StreamEndpointResolving
     private let songProviders: [any SongInfoProviding]
 
     private var watchdogTask: Task<Void, Never>?
@@ -45,7 +44,7 @@ final class PlaybackEngine: ObservableObject {
     /// True once the current candidate has actually played successfully.
     private var candidatePlayedSuccessfully = false
     /// Async manifest probe (audio-only rendition discovery) for the current load.
-    private var resolveTask: Task<Void, Never>?
+    private var probeTask: Task<Void, Never>?
     private var probeResultForActiveStation: HLSProbeResult?
     private var activePlaybackURL: URL?
     /// Why the previously tried format failed (sanitized; no URLs).
@@ -64,8 +63,6 @@ final class PlaybackEngine: ObservableObject {
     private let songPollInterval: TimeInterval
     /// Online song-artwork lookup for streams with text-only metadata.
     private var artworkLookupTask: Task<Void, Never>?
-    /// Resolved (redirect-followed) audio endpoints, keyed by original URL.
-    private var resolvedURLs: [String: URL] = [:]
     /// True once the stream itself provided song metadata (ID3).
     private var receivedSongInfoFromStream = false
     /// Which out-of-stream source supplied the current song, for diagnostics.
@@ -118,7 +115,6 @@ final class PlaybackEngine: ObservableObject {
         probeCache: HLSProbeCache = HLSProbeCache(),
         candidateCache: PlaybackCandidateCache = PlaybackCandidateCache(),
         artworkLookup: ArtworkLookupService? = nil,
-        endpointResolver: StreamEndpointResolving = StreamRedirectResolver(),
         songProviders: [any SongInfoProviding] = [],
         stallTimeout: TimeInterval = 12,
         songPollInterval: TimeInterval = 30
@@ -133,7 +129,6 @@ final class PlaybackEngine: ObservableObject {
         self.probeCache = probeCache
         self.candidateCache = candidateCache
         self.artworkLookup = artworkLookup ?? ArtworkLookupService(http: http)
-        self.endpointResolver = endpointResolver
         self.songProviders = songProviders
         self.stallTimeout = stallTimeout
         self.songPollInterval = songPollInterval
@@ -152,7 +147,7 @@ final class PlaybackEngine: ObservableObject {
         watchdogTask?.cancel()
         retryTask?.cancel()
         stallTask?.cancel()
-        resolveTask?.cancel()
+        probeTask?.cancel()
         epgTask?.cancel()
         artworkLookupTask?.cancel()
     }
@@ -219,8 +214,8 @@ final class PlaybackEngine: ObservableObject {
 
     func stop() {
         wantsPlayback = false
-        resolveTask?.cancel()
-        resolveTask = nil
+        probeTask?.cancel()
+        probeTask = nil
         cancelWatchdog()
         cancelRetry()
         player.stop()
@@ -334,13 +329,13 @@ final class PlaybackEngine: ObservableObject {
     private func beginPlayback(_ station: RadioStation) {
         cancelWatchdog()
         cancelRetry()
-        // Before the early return below: a resolve or probe still running from
-        // the previous attempt calls `load` when it finishes, and its own guard
+        // Before the early return below: a probe still running from the
+        // previous attempt calls `load` when it finishes, and its own guard
         // (wants playback, same station) passes even when this attempt refused
         // to start — so a station blocked for being on cellular would begin
         // playing seconds later anyway.
-        resolveTask?.cancel()
-        resolveTask = nil
+        probeTask?.cancel()
+        probeTask = nil
 
         if !settings.cellularAllowed && connectivity.isCellular {
             state = .failed("Cellular streaming is off. Enable it in Settings or connect to Wi-Fi.", station)
@@ -372,7 +367,7 @@ final class PlaybackEngine: ObservableObject {
         // below cancel it before starting their own; the fast paths return
         // without ever reaching that line, so it is cancelled here for all of
         // them.
-        resolveTask?.cancel()
+        probeTask?.cancel()
 
         // Arm the watchdog before anything asynchronous. The probe and redirect
         // resolution below run on a shared session whose resource timeout is
@@ -407,47 +402,15 @@ final class PlaybackEngine: ObservableObject {
             load(candidate: cached.audioOnlyURL ?? candidate, probe: cached, station: station)
             return
         }
-        // .ts and other non-manifest candidates have nothing to probe, but
-        // audio-only endpoints commonly redirect, and resolving those
-        // redirects here reaches the provider's tiny audio-only stream instead
-        // of its multi-megabit video stream.
-        //
-        // This was added because AVPlayer refused those redirects outright
-        // (CFNetwork error 311). That engine is gone and libVLC follows
-        // redirects itself, so this may now be doing nothing — but whether it
-        // is needed for a redirecting endpoint on some other provider cannot
-        // be settled without a device, and the resolution is cached, so it is
-        // left in place rather than removed on a guess.
+        // Only an HLS manifest can be probed for an audio-only rendition;
+        // every other format goes straight to the player.
         guard candidate.pathExtension.lowercased() == "m3u8" else {
-            if isAudioOnlyEndpoint(candidate),
-               let cachedResolution = resolvedURLs[candidate.absoluteString] {
-                load(candidate: cachedResolution, probe: nil, station: station)
-                return
-            }
-            guard isAudioOnlyEndpoint(candidate) else {
-                load(candidate: candidate, probe: nil, station: station)
-                return
-            }
-            resolveTask?.cancel()
-            resolveTask = Task { [weak self] in
-                guard let self else { return }
-                let resolved = await self.endpointResolver.resolveFinalURL(for: candidate)
-                guard !Task.isCancelled,
-                      self.wantsPlayback,
-                      self.state.station?.id == station.id else { return }
-                if let resolved, resolved != candidate {
-                    self.resolvedURLs[candidate.absoluteString] = resolved
-                    AppLogger.playback.info("Resolved a redirected audio endpoint")
-                    self.load(candidate: resolved, probe: nil, station: station)
-                } else {
-                    self.load(candidate: candidate, probe: nil, station: station)
-                }
-            }
+            load(candidate: candidate, probe: nil, station: station)
             return
         }
 
-        resolveTask?.cancel()
-        resolveTask = Task { [weak self] in
+        probeTask?.cancel()
+        probeTask = Task { [weak self] in
             guard let self else { return }
             let probe = await self.hlsProbe.probe(url: candidate)
             guard !Task.isCancelled,
@@ -478,11 +441,6 @@ final class PlaybackEngine: ObservableObject {
         return streamCandidates[candidateIndex]
     }
 
-    /// True for unambiguously audio-only endpoints (mp3/aac family).
-    private func isAudioOnlyEndpoint(_ url: URL) -> Bool {
-        let ext = url.pathExtension.lowercased()
-        return ext == "mp3" || ext == "aac" || ext == "aacp" || ext == "m4a"
-    }
 
     /// True while there are further formats to try after the current one.
     private var hasFurtherCandidates: Bool {

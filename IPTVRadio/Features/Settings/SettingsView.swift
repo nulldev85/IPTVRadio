@@ -91,12 +91,6 @@ struct SettingsView: View {
                 .accessibilityIdentifier("settings.audioOnly")
             Toggle("Look up song artwork online", isOn: $settings.lookupSongArtwork)
                 .accessibilityIdentifier("settings.artworkLookup")
-            Picker("Stream format", selection: $settings.streamFormatPreference) {
-                ForEach(StreamFormatPreference.allCases) { preference in
-                    Text(preference.label).tag(preference)
-                }
-            }
-            .accessibilityIdentifier("settings.streamFormat")
             NavigationLink("Stream diagnostics") {
                 StreamDiagnosticsView()
             }

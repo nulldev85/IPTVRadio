@@ -1,32 +1,5 @@
 import Foundation
 
-/// User-selectable stream format order. Lets users A/B test audio quality on
-/// device, since providers differ in which format carries the original stream.
-enum StreamFormatPreference: String, CaseIterable, Identifiable, Codable {
-    /// Original MPEG-TS first (matches most IPTV players), HLS fallback.
-    case automatic
-    /// HLS manifest first, MPEG-TS fallback.
-    case hlsFirst
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .automatic: return "Automatic (recommended)"
-        case .hlsFirst: return "HLS first"
-        }
-    }
-
-    var detail: String {
-        switch self {
-        case .automatic:
-            return "Tries the provider's audio-only endpoints first (MP3/AAC), then the original MPEG-TS stream, then HLS."
-        case .hlsFirst:
-            return "Tries the audio-only endpoints first, then HLS before the MPEG-TS stream."
-        }
-    }
-}
-
 /// User preferences backed by UserDefaults, mirrored as @Published so SwiftUI
 /// reacts immediately. Contains no secrets.
 @MainActor
@@ -39,7 +12,6 @@ final class SettingsStore: ObservableObject {
         static let siriusOnly = "settings.siriusOnly"
         static let detectionRules = "settings.detectionRules"
         static let authMode = "settings.authMode"
-        static let streamFormatPreference = "settings.streamFormatPreference"
         static let preferAudioOnlyRendition = "settings.preferAudioOnlyRendition"
         static let lookupSongArtwork = "settings.lookupSongArtwork"
     }
@@ -66,9 +38,6 @@ final class SettingsStore: ObservableObject {
     /// Configurable detection rules.
     @Published var detectionRules: RadioDetectionRules { didSet { persistRules() } }
     /// Stream format order used when building playback candidates.
-    @Published var streamFormatPreference: StreamFormatPreference {
-        didSet { defaults.set(streamFormatPreference.rawValue, forKey: Keys.streamFormatPreference) }
-    }
     /// Prefer a stream's dedicated audio-only rendition over its video variant
     /// when the HLS manifest offers one (recommended for radio listening).
     @Published var preferAudioOnlyRendition: Bool {
@@ -88,9 +57,6 @@ final class SettingsStore: ObservableObject {
         showAllStations = defaults.object(forKey: Keys.showAllStations) as? Bool ?? true
         siriusOnly = defaults.object(forKey: Keys.siriusOnly) as? Bool ?? false
         authMode = AuthMode(rawValue: defaults.string(forKey: Keys.authMode) ?? "") ?? .xtream
-        streamFormatPreference = StreamFormatPreference(
-            rawValue: defaults.string(forKey: Keys.streamFormatPreference) ?? ""
-        ) ?? .automatic
         preferAudioOnlyRendition = defaults.object(forKey: Keys.preferAudioOnlyRendition) as? Bool ?? true
         lookupSongArtwork = defaults.object(forKey: Keys.lookupSongArtwork) as? Bool ?? true
 

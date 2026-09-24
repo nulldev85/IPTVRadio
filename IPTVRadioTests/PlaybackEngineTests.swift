@@ -41,15 +41,6 @@ final class StubAudioPlayer: AudioPlayerControlling {
     func setProgress(_ value: Double?) { progressReading = value }
 }
 
-/// Deterministic endpoint resolver for tests (no networking).
-final class StubEndpointResolver: StreamEndpointResolving, @unchecked Sendable {
-    var resolvedURL: URL?
-
-    func resolveFinalURL(for url: URL) async -> URL? {
-        resolvedURL
-    }
-}
-
 /// Stub out-of-stream song source for tests.
 final class StubSongProvider: SongInfoProviding, @unchecked Sendable {
     var update: StreamMetadataUpdate?
@@ -84,7 +75,6 @@ final class PlaybackEngineTests: XCTestCase {
         http: HTTPClient = URLSessionHTTPClient.providerDefault,
         audioOnlyProbe: Bool = false,
         artworkLookup: ArtworkLookupService? = nil,
-        endpointResolver: StreamEndpointResolving = StubEndpointResolver(),
         songProviders: [any SongInfoProviding] = [],
         stallTimeout: TimeInterval = 12,
         songPollInterval: TimeInterval = 30
@@ -110,7 +100,6 @@ final class PlaybackEngineTests: XCTestCase {
             probeCache: HLSProbeCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("probe-cache-\(UUID().uuidString)"))),
             candidateCache: PlaybackCandidateCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("candidate-cache-\(UUID().uuidString)"))),
             artworkLookup: artworkLookup,
-            endpointResolver: endpointResolver,
             songProviders: songProviders,
             stallTimeout: stallTimeout,
             songPollInterval: songPollInterval
@@ -1160,50 +1149,6 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     // MARK: Redirected audio endpoints
-
-    @MainActor
-    func testRedirectedAudioEndpointIsResolvedBeforePlayback() async {
-        let resolver = StubEndpointResolver()
-        resolver.resolvedURL = URL(string: "https://cdn.example.net/final/stream.mp3")!
-        let (engine, player, _, _) = await makeEngine(
-            defaults: makeIsolatedDefaults(),
-            audioOnlyProbe: true,
-            endpointResolver: resolver
-        )
-        let primary = URL(string: "https://host.example/live/u/p/1.mp3")!
-        let s = RadioStation(name: "Redirected", streamURL: primary, groupTitle: "Music Radio", source: .xtream)
-
-        engine.play(s)
-        for _ in 0..<50 where player.loadedURLs.isEmpty {
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-        XCTAssertEqual(
-            player.loadedURLs.first?.absoluteString,
-            "https://cdn.example.net/final/stream.mp3",
-            "The redirect-resolved audio endpoint should be played"
-        )
-        player.simulateReady()
-        XCTAssertEqual(engine.state, .playing(s))
-    }
-
-    @MainActor
-    func testUnresolvableAudioEndpointFallsBackToOriginalURL() async {
-        let resolver = StubEndpointResolver()
-        resolver.resolvedURL = nil
-        let (engine, player, _, _) = await makeEngine(
-            defaults: makeIsolatedDefaults(),
-            audioOnlyProbe: true,
-            endpointResolver: resolver
-        )
-        let primary = URL(string: "https://host.example/live/u/p/1.aac")!
-        let s = RadioStation(name: "Unresolved", streamURL: primary, groupTitle: "Music Radio", source: .xtream)
-
-        engine.play(s)
-        for _ in 0..<50 where player.loadedURLs.isEmpty {
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-        XCTAssertEqual(player.loadedURLs.first, primary, "Without a resolution the original endpoint is used")
-    }
 
     // MARK: EPG song info
 

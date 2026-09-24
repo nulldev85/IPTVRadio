@@ -72,8 +72,13 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
         // running, which surfaces as overlapping audio or a player that never
         // reports `playing` again. Every reload — format switch, reconnect
         // after a stall — comes through here, so the stop belongs here.
-        player.stop()
+        // Stamped before the stop, not after: stopping the previous media can
+        // surface its end/stop events within milliseconds, and those belong to
+        // the settling window too. Stamping afterwards left them outside it, so
+        // the guard in `mediaPlayerStateChanged` that exists to suppress them
+        // did not — the previous stream's ending was reported as this one's.
         loadedAt = Date()
+        player.stop()
 
         let media = VLCMedia(url: url)
         // Live-radio tuning:

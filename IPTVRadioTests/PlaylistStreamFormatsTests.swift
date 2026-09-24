@@ -4,33 +4,29 @@ import XCTest
 final class PlaylistStreamFormatsTests: XCTestCase {
     func testDerivesSiblingFormatForXtreamPattern() {
         let url = URL(string: "http://host.example:8080/live/user/pass/12345.m3u8?token=abc")!
-        let automatic = PlaylistStreamFormats.candidates(for: url, preference: .automatic)
-        XCTAssertEqual(automatic.count, 2)
-        XCTAssertEqual(automatic[0].pathExtension, "ts", "Automatic prefers the original MPEG-TS format")
-        XCTAssertEqual(automatic[1].pathExtension, "m3u8")
-        XCTAssertEqual(automatic[0].query, "token=abc", "Signed query parameters must be preserved")
-
-        let hlsFirst = PlaylistStreamFormats.candidates(for: url, preference: .hlsFirst)
-        XCTAssertEqual(hlsFirst[0].pathExtension, "m3u8")
-        XCTAssertEqual(hlsFirst[1].pathExtension, "ts")
+        let candidates = PlaylistStreamFormats.candidates(for: url)
+        XCTAssertEqual(candidates.count, 2)
+        XCTAssertEqual(candidates[0].pathExtension, "ts", "The original MPEG-TS format leads; HLS is usually the panel's transcode of it")
+        XCTAssertEqual(candidates[1].pathExtension, "m3u8")
+        XCTAssertEqual(candidates[0].query, "token=abc", "Signed query parameters must be preserved")
     }
 
-    func testTSPlaylistURLStaysPrimaryInAutomaticMode() {
+    func testTSPlaylistURLStaysPrimary() {
         let url = URL(string: "https://host.example:8080/live/user/pass/12345.ts")!
-        let automatic = PlaylistStreamFormats.candidates(for: url, preference: .automatic)
-        XCTAssertEqual(automatic[0].absoluteString, url.absoluteString)
-        XCTAssertEqual(automatic[1].pathExtension, "m3u8")
+        let candidates = PlaylistStreamFormats.candidates(for: url)
+        XCTAssertEqual(candidates[0].absoluteString, url.absoluteString)
+        XCTAssertEqual(candidates[1].pathExtension, "m3u8")
     }
 
     func testNonXtreamURLsAreLeftUntouched() {
         let cdn = URL(string: "https://cdn.example.net/rock/index.m3u8")!
-        XCTAssertEqual(PlaylistStreamFormats.candidates(for: cdn, preference: .automatic), [cdn])
+        XCTAssertEqual(PlaylistStreamFormats.candidates(for: cdn), [cdn])
 
         let mp3 = URL(string: "https://host.example:8000/live/user/pass/1.mp3")!
-        XCTAssertEqual(PlaylistStreamFormats.candidates(for: mp3, preference: .automatic), [mp3])
+        XCTAssertEqual(PlaylistStreamFormats.candidates(for: mp3), [mp3])
 
         let radioStream = URL(string: "https://ice.example.net/stream")!
-        XCTAssertEqual(PlaylistStreamFormats.candidates(for: radioStream, preference: .automatic), [radioStream])
+        XCTAssertEqual(PlaylistStreamFormats.candidates(for: radioStream), [radioStream])
     }
 
     @MainActor
@@ -50,8 +46,7 @@ final class PlaylistStreamFormatsTests: XCTestCase {
         let result = await service.refresh(
             credentials: M3UPlaylistCredentials(url: URL(string: "https://playlist.example/list.m3u")!),
             http: http,
-            rules: .default,
-            formatPreference: .automatic
+            rules: .default
         )
         guard case .success(let snapshot) = result, let station = snapshot.allRadioStations.first else {
             return XCTFail("Expected a station from the playlist, got \(result)")

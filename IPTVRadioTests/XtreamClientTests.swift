@@ -124,21 +124,22 @@ final class XtreamClientTests: XCTestCase {
         XCTAssertTrue(faction?.streamCandidates.contains { $0.absoluteString.hasPrefix("http://") } ?? false)
     }
     @MainActor
-    func testHLSFirstPreferenceOrdersCandidates() async {
+    func testAudioOnlyEndpointsLeadTheCandidateOrder() async {
+        // This is a radio app: the audio-only endpoints carry the provider's
+        // original audio, then the original MPEG-TS, and the panel's HLS
+        // transcode only as a last resort.
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("lib-test-\(UUID().uuidString)")
         let service = LibraryService(cache: StationCache(fileStore: JSONFileStore(directory: temp)))
         let result = await service.refresh(
             credentials: Fixtures.makeCredentials(),
             http: MockHTTP.xtreamClient(),
-            rules: .default,
-            formatPreference: .hlsFirst
+            rules: .default
         )
         guard case .success(let snapshot) = result else {
             return XCTFail("Expected success, got \(result)")
         }
         let hits = snapshot.allRadioStations.first { $0.name.contains("SiriusXM Hits 1") }
-        XCTAssertEqual(hits?.streamCandidates.map(\.pathExtension), ["mp3", "aac", "m3u8", "ts"],
-                       "Audio-only endpoints lead in every mode; the preference orders the muxed streams")
+        XCTAssertEqual(hits?.streamCandidates.map(\.pathExtension), ["mp3", "aac", "ts", "m3u8"])
     }
 
     // MARK: EPG (song info)
