@@ -105,8 +105,11 @@ final class IPTVRadioUITests: XCTestCase {
         if !close.waitForExistence(timeout: 8) {
             XCTFail("Now playing screen did not open or close control missing. Hierarchy:\n\(app.debugDescription)")
         }
+        // Three transport controls and no more: stop lives on the mini player.
         XCTAssertTrue(app.buttons["nowplaying.toggle"].exists)
-        XCTAssertTrue(app.buttons["nowplaying.stop"].exists)
+        XCTAssertTrue(app.buttons["nowplaying.previous"].exists)
+        XCTAssertTrue(app.buttons["nowplaying.next"].exists)
+        XCTAssertFalse(app.buttons["nowplaying.stop"].exists)
         XCTAssertTrue(app.buttons["nowplaying.sleepTimer"].exists)
 
         // Switching stations repeatedly works without leaving the player.

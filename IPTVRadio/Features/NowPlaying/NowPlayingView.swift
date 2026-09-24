@@ -17,144 +17,181 @@ struct NowPlayingView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let station = playback.state.station {
-                    content(for: station)
-                } else {
-                    EmptyStateView(title: "Nothing playing", message: "Pick a station to start listening.")
-                }
+        // No navigation bar: it reserves space at the top of the sheet, and the
+        // artwork is meant to reach the very edge of the screen. The in-body
+        // close control and the sheet's drag indicator are what dismiss this,
+        // so nothing is lost by dropping the bar.
+        Group {
+            if let station = playback.state.station {
+                content(for: station)
+            } else {
+                EmptyStateView(title: "Nothing playing", message: "Pick a station to start listening.")
             }
-            .navigationTitle("Now Playing")
-            .navigationBarTitleDisplayMode(.inline)
-            // Let the artwork run under the bar instead of being cut off by it.
-            .toolbarBackground(.hidden, for: .navigationBar)
         }
         // The backdrop is always a dark, scrimmed image, so the chrome on top
         // of it is styled for dark regardless of the system appearance. One
         // line here beats hand-colouring every label, material and icon.
         .preferredColorScheme(.dark)
         // The sheet stays swipe-to-dismissable; the drag indicator plus the
-        // always-visible in-body Close control (below) guarantee a reliable
-        // way back that does not depend on the system navigation bar.
+        // always-visible in-body Close control guarantee a reliable way back.
         .presentationDragIndicator(.visible)
     }
 
     private func content(for station: RadioStation) -> some View {
         GeometryReader { proxy in
-            // The artwork grows with the sheet but is capped against height as
-            // well as width, so the controls are never squeezed off the bottom
-            // of a small screen.
-            // Clamped at the bottom: a GeometryReader can report a zero size on
-            // an initial or transition pass, and `width - 48` would then be
-            // negative — an invalid frame and an out-of-range font size.
-            let artworkSize = max(120, min(proxy.size.width - 48, max(160, proxy.size.height * 0.40)))
+            // Roughly square and the full width of the screen, capped against
+            // height so the controls below are never pushed off a short one.
+            // Clamped at the bottom because a GeometryReader can report a zero
+            // size on an initial or transition pass, and a zero-height frame
+            // would collapse the artwork entirely.
+            let artworkHeight = max(200, min(proxy.size.width, proxy.size.height * 0.55))
 
-            VStack(spacing: 24) {
-                // Explicit close control rendered in the view body so dismissal
-                // never depends on the system navigation bar rendering.
-                HStack {
-                    Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Label("Close", systemImage: "xmark.circle.fill")
-                            .font(.headline)
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .accessibilityIdentifier("nowplaying.close")
-                    .accessibilityLabel("Close now playing screen")
-                }
+            VStack(spacing: 0) {
+                artwork(width: max(1, proxy.size.width), height: artworkHeight)
 
-                PlaybackArtwork(
-                    station: station,
-                    songArtwork: playback.nowPlayingMetadata?.artworkImage,
-                    size: artworkSize
-                )
-                // Lifts the sharp artwork off the blurred backdrop behind it.
-                .shadow(color: .black.opacity(0.5), radius: 24, y: 12)
-                .padding(.top, 12)
-
-                VStack(spacing: 6) {
-                    if let metadata = playback.nowPlayingMetadata,
-                       metadata.title != nil || metadata.artist != nil {
-                        // Current song from the stream's metadata.
-                        VStack(spacing: 2) {
-                            if let title = metadata.title {
-                                Text(title)
-                                    .font(.title3.weight(.semibold))
-                                    .multilineTextAlignment(.center)
+                VStack(spacing: 18) {
+                    VStack(spacing: 6) {
+                        if let metadata = playback.nowPlayingMetadata,
+                           metadata.title != nil || metadata.artist != nil {
+                            // The current song, from whichever source had it.
+                            VStack(spacing: 2) {
+                                if let title = metadata.title {
+                                    Text(title)
+                                        .font(.title3.weight(.semibold))
+                                        .multilineTextAlignment(.center)
+                                }
+                                if let artist = metadata.artist {
+                                    Text(artist)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.center)
+                                }
                             }
-                            if let artist = metadata.artist {
-                                Text(artist)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                            }
+                            .accessibilityIdentifier("nowplaying.song")
                         }
-                        .accessibilityIdentifier("nowplaying.song")
+                        Text(station.name)
+                            .font(playback.nowPlayingMetadata?.title == nil ? .title2.weight(.semibold) : .footnote)
+                            .foregroundStyle(playback.nowPlayingMetadata?.title == nil ? Color.primary : Color.secondary)
+                            .multilineTextAlignment(.center)
+                            .accessibilityIdentifier("nowplaying.title")
+                        Text(stateText)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(stateColor)
+                            .accessibilityIdentifier("nowplaying.state")
                     }
-                    Text(station.name)
-                        .font(playback.nowPlayingMetadata?.title == nil ? .title2.weight(.semibold) : .footnote)
-                        .foregroundStyle(playback.nowPlayingMetadata?.title == nil ? Color.primary : Color.secondary)
-                        .multilineTextAlignment(.center)
-                        .accessibilityIdentifier("nowplaying.title")
-                    if !station.groupTitle.isEmpty {
-                        Text(station.groupTitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+
+                    controlRow
+
+                    HStack(spacing: 28) {
+                        SleepTimerButton(showSheet: $showSleepTimerSheet)
+                        RoutePickerButton()
+                        Button {
+                            playback.retry()
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.title3)
+                        }
+                        .accessibilityLabel("Retry connection")
+                        .accessibilityIdentifier("nowplaying.retry")
                     }
-                    Text(stateText)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(stateColor)
-                        .accessibilityIdentifier("nowplaying.state")
-                }
 
-                Spacer()
-
-                controlRow
-
-                if let diagnostics = playback.streamDiagnostics {
-                    StreamDiagnosticsSummaryCard(diagnostics: diagnostics)
-                }
-
-                HStack(spacing: 28) {
-                    SleepTimerButton(showSheet: $showSleepTimerSheet)
-                    RoutePickerButton()
-                    Button {
-                        playback.retry()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.title3)
+                    if let diagnostics = playback.streamDiagnostics {
+                        StreamDiagnosticsSummaryCard(diagnostics: diagnostics)
                     }
-                    .accessibilityLabel("Retry connection")
-                    .accessibilityIdentifier("nowplaying.retry")
                 }
-                .padding(.bottom, 24)
+                .padding(.horizontal, 24)
+                .padding(.top, 22)
+
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(NowPlayingBackdrop(image: backdropImage))
+            // Dismissal must never depend on the system navigation bar
+            // rendering, and the artwork now fills the top of the screen — so
+            // the close control floats over it instead of sitting above it.
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white, .black.opacity(0.35))
+                }
+                .padding(.trailing, 18)
+                .padding(.top, 14)
+                .accessibilityIdentifier("nowplaying.close")
+                .accessibilityLabel("Close now playing screen")
+            }
         }
         .sheet(isPresented: $showSleepTimerSheet) {
             SleepTimerSheet()
         }
         .task(id: station.id) {
-            // The channel logo backs the screen when the stream carries no
-            // song artwork.
+            // The channel logo stands in for artwork whenever no source has
+            // supplied a cover for the current song.
             stationLogo = nil
             guard let url = station.logoURL else { return }
             stationLogo = await ArtworkCache.shared.image(for: url)
         }
     }
 
+    /// The artwork, full width and bleeding off the top of the screen.
+    ///
+    /// Scaled to fill and clipped rather than fitted: a cover whose aspect
+    /// ratio does not match the frame should crop like a photograph instead of
+    /// leaving bars down the sides. The gradient along the bottom edge melts
+    /// the image into the page so there is no hard seam between them.
+    @ViewBuilder
+    private func artwork(width: CGFloat, height: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            if let image = playback.nowPlayingMetadata?.artworkImage ?? stationLogo {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: width, height: height)
+                    .clipped()
+            } else {
+                // Nothing to show yet: a tint rather than a void, so the screen
+                // looks deliberate while the artwork is still loading.
+                LinearGradient(
+                    colors: [Color.accentColor.opacity(0.35), Color.black.opacity(0.6)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .frame(width: width, height: height)
+                .overlay {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .font(.system(size: 64))
+                        .foregroundStyle(.white.opacity(0.35))
+                }
+            }
+
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.55)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: max(1, height * 0.3))
+        }
+        .frame(width: width, height: height)
+        .clipped()
+        .accessibilityHidden(true)
+        .ignoresSafeArea(edges: .top)
+    }
+
+    /// Transport: previous station, play/pause, next station.
+    ///
+    /// Three controls, drawn as plain solid glyphs with no plate behind them.
+    /// Stop is deliberately absent — the mini player carries it, and a live
+    /// radio screen reads better without a fourth control competing with the
+    /// play button.
     private var controlRow: some View {
-        HStack(spacing: 40) {
+        HStack(spacing: 52) {
             Button {
                 playback.previousStation()
             } label: {
-                Image(systemName: "backward.end.fill")
-                    .font(.title2)
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 32, weight: .semibold))
             }
             .accessibilityLabel("Previous station")
             .accessibilityIdentifier("nowplaying.previous")
@@ -163,10 +200,8 @@ struct NowPlayingView: View {
                 playback.togglePlayPause()
             } label: {
                 Image(systemName: mainButtonIcon)
-                    .font(.system(size: 44))
-                    .frame(width: 88, height: 88)
-                    .background(Color(.secondarySystemFill))
-                    .clipShape(Circle())
+                    .font(.system(size: 46, weight: .semibold))
+                    .frame(width: 56, height: 56)
             }
             .accessibilityLabel(mainButtonLabel)
             .accessibilityIdentifier("nowplaying.toggle")
@@ -174,21 +209,13 @@ struct NowPlayingView: View {
             Button {
                 playback.nextStation()
             } label: {
-                Image(systemName: "forward.end.fill")
-                    .font(.title2)
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 32, weight: .semibold))
             }
             .accessibilityLabel("Next station")
             .accessibilityIdentifier("nowplaying.next")
-
-            Button {
-                playback.stop()
-            } label: {
-                Image(systemName: "stop.fill")
-                    .font(.title2)
-            }
-            .accessibilityLabel("Stop")
-            .accessibilityIdentifier("nowplaying.stop")
         }
+        .foregroundStyle(.white)
     }
 
     private var mainButtonIcon: String {
