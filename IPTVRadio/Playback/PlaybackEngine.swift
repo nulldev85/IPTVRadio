@@ -1,115 +1,5 @@
 import Foundation
 import AVFoundation
-import CoreMedia
-import MediaPlayer
-
-// MARK: - Playback state model
-
-enum PlaybackState: Equatable {
-    case idle
-    case loading(RadioStation)
-    case playing(RadioStation)
-    case paused(RadioStation)
-    case stopped(RadioStation?)
-    case failed(String, RadioStation?)
-
-    var station: RadioStation? {
-        switch self {
-        case .idle: return nil
-        case .loading(let s): return s
-        case .playing(let s): return s
-        case .paused(let s): return s
-        case .stopped(let s): return s
-        case .failed(_, let s): return s
-        }
-    }
-
-    var isPlaying: Bool {
-        if case .playing = self { return true }
-        return false
-    }
-
-    var isBusy: Bool {
-        if case .loading = self { return true }
-        return false
-    }
-}
-
-// MARK: - Player abstraction (DI seam for tests)
-
-protocol AudioPlayerControlling: AnyObject {
-    var onReady: (() -> Void)? { get set }
-    var onFailure: ((String) -> Void)? { get set }
-    var onEnded: (() -> Void)? { get set }
-    var onDiagnostics: ((StreamDiagnosticsSample) -> Void)? { get set }
-    var onMetadata: ((StreamMetadataUpdate) -> Void)? { get set }
-    /// Playback is waiting for data (buffering).
-    var onStalled: (() -> Void)? { get set }
-    /// Playback (re)started after buffering.
-    var onPlaybackResumed: (() -> Void)? { get set }
-    /// Extra time this engine needs before the stream can be considered
-    /// failed to start (deep-buffering engines need more than the default).
-    var startupGracePeriod: TimeInterval { get }
-    /// An increasing measure of real playback progress, or nil when this engine
-    /// cannot report one. Only successive readings are compared, so the unit
-    /// does not matter. It exists so the engine can confirm a stall by seeing
-    /// that audio actually stopped flowing, rather than trusting a single
-    /// buffering notification — live engines emit those routinely while
-    /// perfectly healthy, and acting on one tears down a working stream.
-    var playbackProgress: Double? { get }
-    func load(url: URL)
-    func play()
-    func pause()
-    func stop()
-}
-
-extension AudioPlayerControlling {
-    var startupGracePeriod: TimeInterval { 0 }
-    var playbackProgress: Double? { nil }
-}
-
-// MARK: - Audio session abstraction
-
-protocol AudioSessionControlling: AnyObject {
-    func activateForPlayback() throws
-    func deactivate() throws
-}
-
-final class AVAudioSessionAdapter: AudioSessionControlling {
-    func activateForPlayback() throws {
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default, options: [])
-        try session.setActive(true, options: [])
-    }
-
-    func deactivate() throws {
-        try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    }
-}
-
-// MARK: - Retry policy (pure logic, unit tested)
-
-struct RetryPolicy: Equatable {
-    let maxAttempts: Int
-    /// Backoff bases in seconds: 1s, 2s, 4s...
-    static func backoff(forAttempt attempt: Int) -> TimeInterval {
-        pow(2, Double(max(0, attempt - 1)))
-    }
-
-    func nextAction(afterAttempts attempts: Int) -> RetryDecision {
-        if attempts < maxAttempts {
-            return .retryAfterDelay(Self.backoff(forAttempt: attempts + 1))
-        }
-        return .giveUp
-    }
-}
-
-enum RetryDecision: Equatable {
-    case retryAfterDelay(TimeInterval)
-    case giveUp
-}
-
-// MARK: - Playback engine
 
 @MainActor
 final class PlaybackEngine: ObservableObject {
@@ -256,8 +146,15 @@ final class PlaybackEngine: ObservableObject {
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        // All of them: the song lookup in particular polls on a timer, and a
+        // test that builds an engine per case would otherwise leave one
+        // running behind every single one.
         watchdogTask?.cancel()
         retryTask?.cancel()
+        stallTask?.cancel()
+        resolveTask?.cancel()
+        epgTask?.cancel()
+        artworkLookupTask?.cancel()
     }
 
     // MARK: Public controls
@@ -437,6 +334,13 @@ final class PlaybackEngine: ObservableObject {
     private func beginPlayback(_ station: RadioStation) {
         cancelWatchdog()
         cancelRetry()
+        // Before the early return below: a resolve or probe still running from
+        // the previous attempt calls `load` when it finishes, and its own guard
+        // (wants playback, same station) passes even when this attempt refused
+        // to start — so a station blocked for being on cellular would begin
+        // playing seconds later anyway.
+        resolveTask?.cancel()
+        resolveTask = nil
 
         if !settings.cellularAllowed && connectivity.isCellular {
             state = .failed("Cellular streaming is off. Enable it in Settings or connect to Wi-Fi.", station)
@@ -630,6 +534,19 @@ final class PlaybackEngine: ObservableObject {
     private func handleStreamProblem(_ station: RadioStation) {
         cancelWatchdog()
         cancelStallWatchdog()
+        // A reconnect already waiting belongs to this same failure. Left alive
+        // it fires alongside the one scheduled below, so two reconnects race
+        // for the player and each burns a retry from the budget.
+        cancelRetry()
+        // This load is being abandoned, so nothing the player still says about
+        // it should be acted on. `hasActiveLoad` is the gate for exactly that,
+        // and leaving the URL set holds it open: the next candidate may be a
+        // probe or a redirect resolution away, and a late failure arriving in
+        // that gap was being attributed to the candidate that replaced this
+        // one — marking a format failed that had never been tried, and
+        // advancing past it. `load` sets it again when a stream actually
+        // reaches the player.
+        activePlaybackURL = nil
         // A candidate that already played is not a failed format; it stalled.
         if !candidatePlayedSuccessfully {
             candidateOutcomes[candidateIndex] = .failed(candidateFailureReason)
@@ -648,6 +565,7 @@ final class PlaybackEngine: ObservableObject {
 
     private func scheduleRetry(station: RadioStation) {
         cancelWatchdog()
+        cancelRetry()
         // retryLimit = number of automatic retries after the initial attempt.
         let policy = RetryPolicy(maxAttempts: settings.retryLimit)
         switch policy.nextAction(afterAttempts: retryAttempts) {
@@ -657,6 +575,7 @@ final class PlaybackEngine: ObservableObject {
             AppLogger.playback.info("Retry attempt \(attempt) in \(delay, format: .fixed(precision: 1))s")
             state = .loading(station)
             isBuffering = true
+            nowPlaying.update(state: state, buffering: true)
             retryTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard !Task.isCancelled else { return }

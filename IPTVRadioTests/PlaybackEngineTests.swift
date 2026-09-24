@@ -919,6 +919,65 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(engine.streamDiagnostics?.songSources.first?.outcome, .song)
     }
 
+    @MainActor
+    func testLateFailuresFromAnAbandonedStreamAreIgnored() async {
+        // libVLC reports a dying stream more than once. Each report used to be
+        // taken as a fresh failure: the second arrived while the reconnect from
+        // the first was still waiting out its backoff, burned another attempt
+        // from the budget, and gave up on a station that had one reconnect
+        // left. Abandoning a load now closes the gate on anything more the
+        // player says about it.
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1
+        )
+        let s = RadioStation(
+            name: "Octane",
+            streamURL: URL(string: "https://host.example/live/u/p/90.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        XCTAssertTrue(engine.state.isPlaying)
+
+        // The stream dies: one reconnect is scheduled, one attempt left.
+        player.simulateFailure("Stream stopped")
+        XCTAssertTrue(engine.state.isBusy, "The first failure schedules a reconnect")
+
+        // The same death, reported again.
+        player.simulateFailure("Stream stopped")
+
+        XCTAssertTrue(
+            engine.state.isBusy,
+            "A repeat report of the same failure must not spend the last retry and give up"
+        )
+        if case .failed = engine.state {
+            XCTFail("Gave up after one real failure because the player reported it twice")
+        }
+    }
+
+    @MainActor
+    func testAnExplicitStopSilencesLateFailures() async {
+        // The mirror image: after the listener stops, nothing the torn-down
+        // stream says should resurrect the mini player.
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        let s = RadioStation(
+            name: "Octane",
+            streamURL: URL(string: "https://host.example/live/u/p/91.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        engine.stop()
+        player.simulateFailure("Stream stopped")
+
+        XCTAssertNil(engine.state.station, "A stopped engine must stay stopped")
+    }
+
     // MARK: Stream-format candidates
 
     @MainActor
