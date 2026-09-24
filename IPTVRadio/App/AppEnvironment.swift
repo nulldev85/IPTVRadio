@@ -37,6 +37,8 @@ final class AppEnvironment: ObservableObject {
     let connectivity: ConnectivityMonitor
     let cache: StationCache
     let httpClient: HTTPClient
+    /// Per-station channel keys for the song lookup, editable by the listener.
+    let songLookupKeys: SongLookupKeyStore
     let playback: PlaybackEngine
     let library: LibraryViewModel
     let auth: AuthViewModel
@@ -66,6 +68,13 @@ final class AppEnvironment: ObservableObject {
             ? MockHTTPClient()
             : URLSessionHTTPClient.providerDefault
 
+        let keyDefaults = uitestMode
+            ? UserDefaults(suiteName: "uitest-songkeys") ?? .standard
+            : UserDefaults.standard
+        let songLookupKeys = SongLookupKeyStore(defaults: keyDefaults)
+        self.songLookupKeys = songLookupKeys
+        let channelKeys = ChannelKeyResolver(overrides: songLookupKeys)
+
         let nowPlaying = NowPlayingManager()
         let audioPlayer: AudioPlayerControlling
         let engineKind = settings.playbackEngine
@@ -88,7 +97,8 @@ final class AppEnvironment: ObservableObject {
             // nothing — which for SiriusXM relays is most of the time.
             songProviders: uitestMode ? [] : [
                 XtreamEPGProvider(credentials: credentials, http: httpClient),
-                SiriusXMNowPlayingProvider(http: httpClient),
+                SiriusXMNowPlayingProvider(http: httpClient, resolver: channelKeys),
+                XMPlaylistNowPlayingProvider(http: httpClient, resolver: channelKeys),
             ],
             // The compatibility engine buffers deeply, so it needs a longer
             // stall threshold before the app forces a reconnect.

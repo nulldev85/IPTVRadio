@@ -24,17 +24,24 @@ import Foundation
 final class SiriusXMNowPlayingProvider: SongInfoProviding, @unchecked Sendable {
     private let http: HTTPClient
     private let host: String
+    private let resolver: ChannelKeyResolver
 
     init(http: HTTPClient = URLSessionHTTPClient.providerDefault,
-         host: String = "www.siriusxm.com") {
+         host: String = "www.siriusxm.com",
+         resolver: ChannelKeyResolver = ChannelKeyResolver()) {
         self.http = http
         self.host = host
+        self.resolver = resolver
     }
 
     var sourceName: String { "SiriusXM channel metadata" }
 
     func currentSong(for station: RadioStation) async -> SongLookup {
-        let slugs = Self.candidateSlugs(for: station.name)
+        // Resolved centrally: the listener's own key first, then the known
+        // channel table, then shapes derived from the label. Derivation alone
+        // produced nothing but 404s on device — the panel's label for a channel
+        // simply is not the broadcaster's key for it.
+        let slugs = resolver.keys(for: station)
         guard !slugs.isEmpty else {
             return .empty("station name yields no channel key")
         }
@@ -90,20 +97,18 @@ final class SiriusXMNowPlayingProvider: SongInfoProviding, @unchecked Sendable {
 
     // MARK: Channel naming
 
-    /// Channel slugs to try for a station name, most specific first.
+    /// Channel slugs guessed from a station name, most specific first.
     ///
-    /// Panels label the same channel many ways ("Radio: SiriusXM FLY", "SXM
-    /// Fly", "Fly"), and SiriusXM's own slugs are undocumented — some keep the
-    /// brand ("siriusxmhits1"), others drop it ("shade45"). Rather than guess
-    /// one rule, a few shapes are tried and the first that answers wins.
+    /// The fallback, not the primary path. Guessing from the label does not
+    /// work in general — SiriusXM's keys are undocumented and unrelated to the
+    /// label by any rule, and on device these shapes returned only 404s, which
+    /// is why `SiriusXMChannelKeys` lists the known channels instead. These
+    /// remain for channels the table is missing, where a guess beats nothing.
     static func candidateSlugs(for stationName: String) -> [String] {
-        let cleaned = Self.stripDecorations(stationName)
+        let cleaned = SiriusXMChannelKeys.strippingDecorations(stationName)
         guard !cleaned.isEmpty else { return [] }
 
-        let brandless = cleaned
-            .replacingOccurrences(of: "SiriusXM", with: " ", options: .caseInsensitive)
-            .replacingOccurrences(of: "SXM", with: " ", options: .caseInsensitive)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let brandless = SiriusXMChannelKeys.strippingBrand(cleaned)
 
         let brandlessSlug = slugify(brandless)
         var shapes: [String] = []
@@ -132,44 +137,6 @@ final class SiriusXMNowPlayingProvider: SongInfoProviding, @unchecked Sendable {
         // burst of requests every thirty seconds for a channel that will never
         // match anyway.
         return Array(slugs.prefix(5))
-    }
-
-    /// Removes the decorations panels add around a channel name.
-    ///
-    /// Lists are labelled for browsing, not for lookups: "Radio: SiriusXM FLY",
-    /// "USA: 90s on 9", "Octane HD". A section prefix before a colon and a
-    /// quality suffix are noise for every one of them.
-    private static func stripDecorations(_ stationName: String) -> String {
-        var text = stationName
-        // A short prefix before a colon is a section label ("Radio:", "USA
-        // MUSIC:"), not part of the channel. Short is the whole safeguard: a
-        // wrong strip does not just add a useless attempt, it removes the only
-        // name that could have matched, so a long prefix is left alone.
-        if let colon = text.firstIndex(of: ":") {
-            let label = text[..<colon]
-            let remainder = String(text[text.index(after: colon)...])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            // Taken even when the remainder is empty: a name that is nothing but
-            // a section label ("Radio:") names no channel, and "radio" is not a
-            // key worth a request.
-            if label.count <= 12 {
-                text = remainder
-            }
-        }
-        text = text
-            .replacingOccurrences(of: "Radio -", with: " ", options: .caseInsensitive)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        // Quality tags only. "Radio" is deliberately not in this list: it is
-        // part of plenty of real channel names, and stripping it would leave the
-        // actual name untried.
-        for suffix in ["FHD", "UHD", "HD", "SD"] {
-            if text.count > suffix.count,
-               text.lowercased().hasSuffix(" " + suffix.lowercased()) {
-                text = String(text.dropLast(suffix.count + 1))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
-        return text
     }
 
     private static func strippingLeadingArticle(_ text: String) -> String {

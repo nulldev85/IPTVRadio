@@ -5,6 +5,12 @@ import SwiftUI
 /// (format, fallback position, bitrates) is shown here instead.
 struct StreamDiagnosticsView: View {
     @EnvironmentObject private var playback: PlaybackEngine
+    @EnvironmentObject private var appEnvironment: AppEnvironment
+
+    /// The channel key field, seeded from what is stored for this station.
+    @State private var channelKeyDraft = ""
+    /// Station the draft was seeded for, so switching station reseeds it.
+    @State private var draftStationID: String?
 
     var body: some View {
         Form {
@@ -66,7 +72,10 @@ struct StreamDiagnosticsView: View {
                         LabeledContent("Media requests", value: "\(requests)")
                     }
                 }
-                if !diagnostics.songSources.isEmpty {
+                // Rendered whenever a station is playing, not only once a
+                // source has answered: the channel key field below is needed
+                // exactly when nothing is answering.
+                if playback.state.station != nil {
                     Section {
                         ForEach(diagnostics.songSources) { report in
                             VStack(alignment: .leading, spacing: 2) {
@@ -82,6 +91,9 @@ struct StreamDiagnosticsView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
+                        }
+                        if let station = playback.state.station {
+                            channelKeyEditor(for: station)
                         }
                     } header: {
                         Text("Song lookup")
@@ -197,6 +209,49 @@ struct StreamDiagnosticsView: View {
         guard diagnostics.playbackEngine == .avplayer else { return false }
         guard case .failed = candidate.outcome else { return false }
         return candidate.format == "ts"
+    }
+
+    /// Channel key control for the playing station.
+    ///
+    /// The escape hatch for the whole feature. Broadcaster channel keys are not
+    /// published anywhere authoritative and the panel's label for a channel is
+    /// not the key, so no table or naming rule can be complete. Rather than
+    /// leave a station permanently unable to show a song, the keys being tried
+    /// are shown and the right one can be typed in.
+    @ViewBuilder
+    private func channelKeyEditor(for station: RadioStation) -> some View {
+        let resolved = ChannelKeyResolver(overrides: appEnvironment.songLookupKeys).keys(for: station)
+        VStack(alignment: .leading, spacing: 8) {
+            if !resolved.isEmpty {
+                LabeledContent("Channel keys tried", value: resolved.joined(separator: ", "))
+                    .font(.footnote)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Channel key for this station")
+                    .font(.footnote.weight(.medium))
+                HStack {
+                    TextField("e.g. octane", text: $channelKeyDraft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("diagnostics.channelKeyField")
+                    Button("Save") {
+                        appEnvironment.songLookupKeys.setKey(channelKeyDraft, for: station.id)
+                        // Replayed so the next poll uses the new key straight
+                        // away; a lookup otherwise waits out its 30s interval.
+                        playback.retry()
+                    }
+                    .accessibilityIdentifier("diagnostics.saveChannelKey")
+                }
+                Text("Set this when the keys above come back “HTTP 404” — that means the channel could not be matched by name. Leave it empty to go back to automatic matching.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task(id: station.id) {
+            guard draftStationID != station.id else { return }
+            draftStationID = station.id
+            channelKeyDraft = appEnvironment.songLookupKeys.key(for: station.id) ?? ""
+        }
     }
 
     /// The song-info source line. Names the source and, when what it supplied
