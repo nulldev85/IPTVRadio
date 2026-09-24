@@ -166,13 +166,15 @@ final class XMPlaylistNowPlayingProviderTests: XCTestCase {
         let broadcaster = SiriusXMNowPlayingProvider(
             http: MockHTTP.client { _ in (404, Data("{}".utf8)) }
         )
-        XCTAssertNil(await broadcaster.currentSong(for: station("Octane")).update)
+        let fromBroadcaster = await broadcaster.currentSong(for: station("Octane"))
+        XCTAssertNil(fromBroadcaster.update)
 
         let tracker = XMPlaylistNowPlayingProvider(
             http: MockHTTP.client { _ in
                 (200, Data(#"{"results":[{"track":{"title":"Nokia","artists":["Drake"]}}]}"#.utf8))
             }
         )
-        XCTAssertEqual(await tracker.currentSong(for: station("Octane")).update?.artist, "Drake")
+        let fromTracker = await tracker.currentSong(for: station("Octane"))
+        XCTAssertEqual(fromTracker.update?.artist, "Drake")
     }
 }
