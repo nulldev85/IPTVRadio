@@ -57,12 +57,6 @@ struct SettingsView: View {
 
     private var playbackSection: some View {
         Section {
-            Picker("Playback engine", selection: $settings.playbackEngine) {
-                ForEach(PlaybackEngineKind.allCases) { kind in
-                    Text(kind.label).tag(kind)
-                }
-            }
-            .accessibilityIdentifier("settings.engine")
             Toggle("Allow cellular streaming", isOn: $settings.cellularAllowed)
                 .accessibilityIdentifier("settings.cellular")
             VStack(alignment: .leading, spacing: 4) {
@@ -110,7 +104,7 @@ struct SettingsView: View {
         } header: {
             Text("Playback")
         } footer: {
-            Text("Engine changes take effect after restarting the app.\n\n“Prefer audio-only stream” plays a channel's dedicated audio track when its HLS manifest offers one — better quality for radio and much less data than downloading its video variant.\n\n“Look up song artwork online” sends the current song's artist and title to Apple's public catalog to fetch album art when the stream itself carries none. No account or tracking is involved; disable it for fully offline metadata.")
+            Text("“Prefer audio-only stream” plays a channel's dedicated audio track when its HLS manifest offers one — better quality for radio and much less data than downloading its video variant.\n\n“Look up song artwork online” sends the current song's artist and title to Apple's public catalog to fetch album art when the stream itself carries none. No account or tracking is involved; disable it for fully offline metadata.")
         }
     }
 

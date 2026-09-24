@@ -2,9 +2,9 @@ import Foundation
 import UIKit
 import VLCKitSPM
 
-/// libVLC-backed player: the compatibility engine for streams AVPlayer cannot
-/// play — raw MPEG-TS, redirecting audio-only endpoints, and other formats
-/// providers serve that CFNetwork/AVPlayer refuses.
+/// libVLC-backed player: the app's audio engine, chosen for the stream formats
+/// AVPlayer cannot play — raw MPEG-TS above all, plus redirecting audio-only
+/// endpoints and other shapes CFNetwork refuses.
 ///
 /// All mutable state here is touched only from the main thread: VLCKit
 /// dispatches its delegate callbacks onto the main queue, and the engine that
@@ -62,7 +62,6 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
 
     var playbackProgress: Double? { progressTicks }
 
-    var engineKind: PlaybackEngineKind { .vlc }
 
     func load(url: URL) {
         hasReportedReady = false
@@ -219,7 +218,7 @@ extension VLCPlayerAdapter: VLCMediaPlayerDelegate {
         case .error:
             if !hasReportedFailure {
                 hasReportedFailure = true
-                onFailure?("The compatibility engine could not open this stream.")
+                onFailure?("Could not open this stream.")
             }
         case .ended:
             // Our own stop() during a reload can surface here moments later,

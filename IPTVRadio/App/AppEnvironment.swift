@@ -76,15 +76,7 @@ final class AppEnvironment: ObservableObject {
         let channelKeys = ChannelKeyResolver(overrides: songLookupKeys)
 
         let nowPlaying = NowPlayingManager()
-        let audioPlayer: AudioPlayerControlling
-        let engineKind = settings.playbackEngine
-        if uitestMode {
-            audioPlayer = MockAudioPlayer()
-        } else if engineKind == .vlc {
-            audioPlayer = VLCPlayerAdapter()
-        } else {
-            audioPlayer = AVAudioPlayerAdapter()
-        }
+        let audioPlayer: AudioPlayerControlling = uitestMode ? MockAudioPlayer() : VLCPlayerAdapter()
         playback = PlaybackEngine(
             player: audioPlayer,
             settings: settings,
@@ -100,9 +92,9 @@ final class AppEnvironment: ObservableObject {
                 SiriusXMNowPlayingProvider(http: httpClient, resolver: channelKeys),
                 XMPlaylistNowPlayingProvider(http: httpClient, resolver: channelKeys),
             ],
-            // The compatibility engine buffers deeply, so it needs a longer
-            // stall threshold before the app forces a reconnect.
-            stallTimeout: engineKind == .vlc ? 25 : 12
+            // The engine buffers deeply, so it needs a generous stall threshold
+            // before the app forces a reconnect.
+            stallTimeout: 25
         )
         library = LibraryViewModel(
             libraryService: LibraryService(cache: cache),

@@ -24,9 +24,9 @@ authorization from their provider for every stream they configure.
 - Prefers a stream's dedicated audio-only rendition when offered (better quality, far less data than video variants)
 - Favorites tab (persisted locally; recent-play history is still recorded on device)
 - Full now-playing screen, mini player, sleep timer, retry/stop controls
-- Current-song title/artist from the stream on **both** engines: ID3 timed metadata over
-  HLS/TS (AVPlayer) and the ICY/Shoutcast stream title (compatibility engine), with
-  album art resolved from Apple's public catalog when the stream carries text only
+- Current-song title/artist from the stream's ICY/Shoutcast title, the provider's EPG, or a
+  broadcaster lookup by channel key when the stream carries nothing — with album art resolved
+  from Apple's public catalog, and the channel key editable per station in stream diagnostics
 - Channel logos are background-keyed and drawn without a plate behind them
 - Background audio, lock-screen & Control Center controls, now-playing metadata + artwork
 - Headphone/Bluetooth/AirPlay route changes, call/Siri interruption handling
@@ -51,7 +51,7 @@ IPTVRadio/
     Keychain/                 Keychain wrapper + credential store
     Connectivity/             Network path monitor
     Library/                  Refresh orchestration and caching
-  Playback/                   AVPlayer engine, audio session, remote commands, now playing
+  Playback/                   Playback engine, audio session, remote commands, now playing
   Features/                   SwiftUI screens (auth, radio, search, library, settings, now playing)
 IPTVRadioTests/               Unit tests with embedded fixtures + mocked networking
 IPTVRadioUITests/             UI tests using the app's mock mode (no network)
@@ -91,10 +91,11 @@ certificate/profile/API-key setup, and `docs/INSTALL.md` for installing the IPA.
 
 ## Third-party components
 
-- **Playback engine:** [VLCKit](https://code.videolan.org/videolan/VLCKit) (LGPL-2.1), bundled as an optional
-  compatibility engine (`Settings ▸ Playback ▸ Playback engine`). It plays provider stream formats that
-  Apple's AVPlayer refuses, such as raw MPEG-TS and redirecting audio-only endpoints. The app defaults to
-  the compatibility engine and can switch to AVPlayer at any time.
+- **Playback engine:** [VLCKit](https://code.videolan.org/videolan/VLCKit) (LGPL-2.1). It plays provider
+  stream formats Apple's AVPlayer refuses, such as raw MPEG-TS and redirecting audio-only endpoints.
+  An AVPlayer engine was offered alongside it and has been removed: it cannot open raw MPEG-TS, so on a
+  provider that serves it AVPlayer fell back to the panel's transcoded HLS — worse audio — and the ID3
+  metadata that was its one advantage turned out not to be present in that HLS anyway.
 
 ## Privacy & authorization
 

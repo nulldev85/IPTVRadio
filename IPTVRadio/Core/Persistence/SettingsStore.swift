@@ -1,30 +1,5 @@
 import Foundation
 
-/// User-selectable playback engine. The VLC-based compatibility engine plays
-/// the widest range of provider streams; AVPlayer is Apple's built-in engine.
-enum PlaybackEngineKind: String, CaseIterable, Identifiable, Codable {
-    case vlc
-    case avplayer
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .vlc: return "Compatibility (VLC)"
-        case .avplayer: return "Standard (AVPlayer)"
-        }
-    }
-
-    var detail: String {
-        switch self {
-        case .vlc:
-            return "Plays the widest range of provider streams, including raw MPEG-TS and audio-only endpoints."
-        case .avplayer:
-            return "Apple's built-in engine. Reads song titles a stream embeds as ID3, but cannot play raw MPEG-TS — a provider that serves it falls back to a re-packaged HLS copy, which sounds worse."
-        }
-    }
-}
-
 /// User-selectable stream format order. Lets users A/B test audio quality on
 /// device, since providers differ in which format carries the original stream.
 enum StreamFormatPreference: String, CaseIterable, Identifiable, Codable {
@@ -67,7 +42,6 @@ final class SettingsStore: ObservableObject {
         static let streamFormatPreference = "settings.streamFormatPreference"
         static let preferAudioOnlyRendition = "settings.preferAudioOnlyRendition"
         static let lookupSongArtwork = "settings.lookupSongArtwork"
-        static let playbackEngine = "settings.playbackEngine"
     }
 
     enum AuthMode: String, CaseIterable, Identifiable {
@@ -106,10 +80,6 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(lookupSongArtwork, forKey: Keys.lookupSongArtwork) }
     }
     /// Playback engine used for streams (takes effect after an app restart).
-    @Published var playbackEngine: PlaybackEngineKind {
-        didSet { defaults.set(playbackEngine.rawValue, forKey: Keys.playbackEngine) }
-    }
-
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         cellularAllowed = defaults.object(forKey: Keys.cellularAllowed) as? Bool ?? true
@@ -123,8 +93,6 @@ final class SettingsStore: ObservableObject {
         ) ?? .automatic
         preferAudioOnlyRendition = defaults.object(forKey: Keys.preferAudioOnlyRendition) as? Bool ?? true
         lookupSongArtwork = defaults.object(forKey: Keys.lookupSongArtwork) as? Bool ?? true
-        playbackEngine = PlaybackEngineKind(rawValue: defaults.string(forKey: Keys.playbackEngine) ?? "")
-            ?? .vlc
 
         if let data = defaults.data(forKey: Keys.detectionRules),
            let rules = try? JSONDecoder().decode(RadioDetectionRules.self, from: data) {

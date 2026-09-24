@@ -1,68 +1,11 @@
 import XCTest
-import AVFoundation
 @testable import IPTVRadio
 
 final class StreamMetadataParserTests: XCTestCase {
-    private func id3Item(_ identifier: AVMetadataIdentifier, value: NSCopying & NSObjectProtocol) -> AVMetadataItem {
-        let item = AVMutableMetadataItem()
-        item.identifier = identifier
-        item.value = value
-        return item
-    }
-
-    func testParsesTitleArtistAndArtwork() throws {
-        let artworkData = Data([0x89, 0x50, 0x4E, 0x47])
-        let items: [AVMetadataItem] = [
-            id3Item(.id3MetadataTitleDescription, value: "Killing in the Name" as NSString),
-            id3Item(.id3MetadataLeadPerformer, value: "Rage Against the Machine" as NSString),
-            id3Item(.id3MetadataAttachedPicture, value: artworkData as NSData),
-        ]
-
-        let update = try XCTUnwrap(StreamMetadataParser.parse(items: items))
-        XCTAssertEqual(update.title, "Killing in the Name")
-        XCTAssertEqual(update.artist, "Rage Against the Machine")
-        XCTAssertEqual(update.artworkData, artworkData)
-    }
-
-    func testSplitsArtistAndTitleWhenOnlyTitlePresent() throws {
-        let items: [AVMetadataItem] = [
-            id3Item(.id3MetadataTitleDescription, value: "Daft Punk - Around the World" as NSString),
-        ]
-        let update = try XCTUnwrap(StreamMetadataParser.parse(items: items))
-        XCTAssertEqual(update.artist, "Daft Punk")
-        XCTAssertEqual(update.title, "Around the World")
-    }
-
-    func testReturnsNilWhenNothingRecognized() {
-        let items: [AVMetadataItem] = [
-            id3Item(.id3MetadataAlbumTitle, value: "Some Album" as NSString),
-        ]
-        XCTAssertNil(StreamMetadataParser.parse(items: items))
-    }
-
-    func testIgnoresEmptyValues() {
-        let items: [AVMetadataItem] = [
-            id3Item(.id3MetadataTitleDescription, value: "" as NSString),
-        ]
-        XCTAssertNil(StreamMetadataParser.parse(items: items))
-    }
-
-    func testArtworkOnlyUpdateIsValid() throws {
-        let artworkData = Data([0xFF, 0xD8, 0xFF])
-        let items: [AVMetadataItem] = [
-            id3Item(.id3MetadataAttachedPicture, value: artworkData as NSData),
-        ]
-        let update = try XCTUnwrap(StreamMetadataParser.parse(items: items))
-        XCTAssertNil(update.title)
-        XCTAssertNil(update.artist)
-        XCTAssertEqual(update.artworkData, artworkData)
-    }
-
     // MARK: Shared "Artist - Title" split
     //
-    // The compatibility engine reads the ICY/Shoutcast stream title, which is
-    // not an AVMetadataItem, so it calls this directly rather than through
-    // parse(items:). These cover it at that entry point.
+    // Every source funnels through here: the engine's ICY/Shoutcast stream
+    // title, the provider's EPG listing and the broadcaster lookups.
 
     func testSplitsCombinedICYStreamTitle() {
         let split = StreamMetadataParser.splittingCombinedTitle(

@@ -28,29 +28,8 @@ struct StreamDiagnosticsView: View {
                     if let audioFormat = diagnostics.audioFormat {
                         LabeledContent("Audio format", value: audioFormat)
                     }
-                    LabeledContent("Playback engine", value: diagnostics.playbackEngine.label)
                     LabeledContent("Song info from stream", value: diagnostics.songInfoFromStream ? "Received" : "Not provided")
                     LabeledContent("Song info source", value: songSourceValue(diagnostics))
-                    if songMetadataIsUnreadable(diagnostics) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("This engine cannot read song titles from HLS")
-                                .font(.footnote.weight(.medium))
-                            Text("HLS carries the current song as ID3 timed metadata inside the stream. The compatibility engine only reads ICY song titles, which HLS does not use, so no track from the stream can appear however good it is.\n\nSwitching Playback engine to \"Standard (AVPlayer)\" in Settings ▸ Playback reads ID3 — but only if the stream actually carries it, and on many panels it carries none. That engine also cannot play raw MPEG-TS, so it falls back to the re-packaged HLS copy, which sounds worse. Try it once: if “Song info from stream” still reads “Not provided”, the stream has no metadata and the compatibility engine is the better choice.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                        .accessibilityIdentifier("diagnostics.engineCannotReadSongInfo")
-                    }
-                    if streamCarriesNoMetadata(diagnostics) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("This stream carries no song metadata")
-                                .font(.footnote.weight(.medium))
-                            Text("The standard engine does read ID3 timed metadata, and this stream is supplying none — so the missing track is the stream, not the engine. Nothing is gained here over the compatibility engine, and something is lost: the standard engine cannot play raw MPEG-TS, so it is playing the re-packaged HLS copy instead of your provider's original audio. Switch Playback engine back to \"Compatibility (VLC)\" for the better-sounding stream; the song is looked up from the broadcaster either way.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                        .accessibilityIdentifier("diagnostics.streamCarriesNoMetadata")
-                    }
                     LabeledContent("Audio-only rendition", value: audioOnlyValue(diagnostics))
                     if let variants = diagnostics.availableVariants, variants > 0 {
                         LabeledContent("Variants in stream", value: "\(variants)")
@@ -115,11 +94,6 @@ struct StreamDiagnosticsView: View {
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
-                                    if engineCannotPlay(candidate, diagnostics: diagnostics) {
-                                        Text("The standard engine cannot play raw MPEG-TS — an engine limit, not a fault in your provider's stream.")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
                                 }
                             }
                         }
@@ -178,37 +152,6 @@ struct StreamDiagnosticsView: View {
         case "": return "unknown"
         default: return streamExtension.uppercased()
         }
-    }
-
-    /// True when the engine in use structurally cannot surface this stream's
-    /// song metadata, as opposed to the stream simply not carrying any.
-    private func songMetadataIsUnreadable(_ diagnostics: StreamDiagnostics) -> Bool {
-        diagnostics.playbackEngine == .vlc
-            && diagnostics.streamType.lowercased() == "m3u8"
-            && !diagnostics.songInfoFromStream
-    }
-
-    /// True when the engine that *can* read in-stream song metadata is running
-    /// and the stream is still supplying none.
-    ///
-    /// This is the measured answer to the hint above, and it points the other
-    /// way: nothing is gained by staying on the standard engine, and the
-    /// original MPEG-TS audio is lost while doing so.
-    private func streamCarriesNoMetadata(_ diagnostics: StreamDiagnostics) -> Bool {
-        diagnostics.playbackEngine == .avplayer
-            && !diagnostics.songInfoFromStream
-            && diagnostics.streamType.lowercased() == "m3u8"
-    }
-
-    /// True when this candidate failed because the running engine cannot play
-    /// that container at all, rather than because the provider refused it.
-    private func engineCannotPlay(
-        _ candidate: StreamCandidateReport,
-        diagnostics: StreamDiagnostics
-    ) -> Bool {
-        guard diagnostics.playbackEngine == .avplayer else { return false }
-        guard case .failed = candidate.outcome else { return false }
-        return candidate.format == "ts"
     }
 
     /// Channel key control for the playing station.

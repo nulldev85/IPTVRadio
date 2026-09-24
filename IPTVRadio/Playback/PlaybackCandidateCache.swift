@@ -4,11 +4,13 @@ import Foundation
 /// later plays skip endpoints that failed before (faster starts, fewer
 /// stall-prone re-tries).
 ///
-/// Keyed by the station's primary candidate URL *and the engine*: the two play
-/// different formats, so what worked on one says nothing about the other.
-/// AVPlayer cannot open raw MPEG-TS and settles for the panel's transcoded HLS,
-/// while the compatibility engine plays the original — sharing one memo between
-/// them silently strands a listener on the other engine's compromise.
+/// Keyed by the station's primary candidate URL. It used to be keyed by engine
+/// as well, because AVPlayer could not open raw MPEG-TS and settled for the
+/// panel's transcoded HLS while the compatibility engine played the original —
+/// one memo shared between them stranded a listener on the other's compromise.
+/// There is only one engine now, so the dimension is gone; memos written by the
+/// old keying no longer match, which costs one re-probe per station and nothing
+/// else.
 final class PlaybackCandidateCache {
     private let fileStore: JSONFileStore
     private let filename = "playback-candidates.json"
@@ -20,16 +22,11 @@ final class PlaybackCandidateCache {
         self.winners = fileStore.load([String: String].self, filename: filename) ?? [:]
     }
 
-    /// The URL (as a string) that last played successfully for this primary URL
-    /// on this engine.
-    func successfulURL(for primaryURL: URL, engine: PlaybackEngineKind) -> String? {
+    /// The URL (as a string) that last played successfully for this primary URL.
+    func successfulURL(for primaryURL: URL) -> String? {
         lock.lock()
         defer { lock.unlock() }
-        return winners[Self.key(primaryURL, engine)]
-    }
-
-    private static func key(_ primaryURL: URL, _ engine: PlaybackEngineKind) -> String {
-        "\(engine.rawValue)|\(primaryURL.absoluteString)"
+        return winners[primaryURL.absoluteString]
     }
 
     /// Drops the remembered winner so the next play probes from the preferred
@@ -39,17 +36,17 @@ final class PlaybackCandidateCache {
     /// failure can keep a station on a fallback format for good — which for a
     /// radio app costs both the better audio of the audio-only endpoints and
     /// the song metadata only they carry. This is the way back.
-    func forget(for primaryURL: URL, engine: PlaybackEngineKind) {
+    func forget(for primaryURL: URL) {
         lock.lock()
-        winners.removeValue(forKey: Self.key(primaryURL, engine))
+        winners.removeValue(forKey: primaryURL.absoluteString)
         let snapshot = winners
         lock.unlock()
         fileStore.save(snapshot, filename: filename)
     }
 
-    func record(_ successfulURL: URL, for primaryURL: URL, engine: PlaybackEngineKind) {
+    func record(_ successfulURL: URL, for primaryURL: URL) {
         lock.lock()
-        winners[Self.key(primaryURL, engine)] = successfulURL.absoluteString
+        winners[primaryURL.absoluteString] = successfulURL.absoluteString
         let snapshot = winners
         lock.unlock()
         fileStore.save(snapshot, filename: filename)

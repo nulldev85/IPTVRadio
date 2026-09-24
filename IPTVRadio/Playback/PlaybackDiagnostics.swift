@@ -138,14 +138,6 @@ struct StreamDiagnostics: Equatable {
     var lastFormatFailure: String?
     /// True when the stream itself provided song info (ID3 metadata).
     var songInfoFromStream: Bool
-    /// Engine actually playing. It decides which kinds of song metadata can be
-    /// read at all, so it belongs next to the song-info line.
-    ///
-    /// Deliberately not defaulted: a default would have to name one engine, and
-    /// any site that then forgot to pass it would claim that engine while the
-    /// other was running — which is exactly what the "this engine cannot read
-    /// song titles from HLS" hint keys off.
-    var playbackEngine: PlaybackEngineKind
     /// Which out-of-stream source supplied the current song, when one did.
     /// Distinguishes "nothing publishes this track" from "the stream is quiet".
     var songInfoSource: String?

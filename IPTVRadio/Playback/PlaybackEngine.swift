@@ -57,11 +57,6 @@ protocol AudioPlayerControlling: AnyObject {
     /// buffering notification — live engines emit those routinely while
     /// perfectly healthy, and acting on one tears down a working stream.
     var playbackProgress: Double? { get }
-    /// Which engine this actually is. Read from the player rather than from
-    /// the setting, because the setting only takes effect on the next launch —
-    /// after changing it the two disagree, and diagnostics must report what is
-    /// really playing.
-    var engineKind: PlaybackEngineKind { get }
     func load(url: URL)
     func play()
     func pause()
@@ -71,250 +66,6 @@ protocol AudioPlayerControlling: AnyObject {
 extension AudioPlayerControlling {
     var startupGracePeriod: TimeInterval { 0 }
     var playbackProgress: Double? { nil }
-    var engineKind: PlaybackEngineKind { .avplayer }
-}
-
-/// AVPlayer-backed audio player for live HTTP/HLS radio streams.
-final class AVAudioPlayerAdapter: NSObject, AudioPlayerControlling {
-    var onReady: (() -> Void)?
-    var onFailure: ((String) -> Void)?
-    var onEnded: (() -> Void)?
-    var onDiagnostics: ((StreamDiagnosticsSample) -> Void)?
-    var onMetadata: ((StreamMetadataUpdate) -> Void)?
-    var onStalled: (() -> Void)?
-    var onPlaybackResumed: (() -> Void)?
-
-    private let player = AVPlayer()
-    private var statusObservation: NSKeyValueObservation?
-    private var rateObservation: NSKeyValueObservation?
-    private var itemObservers: [NSObjectProtocol] = []
-    private var diagnosticsTask: Task<Void, Never>?
-    private var metadataOutput: AVPlayerItemMetadataOutput?
-    private var lastMetadata: StreamMetadataUpdate?
-    private var hasReportedReady = false
-
-    var underlyingPlayer: AVPlayer { player }
-
-    override init() {
-        super.init()
-        rateObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-            guard let self else { return }
-            switch player.timeControlStatus {
-            case .playing:
-                if !self.hasReportedReady {
-                    self.hasReportedReady = true
-                    self.onReady?()
-                }
-                self.onPlaybackResumed?()
-            case .waitingToPlayAtSpecifiedRate:
-                self.onStalled?()
-            case .paused:
-                break
-            @unknown default:
-                break
-            }
-        }
-    }
-
-    deinit {
-        statusObservation?.invalidate()
-        rateObservation?.invalidate()
-        for observer in itemObservers { NotificationCenter.default.removeObserver(observer) }
-    }
-
-    /// The current item's playback time. It advances only while audio is
-    /// actually being rendered, which is exactly what confirms a stall.
-    var playbackProgress: Double? {
-        guard let item = player.currentItem else { return nil }
-        let seconds = item.currentTime().seconds
-        return seconds.isFinite ? seconds : nil
-    }
-
-    func load(url: URL) {
-        stopObserversForReload()
-        hasReportedReady = false
-        lastMetadata = nil
-        let item = AVPlayerItem(url: url)
-        // The provider URL is handed to AVPlayer unchanged: no transcoding,
-        // recompression or rendition caps. AVPlayer picks the highest
-        // sustainable audio rendition the provider offers.
-        //
-        // A forward buffer keeps live radio resilient to brief network
-        // jitter (fewer stalls/buffering gaps) without a long start delay.
-        item.preferredForwardBufferDuration = 8
-        scheduleDiagnostics(for: url, item: item)
-        // Stream song metadata (ID3): powers the current-song artwork in the
-        // now playing bar and the lock screen.
-        let output = AVPlayerItemMetadataOutput(identifiers: nil)
-        output.setDelegate(self, queue: .main)
-        item.add(output)
-        metadataOutput = output
-        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-            switch item.status {
-            case .readyToPlay:
-                self?.player.play()
-            case .failed:
-                let message = item.error?.localizedDescription ?? "Stream could not be opened."
-                self?.onFailure?(message)
-            default:
-                break
-            }
-        }
-        let center = NotificationCenter.default
-        itemObservers = [
-            center.addObserver(
-                forName: .AVPlayerItemDidPlayToEndTime,
-                object: item,
-                queue: .main
-            ) { [weak self] _ in
-                self?.onEnded?()
-            },
-            // A live stream that dies after playback started surfaces here, not
-            // through item.status (which only reports load failures). Without
-            // this the audio just goes silent and nothing tells the engine to
-            // reconnect.
-            center.addObserver(
-                forName: .AVPlayerItemFailedToPlayToEndTime,
-                object: item,
-                queue: .main
-            ) { [weak self] notification in
-                let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
-                self?.onFailure?(error?.localizedDescription ?? "The stream stopped unexpectedly.")
-            },
-            // AVPlayer exhausted its buffer mid-play.
-            center.addObserver(
-                forName: .AVPlayerItemPlaybackStalled,
-                object: item,
-                queue: .main
-            ) { [weak self] _ in
-                self?.onStalled?()
-            }
-        ]
-        player.replaceCurrentItem(with: item)
-    }
-
-    /// Collects safe, non-secret stream diagnostics (type + bitrates) and
-    /// publishes them after a few seconds, refreshing periodically while the
-    /// item is current. SECURITY: the URL is never used; only its extension.
-    private func scheduleDiagnostics(for url: URL, item: AVPlayerItem) {
-        let streamExtension = url.pathExtension
-        diagnosticsTask?.cancel()
-        diagnosticsTask = Task { [weak self] in
-            // Give AVPlayer a few seconds to gather access-log data.
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            var didLog = false
-            while !Task.isCancelled {
-                guard let self, self.player.currentItem === item, item.error == nil else { return }
-                let trackInfo = await Self.loadAudioTrackInfo(for: item)
-                guard !Task.isCancelled, self.player.currentItem === item else { return }
-                var sample = PlaybackDiagnostics.makeSample(
-                    streamExtension: streamExtension,
-                    events: (item.accessLog()?.events ?? []).map { event in
-                        PlaybackDiagnostics.EventSample(
-                            indicatedBitrate: event.indicatedBitrate,
-                            observedBitrate: event.observedBitrate,
-                            averageAudioBitrate: event.averageAudioBitrate,
-                            numberOfMediaRequests: event.numberOfMediaRequests
-                        )
-                    },
-                    tracks: item.asset.tracks.map { track in
-                        PlaybackDiagnostics.TrackSample(
-                            mediaType: track.mediaType.rawValue,
-                            estimatedDataRate: Double(track.estimatedDataRate)
-                        )
-                    },
-                    audioFormatDescription: trackInfo.description
-                )
-                if sample.audioTrackDataRate == nil {
-                    sample.audioTrackDataRate = trackInfo.estimatedDataRate
-                }
-                if !didLog {
-                    AppLogger.playback.info("Stream diagnostics (redacted): \(PlaybackDiagnostics.summary(for: sample), privacy: .public)")
-                    didLog = true
-                }
-                self.onDiagnostics?(sample)
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-            }
-        }
-    }
-
-    /// Loads the decoded audio track's codec/sample-rate/channel info.
-    /// This exposes low-grade source audio (e.g. HE-AAC at 24 kHz) so users
-    /// can distinguish a weak provider stream from an app-side problem.
-    private struct AudioTrackInfo {
-        var description: String?
-        var estimatedDataRate: Double?
-    }
-
-    private static func loadAudioTrackInfo(for item: AVPlayerItem) async -> AudioTrackInfo {
-        do {
-            var track = try await item.asset.loadTracks(withMediaType: .audio).first
-            if track == nil {
-                // Some HLS assets only expose tracks through the player item.
-                track = item.tracks.first(where: { $0.assetTrack?.mediaType == .audio })?.assetTrack
-            }
-            guard let track else {
-                return AudioTrackInfo(description: nil, estimatedDataRate: nil)
-            }
-            var info = AudioTrackInfo(description: nil, estimatedDataRate: nil)
-            if let descriptions = try? await track.load(.formatDescriptions),
-               let formatDescription = descriptions.first {
-                let codec = CMFormatDescriptionGetMediaSubType(formatDescription)
-                let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee
-                info.description = AudioFormatDescriber.describe(
-                    codec: codec,
-                    sampleRate: asbd?.mSampleRate ?? 0,
-                    channels: asbd?.mChannelsPerFrame ?? 0
-                )
-            }
-            if let rate = try? await track.load(.estimatedDataRate) {
-                info.estimatedDataRate = Double(rate)
-            }
-            return info
-        } catch {
-            return AudioTrackInfo(description: nil, estimatedDataRate: nil)
-        }
-    }
-
-    func play() {
-        player.play()
-    }
-
-    func pause() {
-        player.pause()
-    }
-
-    func stop() {
-        player.pause()
-        player.replaceCurrentItem(with: nil)
-        stopObserversForReload()
-    }
-
-    private func stopObserversForReload() {
-        statusObservation?.invalidate()
-        statusObservation = nil
-        diagnosticsTask?.cancel()
-        diagnosticsTask = nil
-        metadataOutput = nil
-        for observer in itemObservers { NotificationCenter.default.removeObserver(observer) }
-        itemObservers = []
-    }
-}
-
-// MARK: - Stream song metadata (ID3)
-
-extension AVAudioPlayerAdapter: AVPlayerItemMetadataOutputPushDelegate {
-    func metadataOutput(
-        _ output: AVPlayerItemMetadataOutput,
-        didOutputTimedMetadataGroups groups: [AVTimedMetadataGroup],
-        from track: AVPlayerItemTrack?
-    ) {
-        let items = groups.flatMap { $0.items }
-        guard let update = StreamMetadataParser.parse(items: items) else { return }
-        guard update != lastMetadata else { return }
-        lastMetadata = update
-        onMetadata?(update)
-    }
 }
 
 // MARK: - Audio session abstraction
@@ -451,9 +202,9 @@ final class PlaybackEngine: ObservableObject {
     /// station, asks every source again.
     private static let songSourceFailureLimit = 3
     /// Last sample published, so diagnostics can be rebuilt when something
-    /// other than the player changes. The compatibility engine emits a sample
-    /// only once, at startup, so without this every field derived from engine
-    /// state stays frozen at the moment playback began.
+    /// other than the player changes. The engine emits a sample only once, at
+    /// startup, so without this every field derived from engine state stays
+    /// frozen at the moment playback began.
     private var lastDiagnosticsSample: StreamDiagnosticsSample?
     /// Polls the provider's EPG for song info when the stream carries none.
     private var epgTask: Task<Void, Never>?
@@ -467,7 +218,7 @@ final class PlaybackEngine: ObservableObject {
     private var startedAtRememberedEndpoint = false
 
     init(
-        player: AudioPlayerControlling = AVAudioPlayerAdapter(),
+        player: AudioPlayerControlling = VLCPlayerAdapter(),
         audioSession: AudioSessionControlling = AVAudioSessionAdapter(),
         settings: SettingsStore,
         connectivity: ConnectivityMonitor,
@@ -626,7 +377,7 @@ final class PlaybackEngine: ObservableObject {
     func forgetRememberedFormat() {
         guard let station = state.station ?? pendingStation else { return }
         if let primary = station.streamCandidates.first {
-            candidateCache.forget(for: primary, engine: player.engineKind)
+            candidateCache.forget(for: primary)
         }
         AppLogger.playback.info("Forgot the remembered format and stopped; the next play probes from the top")
         stop()
@@ -643,7 +394,7 @@ final class PlaybackEngine: ObservableObject {
     func retryPreferredFormats() {
         guard let station = state.station ?? pendingStation else { return }
         if let primary = station.streamCandidates.first {
-            candidateCache.forget(for: primary, engine: player.engineKind)
+            candidateCache.forget(for: primary)
         }
         AppLogger.playback.info("Re-probing stream formats from the preferred option")
         play(station)
@@ -730,7 +481,7 @@ final class PlaybackEngine: ObservableObject {
         // Skip endpoints that failed last time: start at the remembered winner.
         if candidateIndex == 0,
            let primary = streamCandidates.first,
-           let remembered = candidateCache.successfulURL(for: primary, engine: player.engineKind),
+           let remembered = candidateCache.successfulURL(for: primary),
            let index = streamCandidates.firstIndex(where: { $0.absoluteString == remembered }) {
             candidateIndex = index
             startedAtRememberedEndpoint = index > 0
@@ -753,10 +504,16 @@ final class PlaybackEngine: ObservableObject {
             return
         }
         // .ts and other non-manifest candidates have nothing to probe, but
-        // audio-only endpoints commonly redirect in ways AVPlayer refuses
-        // (CFNetwork error 311). Resolve those redirects ourselves and hand
-        // AVPlayer the final URL; the whole point is to reach the provider's
-        // tiny audio-only stream instead of its multi-megabit video stream.
+        // audio-only endpoints commonly redirect, and resolving those
+        // redirects here reaches the provider's tiny audio-only stream instead
+        // of its multi-megabit video stream.
+        //
+        // This was added because AVPlayer refused those redirects outright
+        // (CFNetwork error 311). That engine is gone and libVLC follows
+        // redirects itself, so this may now be doing nothing — but whether it
+        // is needed for a redirecting endpoint on some other provider cannot
+        // be settled without a device, and the resolution is cached, so it is
+        // left in place rather than removed on a guess.
         guard candidate.pathExtension.lowercased() == "m3u8" else {
             if isAudioOnlyEndpoint(candidate),
                let cachedResolution = resolvedURLs[candidate.absoluteString] {
@@ -1062,7 +819,7 @@ final class PlaybackEngine: ObservableObject {
 
     /// Rebuilds diagnostics from the last sample, for state the player does not
     /// report — the song source above all, which arrives seconds after the
-    /// engine's only sample on the compatibility engine.
+    /// engine's only sample.
     private func refreshDiagnostics() {
         guard let sample = lastDiagnosticsSample else { return }
         handleDiagnosticsSample(sample)
@@ -1108,7 +865,6 @@ final class PlaybackEngine: ObservableObject {
             audioFormat: sample.audioFormat,
             lastFormatFailure: lastFormatFailure,
             songInfoFromStream: receivedSongInfoFromStream,
-            playbackEngine: player.engineKind,
             songInfoSource: songInfoSource,
             songInfoIsProgrammeOnly: songInfoIsProgrammeOnly,
             songSources: songSourceReports,
@@ -1186,15 +942,15 @@ final class PlaybackEngine: ObservableObject {
             // silently disables the skip, the diagnostics and the retry for
             // exactly the audio-only endpoints they exist for.
             if candidateIndex < streamCandidates.count, let primary = streamCandidates.first {
-                candidateCache.record(streamCandidates[candidateIndex], for: primary, engine: player.engineKind)
+                candidateCache.record(streamCandidates[candidateIndex], for: primary)
             }
             AppLogger.playback.info("Stream ready (format \(self.candidateIndex + 1) of \(max(self.streamCandidates.count, 1)))")
             state = .playing(station)
             nowPlaying.update(state: state, buffering: false)
             nowPlaying.loadArtwork(for: station)
             startSongInfoPolling(for: station)
-            // Emit a basic diagnostics sample immediately (the compatibility
-            // engine has no access log; richer AVPlayer samples override this).
+            // Emit a diagnostics sample immediately: libVLC exposes no access
+            // log, so this is the only one there will be.
             handleDiagnosticsSample(StreamDiagnosticsSample(
                 streamExtension: activePlaybackURL?.pathExtension ?? "",
                 indicatedBitrate: nil,
@@ -1302,11 +1058,11 @@ final class PlaybackEngine: ObservableObject {
                 // "None answered" under a visible title. The per-source reports
                 // above carry the fresh result either way.
                 //
-                // The refresh is unconditional because the compatibility engine
-                // publishes exactly one sample, at startup, long before any
-                // lookup returns. Without it every song field on the
-                // diagnostics screen stays frozen at playback start, reading
-                // "None answered" even when a source did answer.
+                // The refresh is unconditional because the engine publishes
+                // exactly one sample, at startup, long before any lookup
+                // returns. Without it every song field on the diagnostics
+                // screen stays frozen at playback start, reading "None
+                // answered" even when a source did answer.
                 self.refreshDiagnostics()
                 // Logged once per station: which source answered, or that none
                 // did, is the only way to tell a silent broadcaster from a
