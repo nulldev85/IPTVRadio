@@ -23,7 +23,7 @@ struct IPTVRadioApp: App {
                 .environmentObject(environment.history)
                 .environmentObject(environment.connectivity)
                 .tint(Color.appAccent)
-                // The app has one appearance: the graphite theme. Locking it
+                // The app has one appearance: the grey theme. Locking it
                 // here (and in Info.plist, for UIKit's own chrome) is what
                 // lets every screen be designed for a dark base instead of
                 // hedging between two.

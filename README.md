@@ -36,8 +36,9 @@ authorization from their provider for every stream they configure.
 - Automatic reconnection with exponential backoff; configurable stream timeout
 - Cellular-streaming opt-in setting; pull-to-refresh and manual refresh
 - Loading / empty / offline / expired-session / malformed-playlist states
-- One appearance: a graphite base with a single muted brass accent, matte throughout — no blur
-  materials, gloss or shadows (`IPTVRadio/Features/Components/Theme.swift` holds every colour)
+- One appearance, no hues: a dark grey base, light grey for secondary text, white for what
+  matters and for anything interactive — matte throughout, no blur materials, gloss or shadows
+  (`IPTVRadio/Features/Components/Theme.swift` holds every colour in the app)
 - Dynamic Type, VoiceOver labels, iPhone and iPad layouts
 - Account management, filter-rule editor, cache clearing, and logout in Settings
 

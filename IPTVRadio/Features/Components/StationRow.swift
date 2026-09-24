@@ -25,7 +25,7 @@ struct StationRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(station.name)
                         .font(.body.weight(isCurrent ? .semibold : .regular))
-                        .foregroundStyle(isCurrent ? Color.appAccent : Color.appTextPrimary)
+                        .foregroundStyle(Color.appTextPrimary)
                         .lineLimit(2)
                     if !station.groupTitle.isEmpty {
                         Text(station.groupTitle)
@@ -57,7 +57,7 @@ struct StationRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .appListRow()
+        .appListRow(highlighted: isCurrent)
         .accessibilityIdentifier("station.row.\(station.name)")
         .accessibilityElement(children: .combine)
         .accessibilityHint("Plays this station")

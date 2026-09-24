@@ -2,13 +2,13 @@
 """Generates the Aether app icon.
 
 The icon is a broadcast mark: a transmitter dot with signal arcs radiating
-symmetrically left and right, in muted brass on graphite — the same two colours
-the app itself is built from (see Theme.swift). It is drawn at 4x and
-downsampled, which is what gives the arcs clean anti-aliased edges.
+symmetrically left and right, in white shading to light grey on a dark grey
+field — the app's whole palette, and nothing else (see Theme.swift). It is drawn
+at 4x and downsampled, which is what gives the arcs clean anti-aliased edges.
 
-Deliberately matte: a flat graphite field and no glow behind the mark. The only
-gradients are shallow two-tone sweeps, which give the brass a metallic read
-without turning the icon glossy.
+Deliberately matte: a flat grey field and no glow behind the mark. The only
+gradients are shallow two-tone sweeps, which keep the mark from looking like
+flat paint without turning the icon glossy.
 
 The output is deliberately opaque RGB — iOS rejects app icons with an alpha
 channel — and full-bleed square, because iOS applies its own rounded-rect mask.
@@ -27,12 +27,12 @@ SS = 4                      # supersample factor
 SIZE = FINAL * SS
 CENTER = SIZE // 2
 
-# Graphite backdrop, one shade either side of the app's base colour.
-BG_TOP = (30, 30, 34)
-BG_BOTTOM = (14, 14, 17)
-# Brass gradient for the mark, bracketing the app's accent.
-ACCENT_FROM = (223, 196, 152)   # pale brass
-ACCENT_TO = (176, 131, 79)      # deep brass
+# Dark grey backdrop, one shade either side of the app's base colour.
+BG_TOP = (46, 46, 51)
+BG_BOTTOM = (26, 26, 29)
+# The mark: white falling away to light grey.
+ACCENT_FROM = (255, 255, 255)   # white
+ACCENT_TO = (198, 198, 205)     # light grey
 
 DOT_RADIUS = 180 * SS // 4
 ARC_RADII = [600, 940, 1280]

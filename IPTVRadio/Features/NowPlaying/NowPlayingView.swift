@@ -7,14 +7,14 @@ struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showSleepTimerSheet = false
-    /// Channel logo, used as the backdrop when there is no song artwork.
+    /// Channel logo, shown as the artwork when there is no song cover.
     @State private var stationLogo: UIImage?
 
-    /// What fills the screen behind the player: the current song's artwork when
-    /// the stream provides it, otherwise the channel logo.
-    private var backdropImage: UIImage? {
-        playback.nowPlayingMetadata?.artworkImage ?? stationLogo
-    }
+    /// Height kept clear below the artwork for the song text, the transport,
+    /// the utilities row and the diagnostics line. The artwork takes whatever
+    /// is left, so on a small screen it gives way instead of pushing the
+    /// controls off the bottom.
+    private static let controlsReserve: CGFloat = 300
 
     var body: some View {
         // No navigation bar: it reserves space at the top of the sheet, and the
@@ -28,9 +28,8 @@ struct NowPlayingView: View {
                 EmptyStateView(title: "Nothing playing", message: "Pick a station to start listening.")
             }
         }
-        // The backdrop is always a dark, scrimmed image, so the chrome on top
-        // of it is styled for dark regardless of the system appearance. One
-        // line here beats hand-colouring every label, material and icon.
+        // A sheet does not inherit the app's locked appearance, so it is set
+        // here too: everything on this screen is drawn for a dark page.
         .preferredColorScheme(.dark)
         // The sheet stays swipe-to-dismissable; the drag indicator plus the
         // always-visible in-body Close control guarantee a reliable way back.
@@ -39,81 +38,43 @@ struct NowPlayingView: View {
 
     private func content(for station: RadioStation) -> some View {
         GeometryReader { proxy in
-            // Roughly square and the full width of the screen, capped against
-            // height so the controls below are never pushed off a short one.
-            // Clamped at the bottom because a GeometryReader can report a zero
-            // size on an initial or transition pass, and a zero-height frame
-            // would collapse the artwork entirely.
-            let artworkHeight = max(200, min(proxy.size.width, proxy.size.height * 0.55))
+            // Tall artwork, low controls. The artwork takes most of the screen
+            // and dissolves into the page along its bottom edge, which puts the
+            // transport down where a thumb already is. Floored because a
+            // GeometryReader can report a zero size on a transition pass, and
+            // capped so the block below always has room.
+            let artworkHeight = max(
+                220,
+                min(proxy.size.height * 0.62, proxy.size.height - Self.controlsReserve)
+            )
 
             VStack(spacing: 0) {
                 artwork(width: max(1, proxy.size.width), height: artworkHeight)
 
-                VStack(spacing: 18) {
-                    VStack(spacing: 6) {
-                        if let metadata = playback.nowPlayingMetadata,
-                           metadata.title != nil || metadata.artist != nil {
-                            // The current song, from whichever source had it.
-                            VStack(spacing: 2) {
-                                if let title = metadata.title {
-                                    Text(title)
-                                        .font(.title3.weight(.semibold))
-                                        .foregroundStyle(Color.appTextPrimary)
-                                        .multilineTextAlignment(.center)
-                                }
-                                if let artist = metadata.artist {
-                                    Text(artist)
-                                        .font(.subheadline)
-                                        .foregroundStyle(Color.appTextSecondary)
-                                        .multilineTextAlignment(.center)
-                                }
-                            }
-                            .accessibilityIdentifier("nowplaying.song")
-                        }
-                        Text(station.name)
-                            .font(playback.nowPlayingMetadata?.title == nil ? .title2.weight(.semibold) : .footnote)
-                            .foregroundStyle(playback.nowPlayingMetadata?.title == nil ? Color.appTextPrimary : Color.appTextSecondary)
-                            .multilineTextAlignment(.center)
-                            .accessibilityIdentifier("nowplaying.title")
-                        Text(stateText)
-                            .font(.caption2.weight(.medium))
-                            .tracking(0.6)
-                            .foregroundStyle(stateColor)
-                            .accessibilityIdentifier("nowplaying.state")
-                    }
+                // Absorbs the slack on a tall screen, so the controls sit at
+                // the bottom rather than floating under the artwork.
+                Spacer(minLength: 0)
 
+                VStack(spacing: 20) {
+                    songText(for: station)
                     controlRow
-
-                    // Utilities, deliberately a step quieter than the transport
-                    // above them: same size, secondary colour, no plates.
-                    HStack(spacing: 34) {
-                        SleepTimerButton(showSheet: $showSleepTimerSheet)
-                        RoutePickerButton()
-                        Button {
-                            playback.retry()
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 17))
-                        }
-                        .accessibilityLabel("Retry connection")
-                        .accessibilityIdentifier("nowplaying.retry")
-                    }
-                    .foregroundStyle(Color.appTextSecondary)
+                    utilitiesRow
 
                     if let diagnostics = playback.streamDiagnostics {
                         StreamDiagnosticsSummaryCard(diagnostics: diagnostics)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 22)
-
-                Spacer(minLength: 0)
+                .padding(.horizontal, 26)
+                .padding(.bottom, 26)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(NowPlayingBackdrop(image: backdropImage))
+            // Flat page. The artwork fades into exactly this colour, so there
+            // is no seam to see and no blurred copy of the cover competing with
+            // the cover itself.
+            .background(Color.appBackground.ignoresSafeArea())
             // Dismissal must never depend on the system navigation bar
-            // rendering, and the artwork now fills the top of the screen — so
-            // the close control floats over it instead of sitting above it.
+            // rendering, and the artwork fills the top of the screen — so the
+            // close control floats over it instead of sitting above it.
             .overlay(alignment: .topTrailing) {
                 Button {
                     dismiss()
@@ -140,12 +101,69 @@ struct NowPlayingView: View {
         }
     }
 
-    /// The artwork, full width and bleeding off the top of the screen.
+    /// Song, station and connection state, in that order of prominence.
+    @ViewBuilder
+    private func songText(for station: RadioStation) -> some View {
+        VStack(spacing: 6) {
+            if let metadata = playback.nowPlayingMetadata,
+               metadata.title != nil || metadata.artist != nil {
+                // The current song, from whichever source had it.
+                VStack(spacing: 3) {
+                    if let title = metadata.title {
+                        Text(title)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(Color.appTextPrimary)
+                            .multilineTextAlignment(.center)
+                    }
+                    if let artist = metadata.artist {
+                        Text(artist)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.appTextSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .accessibilityIdentifier("nowplaying.song")
+            }
+            Text(station.name)
+                .font(playback.nowPlayingMetadata?.title == nil ? .title2.weight(.semibold) : .footnote)
+                .foregroundStyle(playback.nowPlayingMetadata?.title == nil ? Color.appTextPrimary : Color.appTextSecondary)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("nowplaying.title")
+            Text(stateText)
+                .font(.caption2.weight(.medium))
+                .tracking(0.6)
+                .foregroundStyle(stateColor)
+                .accessibilityIdentifier("nowplaying.state")
+        }
+    }
+
+    /// Utilities, deliberately a step quieter than the transport above them:
+    /// same size, secondary colour, no plates.
+    private var utilitiesRow: some View {
+        HStack(spacing: 34) {
+            SleepTimerButton(showSheet: $showSleepTimerSheet)
+            RoutePickerButton()
+            Button {
+                playback.retry()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 17))
+            }
+            .accessibilityLabel("Retry connection")
+            .accessibilityIdentifier("nowplaying.retry")
+        }
+        .foregroundStyle(Color.appTextSecondary)
+    }
+
+    /// The artwork, full width, bleeding off the top of the screen and
+    /// dissolving into the page along its bottom edge.
     ///
     /// Scaled to fill and clipped rather than fitted: a cover whose aspect
     /// ratio does not match the frame should crop like a photograph instead of
-    /// leaving bars down the sides. The gradient along the bottom edge melts
-    /// the image into the page so there is no hard seam between them.
+    /// leaving bars down the sides. The gradient is deliberately long — over a
+    /// third of the artwork's height, in four stops — because a short one reads
+    /// as a dark band across the picture, while this reads as the image running
+    /// out. It ends on the page's own colour, so there is no seam at all.
     @ViewBuilder
     private func artwork(width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottom) {
@@ -156,10 +174,8 @@ struct NowPlayingView: View {
                     .frame(width: width, height: height)
                     .clipped()
             } else {
-                // Nothing to show yet: a graphite plate rather than a void, so
-                // the screen looks deliberate while the artwork is still
-                // loading. Neutral, not tinted — a coloured wash here is the
-                // first thing that makes an app look cheap.
+                // Nothing to show yet: a grey plate rather than a void, so the
+                // screen looks deliberate while the artwork is still loading.
                 LinearGradient(
                     colors: [Color.appElevated, Color.appSurface],
                     startPoint: .top,
@@ -174,11 +190,16 @@ struct NowPlayingView: View {
             }
 
             LinearGradient(
-                colors: [.clear, .black.opacity(0.55)],
+                stops: [
+                    .init(color: .appBackground.opacity(0), location: 0),
+                    .init(color: .appBackground.opacity(0.45), location: 0.45),
+                    .init(color: .appBackground.opacity(0.88), location: 0.78),
+                    .init(color: .appBackground, location: 1)
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: max(1, height * 0.3))
+            .frame(height: max(1, height * 0.38))
         }
         .frame(width: width, height: height)
         .clipped()
@@ -262,67 +283,6 @@ struct NowPlayingView: View {
         case .failed: return .appAlert
         default: return .appTextSecondary
         }
-    }
-}
-
-/// Full-bleed artwork behind the now playing screen.
-///
-/// The image is scaled to fill, blurred hard, and covered with a scrim. At that
-/// blur radius it reads as colour and light rather than as a picture, which is
-/// the point: the song title, controls and state text all sit on top of it and
-/// have to stay legible against whatever a provider happens to serve — a dark
-/// album cover one minute, a white station logo the next.
-///
-/// With no artwork at all it is a graphite gradient — the theme's own surfaces,
-/// never a colour wash — so the screen looks deliberate rather than broken.
-private struct NowPlayingBackdrop: View {
-    let image: UIImage?
-
-    var body: some View {
-        ZStack {
-            // Also the fallback when there is nothing to show.
-            LinearGradient(
-                colors: [
-                    Color.appElevated,
-                    Color.appBackground,
-                    Color.black
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // Clip before blurring: a scaled-to-fill image overflows on
-                    // one axis, and an unclipped blur bleeds past the screen.
-                    .clipped()
-                    .blur(radius: 60)
-                    // A blur samples beyond its layer as transparent, so the
-                    // edges fade and leave a rim. Overscaling pushes that fade
-                    // off screen. (`opaque: true` would also fix it, but it
-                    // renders transparent pixels black, and keyed channel logos
-                    // are mostly transparent.)
-                    .scaleEffect(1.15)
-                    // Keyed logos being transparent means the base gradient
-                    // shows through as a tint rather than a hard edge.
-                    .opacity(0.9)
-            }
-
-            // Darkest top and bottom, where the title and the controls sit.
-            LinearGradient(
-                colors: [
-                    Color.black.opacity(0.55),
-                    Color.black.opacity(0.15),
-                    Color.black.opacity(0.7)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
-        .ignoresSafeArea()
     }
 }
 

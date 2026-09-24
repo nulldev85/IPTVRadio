@@ -3,11 +3,13 @@ import UIKit
 
 /// The app's visual language, in one place.
 ///
-/// Graphite and brass: a near-black neutral base, three flat surface steps above
-/// it, warm off-white type, and a single muted brass accent (the asset catalog's
-/// `AccentColor`). Colour is rationed: brass means interactive, sage means live,
-/// terracotta means broken, and nothing else in the app is coloured at all — so
-/// a colour here always says something.
+/// Three values and nothing else: a dark grey base, light grey for secondary
+/// text and quiet glyphs, and white for what matters — type you read first, and
+/// anything interactive (the asset catalog's `AccentColor`).
+///
+/// There are no hues at all, so emphasis has to come from weight and brightness
+/// rather than colour. That is the point: a palette with nothing to clash makes
+/// whatever album art is on screen the only colour in the app.
 ///
 /// Deliberately matte. No blur materials, no gloss gradients, no shadows, no
 /// saturated system colours. Depth comes from the surface steps and hairlines,
@@ -63,31 +65,34 @@ enum AppTheme {
 }
 
 extension UIColor {
-    /// The page. Near-black but neutral-warm rather than pure black, so surfaces
-    /// above it are visible without anything having to glow.
-    static let appBackground = UIColor(red: 0.063, green: 0.063, blue: 0.075, alpha: 1)
+    /// The page: dark grey, not black. Surfaces above it are then visible as
+    /// steps rather than needing a border to be found.
+    static let appBackground = UIColor(red: 0.102, green: 0.102, blue: 0.110, alpha: 1)
     /// Rows, cards, bars: one step up from the page.
-    static let appSurface = UIColor(red: 0.090, green: 0.090, blue: 0.106, alpha: 1)
+    static let appSurface = UIColor(red: 0.137, green: 0.137, blue: 0.149, alpha: 1)
     /// Controls and input fields: two steps up.
-    static let appElevated = UIColor(red: 0.125, green: 0.125, blue: 0.145, alpha: 1)
+    static let appElevated = UIColor(red: 0.176, green: 0.176, blue: 0.192, alpha: 1)
     /// Separators and borders. A hairline does the work a shadow would.
-    static let appHairline = UIColor(white: 1, alpha: 0.09)
+    static let appHairline = UIColor(white: 1, alpha: 0.10)
 
-    /// Warm off-white. Pure white on graphite reads cold and clinical.
-    static let appTextPrimary = UIColor(red: 0.949, green: 0.941, blue: 0.922, alpha: 1)
-    static let appTextSecondary = UIColor(red: 0.647, green: 0.639, blue: 0.627, alpha: 1)
-    static let appTextTertiary = UIColor(red: 0.424, green: 0.416, blue: 0.404, alpha: 1)
+    /// White: the first thing read on any screen.
+    static let appTextPrimary = UIColor(red: 0.961, green: 0.961, blue: 0.969, alpha: 1)
+    /// Light grey: everything explanatory.
+    static let appTextSecondary = UIColor(red: 0.678, green: 0.678, blue: 0.698, alpha: 1)
+    /// Dimmer grey, for glyphs and labels that should recede entirely.
+    static let appTextTertiary = UIColor(red: 0.463, green: 0.463, blue: 0.486, alpha: 1)
 
     /// Read from the asset catalog so the accent has exactly one definition.
-    static let appAccent = UIColor(named: "AccentColor")
-        ?? UIColor(red: 0.788, green: 0.631, blue: 0.416, alpha: 1)
-    /// Type and glyphs drawn *on* the accent.
-    static let appAccentContrast = UIColor(red: 0.075, green: 0.071, blue: 0.063, alpha: 1)
+    static let appAccent = UIColor(named: "AccentColor") ?? UIColor.white
+    /// Type and glyphs drawn *on* the accent, which is white — so, the page.
+    static let appAccentContrast = UIColor(red: 0.102, green: 0.102, blue: 0.110, alpha: 1)
 
-    /// Live playback. Muted sage: present without shouting.
-    static let appLive = UIColor(red: 0.561, green: 0.682, blue: 0.541, alpha: 1)
-    /// Failures and warnings. Terracotta instead of system red.
-    static let appAlert = UIColor(red: 0.769, green: 0.471, blue: 0.369, alpha: 1)
+    /// Live playback. White, like everything else that matters: with no hues in
+    /// the palette, a state is told by its label and its glyph.
+    static let appLive = UIColor(red: 0.961, green: 0.961, blue: 0.969, alpha: 1)
+    /// Failures and warnings — white as well, carried by the warning glyph and
+    /// the wording rather than by being red.
+    static let appAlert = UIColor(red: 0.961, green: 0.961, blue: 0.969, alpha: 1)
 }
 
 extension Color {
@@ -111,7 +116,7 @@ extension Color {
 
 // MARK: - Controls
 
-/// The one emphasised button: solid brass, near-black label, no gradient and no
+/// The one emphasised button: solid white, dark grey label, no gradient and no
 /// shadow. Pressing dims it rather than scaling it.
 struct AppProminentButtonStyle: ButtonStyle {
     /// Sign-in style buttons stretch; inline ones size to their label.
@@ -128,7 +133,7 @@ struct AppProminentButtonStyle: ButtonStyle {
     }
 }
 
-/// The quiet counterpart: an elevated surface with a brass label and a hairline
+/// The quiet counterpart: an elevated surface with a white label and a hairline
 /// border. Used where a button is an option rather than the point of the screen.
 struct AppQuietButtonStyle: ButtonStyle {
     var fullWidth = false
@@ -182,10 +187,14 @@ extension View {
             )
     }
 
-    /// Station and settings rows: transparent over the page, hairline separator
-    /// in the theme's colour rather than the system's.
-    func appListRow() -> some View {
-        listRowBackground(Color.appBackground)
+    /// Station and settings rows: flush with the page, hairline separator in
+    /// the theme's colour rather than the system's.
+    ///
+    /// `highlighted` lifts a row onto the surface step. With no hues to spend,
+    /// that step is how "this is the one playing" is said — a brighter label
+    /// would be indistinguishable from an ordinary one.
+    func appListRow(highlighted: Bool = false) -> some View {
+        listRowBackground(highlighted ? Color.appSurface : Color.appBackground)
             .listRowSeparatorTint(Color.appHairline)
     }
 

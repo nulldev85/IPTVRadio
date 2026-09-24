@@ -225,8 +225,8 @@ struct StreamDiagnosticsView: View {
 
     private func songOutcomeColor(_ outcome: SongSourceReport.Outcome) -> Color {
         switch outcome {
-        case .song: return .appLive
-        case .programme: return .appAccent
+        case .song: return .appTextPrimary
+        case .programme: return .appTextSecondary
         case .nothing: return .appTextTertiary
         }
     }
@@ -242,8 +242,8 @@ struct StreamDiagnosticsView: View {
 
     private func outcomeColor(_ outcome: StreamCandidateReport.Outcome) -> Color {
         switch outcome {
-        case .playing: return .appLive
-        case .failed: return .appAlert
+        case .playing: return .appTextPrimary
+        case .failed: return .appTextSecondary
         case .notTried, .skipped: return .appTextTertiary
         }
     }
