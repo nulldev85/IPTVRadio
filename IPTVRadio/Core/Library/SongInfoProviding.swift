@@ -19,9 +19,25 @@ struct SongLookup: Sendable {
     var update: StreamMetadataUpdate?
     /// Short, credential-free explanation, for diagnostics.
     var note: String?
+    /// True when the source was reached and understood but had no track to
+    /// report *right now* — matched the channel and it is between songs.
+    ///
+    /// The distinction matters because the engine stops asking a source that
+    /// keeps coming back empty. "Between songs" must not count: a channel is
+    /// between songs several times an hour, and a source struck off for it
+    /// would freeze the displayed song for the rest of the station's playback.
+    var reachedSource = false
 
+    /// Nothing, and the source could not be consulted: unreachable, refused,
+    /// or no usable channel key. Counts towards being struck off.
     static func empty(_ note: String) -> SongLookup {
         SongLookup(update: nil, note: note)
+    }
+
+    /// Nothing, but the source answered about this channel — it simply has no
+    /// track at the moment. Never counts towards being struck off.
+    static func silent(_ note: String) -> SongLookup {
+        SongLookup(update: nil, note: note, reachedSource: true)
     }
 
     static func found(_ update: StreamMetadataUpdate, note: String? = nil) -> SongLookup {

@@ -132,6 +132,96 @@ final class SiriusXMNowPlayingProviderTests: XCTestCase {
         XCTAssertEqual(SiriusXMNowPlayingProvider.findSong(in: payload)?.artist, "Drake")
     }
 
+    // MARK: Which play is current
+
+    func testTakesTheNewestPlayWhateverOrderTheListIsIn() {
+        // The freeze this fixes. A list of recent plays whose newest entry is
+        // last would otherwise report a real song, with real album art, that
+        // never changes however long the station runs — indistinguishable from
+        // working until you listen for a few minutes.
+        let oldestFirst = json("""
+        [{"id":"b","timestamp":"2026-09-24T03:36:01.000Z","track":{"title":"Older","artists":[{"name":"Older Artist"}]}},
+         {"id":"a","timestamp":"2026-09-24T03:40:12.000Z","track":{"title":"Newer","artists":[{"name":"Newest Artist"}]}}]
+        """)
+        let newestFirst = json("""
+        [{"id":"a","timestamp":"2026-09-24T03:40:12.000Z","track":{"title":"Newer","artists":[{"name":"Newest Artist"}]}},
+         {"id":"b","timestamp":"2026-09-24T03:36:01.000Z","track":{"title":"Older","artists":[{"name":"Older Artist"}]}}]
+        """)
+
+        XCTAssertEqual(SiriusXMNowPlayingProvider.findSong(in: oldestFirst)?.title, "Newer")
+        XCTAssertEqual(
+            SiriusXMNowPlayingProvider.findSong(in: newestFirst)?.title, "Newer",
+            "The answer must not depend on the order an undocumented source happens to use"
+        )
+    }
+
+    func testReadsAPlayTimeThatSitsBesideTheTrackRatherThanInsideIt() {
+        // `{ timestamp: …, track: { … } }` is the common shape: the time is the
+        // track's sibling, so the walk has to carry it down.
+        let payload = json("""
+        {"results":[{"playedAt":1758684001000,"song":{"name":"Older","artist":"Older Artist"}},
+                    {"playedAt":1758684612000,"song":{"name":"Newer","artist":"Newest Artist"}}]}
+        """)
+        XCTAssertEqual(SiriusXMNowPlayingProvider.findSong(in: payload)?.artist, "Newest Artist")
+    }
+
+    func testAcceptsEpochSecondsAndTheBroadcastersOwnDateSpelling() {
+        let epochSeconds = json("""
+        {"plays":[{"start":"1758684612","song":{"name":"Newer","artist":"Newest Artist"}},
+                  {"start":"1758684001","song":{"name":"Older","artist":"Older Artist"}}]}
+        """)
+        XCTAssertEqual(SiriusXMNowPlayingProvider.findSong(in: epochSeconds)?.artist, "Newest Artist")
+
+        let broadcaster = json("""
+        {"channelMetadataResponse":{"metaData":{"currentEvent":{
+          "startTime":"2026-09-24-03:40:12",
+          "song":{"name":"Nokia","artists":[{"name":"Drake"}]}}}}}
+        """)
+        let play = SiriusXMNowPlayingProvider.findSong(in: broadcaster)
+        XCTAssertEqual(play?.artist, "Drake")
+        XCTAssertNotNil(play?.playedAt, "The broadcaster spells its timestamps its own way, and they still count")
+    }
+
+    func testFallsBackToTheFirstPlayWhenNothingIsTimestamped() {
+        let payload = json("""
+        {"events":[{"channel":"The Heat"},{"song":{"title":"Nokia","artist":"Drake"}}]}
+        """)
+        let play = SiriusXMNowPlayingProvider.findSong(in: payload)
+        XCTAssertEqual(play?.artist, "Drake")
+        XCTAssertNil(play?.playedAt)
+    }
+
+    func testIgnoresValuesUnderDateKeysThatAreNotDates() {
+        // `date` and `time` are broad keys; anything that does not parse must
+        // leave the play undated rather than inventing an ordering.
+        let payload = json("""
+        {"plays":[{"date":"yesterday","song":{"name":"Only","artist":"Only Artist"}}]}
+        """)
+        let play = SiriusXMNowPlayingProvider.findSong(in: payload)
+        XCTAssertEqual(play?.artist, "Only Artist")
+        XCTAssertNil(play?.playedAt)
+    }
+
+    func testTheMatchedNoteCarriesTheAgeOfThePlay() {
+        // How a frozen song is spotted from a screenshot: the age keeps growing
+        // while the audio moves on.
+        let now = Date()
+        let play = SiriusXMNowPlayingProvider.Play(
+            title: "Nokia", artist: "Drake", playedAt: now.addingTimeInterval(-42)
+        )
+        let note = SiriusXMNowPlayingProvider.matchedNote(key: "fly", play: play, now: now)
+        XCTAssertTrue(note.hasPrefix("fly: matched, play from "), note)
+        XCTAssertTrue(note.hasSuffix("(42s ago)"), note)
+
+        XCTAssertEqual(SiriusXMNowPlayingProvider.age(of: now.addingTimeInterval(-600), now: now), "10m ago")
+        XCTAssertEqual(SiriusXMNowPlayingProvider.age(of: now.addingTimeInterval(-7200), now: now), "2h ago")
+    }
+
+    func testAnUndatedMatchSaysSoRatherThanClaimingATime() {
+        let play = SiriusXMNowPlayingProvider.Play(title: "Nokia", artist: "Drake", playedAt: nil)
+        XCTAssertEqual(SiriusXMNowPlayingProvider.matchedNote(key: "fly", play: play), "fly: matched")
+    }
+
     func testUnrecognisedShapeYieldsNothingRatherThanAGuess() {
         XCTAssertNil(SiriusXMNowPlayingProvider.findSong(in: json(#"{"status":"ok","code":200}"#)))
         XCTAssertNil(SiriusXMNowPlayingProvider.findSong(in: json("[]")))
@@ -173,9 +263,25 @@ final class SiriusXMNowPlayingProviderTests: XCTestCase {
             lookup.note, "ozzysboneyard: no song in response, siriusxmozzysboneyard: no song in response",
             "A key that answers is a different problem from a key that 404s, and has to read differently"
         )
+        XCTAssertTrue(
+            lookup.reachedSource,
+            "The channel matched and is between songs; a source like that must keep being asked"
+        )
     }
 
-    func testAMatchIsReportedAsASongWithNoNote() async {
+    func testAKeyThatWasRefusedDoesNotCountAsReachingTheSource() async {
+        let http = MockHTTP.client { _ in (403, Data("{}".utf8)) }
+        let provider = SiriusXMNowPlayingProvider(http: http)
+
+        let lookup = await provider.currentSong(for: station("Radio: SiriusXM FLY"))
+
+        XCTAssertFalse(
+            lookup.reachedSource,
+            "Refused every key: this is the case the engine is entitled to give up on"
+        )
+    }
+
+    func testAMatchReportsWhichKeyAnsweredAndHowOldThePlayIs() async {
         let http = MockHTTP.client { _ in
             (200, Data(#"{"currentEvent":{"songName":"Nokia","artistName":"Drake"}}"#.utf8))
         }
@@ -186,7 +292,10 @@ final class SiriusXMNowPlayingProviderTests: XCTestCase {
         XCTAssertTrue(lookup.isSong)
         XCTAssertEqual(lookup.update?.artist, "Drake")
         XCTAssertEqual(lookup.update?.title, "Nokia")
-        XCTAssertNil(lookup.note, "Nothing to explain when it worked")
+        XCTAssertEqual(
+            lookup.note, "siriusxmfly: matched",
+            "Which key answered is worth reporting even on success — and with a timestamped play, its age"
+        )
     }
 
     func testAnUnusableStationNameSaysSoRatherThanSilentlyDoingNothing() async {

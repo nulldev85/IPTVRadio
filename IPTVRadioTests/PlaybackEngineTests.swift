@@ -909,6 +909,46 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testASourceBetweenSongsKeepsBeingAskedSoTheNextSongStillArrives() async {
+        // The reason a song could stop updating for the rest of a station's
+        // playback. A live channel is between songs several times an hour, and
+        // the source says so with a normal answer — it matched the channel and
+        // has no track right now. Counting that towards being struck off meant
+        // the source went quiet permanently, and because an empty pass
+        // deliberately leaves the last title on screen, the song froze there.
+        let tracker = StubSongProvider(sourceName: "SiriusXM playlist tracker")
+        tracker.answer = { call in
+            call <= 5
+                ? .silent("fly: no song in response")
+                : .found(StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil))
+        }
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [tracker],
+            songPollInterval: 0.02
+        )
+        let s = RadioStation(
+            name: "Fly",
+            streamURL: URL(string: "https://host.example/live/u/p/83.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "83"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<120 where engine.nowPlayingMetadata?.artist == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertGreaterThan(
+            tracker.askCount, 3,
+            "Five quiet passes is not a broken source: it has to still be asked on the sixth"
+        )
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Nokia")
+    }
+
+    @MainActor
     func testLateFailuresFromAnAbandonedStreamAreIgnored() async {
         // libVLC reports a dying stream more than once. Each report used to be
         // taken as a fresh failure: the second arrived while the reconnect from
@@ -1146,6 +1186,39 @@ final class PlaybackEngineTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         XCTAssertNotNil(engine.nowPlayingMetadata?.artworkImage, "Artwork should be looked up online")
+    }
+
+    @MainActor
+    func testTheSameSongRepeatedKeepsTheArtworkItAlreadyHas() async {
+        // The out-of-stream sources carry no album art and report the current
+        // track again on every pass. Rebuilding the metadata from one of those
+        // answers used to drop the artwork the lookup had already resolved, so
+        // the cover blinked back to the channel logo and was fetched again
+        // every thirty seconds.
+        let png = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )!
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        engine.settingsForTesting.lookupSongArtwork = false
+
+        engine.play(station("artwork"))
+        player.simulateReady()
+
+        player.onMetadata?(StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: png))
+        XCTAssertNotNil(engine.nowPlayingMetadata?.artworkImage)
+
+        player.onMetadata?(StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil))
+        XCTAssertNotNil(
+            engine.nowPlayingMetadata?.artworkImage,
+            "The same song must keep the cover it already has"
+        )
+
+        player.onMetadata?(StreamMetadataUpdate(title: "Digital Love", artist: "Daft Punk", artworkData: nil))
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Digital Love")
+        XCTAssertNil(
+            engine.nowPlayingMetadata?.artworkImage,
+            "A different song must not inherit the previous song's cover"
+        )
     }
 
     // MARK: Redirected audio endpoints

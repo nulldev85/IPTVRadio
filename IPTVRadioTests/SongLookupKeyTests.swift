@@ -149,6 +149,43 @@ final class XMPlaylistNowPlayingProviderTests: XCTestCase {
         XCTAssertEqual(lookup.update?.artist, "Drake")
     }
 
+    func testReadsTheMostRecentPlayEvenWhenTheListIsOldestFirst() async {
+        // The order of this list is not documented and nothing stops it
+        // changing. Reading the wrong end of it shows a real song, with real
+        // album art, that never changes while the station plays on — which is
+        // how the frozen song title looked on device.
+        let http = MockHTTP.client { _ in
+            (200, Data("""
+            {"results":[
+              {"track":{"title":"Older","artists":["Someone Else"]},"timestamp":"2026-09-23T11:55:00Z"},
+              {"track":{"title":"Nokia","artists":["Drake"]},"timestamp":"2026-09-23T12:00:00Z"}
+            ]}
+            """.utf8))
+        }
+        let provider = XMPlaylistNowPlayingProvider(http: http)
+
+        let lookup = await provider.currentSong(for: station("Octane"))
+
+        XCTAssertEqual(lookup.update?.title, "Nokia")
+        XCTAssertEqual(
+            lookup.note?.contains("octane: matched, play from"), true,
+            "A match reports the play it took and how old it is, so a stale answer is visible"
+        )
+    }
+
+    func testAChannelBetweenSongsIsReportedAsReachedNotBroken() async {
+        let http = MockHTTP.client { _ in (200, Data(#"{"results":[]}"#.utf8)) }
+        let provider = XMPlaylistNowPlayingProvider(http: http)
+
+        let lookup = await provider.currentSong(for: station("Octane"))
+
+        XCTAssertNil(lookup.update)
+        XCTAssertTrue(
+            lookup.reachedSource,
+            "Between songs is a normal answer; a source struck off for it would freeze the song"
+        )
+    }
+
     func testReportsTheStatusForEachKeyTried() async {
         let http = MockHTTP.client { _ in (404, Data("{}".utf8)) }
         let provider = XMPlaylistNowPlayingProvider(http: http)

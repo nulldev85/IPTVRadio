@@ -37,9 +37,11 @@ final class XMPlaylistNowPlayingProvider: SongInfoProviding, @unchecked Sendable
         guard !keys.isEmpty else { return .empty("no channel key for this station") }
 
         var trail: [String] = []
+        // True once a key has been answered with usable JSON, song or not.
+        var reached = false
         for key in keys {
             guard let url = endpoint(key: key) else { continue }
-            let request = RequestBuilder.get(url, timeout: 8, userAgent: RequestBuilder.browserUserAgent)
+            let request = RequestBuilder.liveGet(url, timeout: 8, userAgent: RequestBuilder.browserUserAgent)
             guard let (data, response) = try? await http.data(for: request) else {
                 trail.append("\(key): unreachable")
                 continue
@@ -52,15 +54,24 @@ final class XMPlaylistNowPlayingProvider: SongInfoProviding, @unchecked Sendable
                 trail.append("\(key): not JSON")
                 continue
             }
-            // The response lists recent plays newest first, and the walk takes
-            // the first title/artist pair it reaches — which is that play.
+            // The response is a list of recent plays. Which end of it is
+            // current is not documented, so the walk takes the newest
+            // *timestamped* play rather than the first one it reaches — see
+            // `findSong`. Reading the wrong end shows a real song that never
+            // changes, which is the failure this whole path had.
             if let song = SiriusXMNowPlayingProvider.findSong(in: json) {
                 AppLogger.playback.info("Playlist tracker matched channel \(key, privacy: .public)")
-                return .found(StreamMetadataUpdate(title: song.title, artist: song.artist, artworkData: nil))
+                return .found(
+                    StreamMetadataUpdate(title: song.title, artist: song.artist, artworkData: nil),
+                    note: SiriusXMNowPlayingProvider.matchedNote(key: key, play: song)
+                )
             }
+            reached = true
             trail.append("\(key): no song in response")
         }
-        return .empty(trail.isEmpty ? "no channel key could be built" : trail.joined(separator: ", "))
+        guard !trail.isEmpty else { return .empty("no channel key could be built") }
+        // Reached and understood, but between songs: the caller must keep asking.
+        return reached ? .silent(trail.joined(separator: ", ")) : .empty(trail.joined(separator: ", "))
     }
 
     private func endpoint(key: String) -> URL? {

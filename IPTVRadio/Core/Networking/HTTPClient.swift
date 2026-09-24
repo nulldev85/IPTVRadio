@@ -49,16 +49,34 @@ enum RequestBuilder {
         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
         + "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
+    /// `cachePolicy` matters for the song lookups: they ask "what is playing
+    /// right now", and the default policy lets `URLSession` answer a repeat
+    /// request from `URLCache` for as long as the server's headers allow. That
+    /// is a frozen song title — the same body returned every thirty seconds
+    /// while the audio moves on — so those callers pass
+    /// `.reloadIgnoringLocalCacheData`.
     static func get(
         _ url: URL,
         timeout: TimeInterval = 20,
-        userAgent: String = RequestBuilder.defaultUserAgent
+        userAgent: String = RequestBuilder.defaultUserAgent,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = timeout
+        request.cachePolicy = cachePolicy
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return request
+    }
+
+    /// A GET for data that changes minute to minute and must never be served
+    /// from the local cache.
+    static func liveGet(
+        _ url: URL,
+        timeout: TimeInterval = 20,
+        userAgent: String = RequestBuilder.defaultUserAgent
+    ) -> URLRequest {
+        get(url, timeout: timeout, userAgent: userAgent, cachePolicy: .reloadIgnoringLocalCacheData)
     }
 }

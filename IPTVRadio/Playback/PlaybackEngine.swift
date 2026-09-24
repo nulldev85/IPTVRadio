@@ -771,11 +771,26 @@ final class PlaybackEngine: ObservableObject {
         if fromStream, let title = update.title, !title.isEmpty {
             receivedSongInfoFromStream = true
         }
-        let metadata = NowPlayingMetadata(
+        var metadata = NowPlayingMetadata(
             title: update.title,
             artist: update.artist,
             artworkData: update.artworkData
         )
+        // The same song, re-reported by the next poll: keep the artwork already
+        // resolved for it. The out-of-stream sources carry no album art, so a
+        // source that names the current track every thirty seconds would
+        // otherwise blank the artwork back to the channel logo on every pass
+        // and look it up again — visible as the cover blinking out and in.
+        if metadata.artworkData == nil,
+           let current = nowPlayingMetadata,
+           current.artworkData != nil,
+           current.title == metadata.title,
+           current.artist == metadata.artist {
+            metadata = current
+        }
+        // Nothing new to say. Re-publishing would restart the artwork lookup
+        // for a song that already has its artwork on screen.
+        guard metadata != nowPlayingMetadata else { return }
         nowPlayingMetadata = metadata
         nowPlaying.applySongMetadata(metadata, station: station)
 
@@ -900,7 +915,16 @@ final class PlaybackEngine: ObservableObject {
                         }
                     }
                     if outcome == .nothing {
-                        self.songSourceFailures[name, default: 0] += 1
+                        // Only a source that could not be consulted counts
+                        // towards being struck off. "Matched the channel, and
+                        // it is between songs" is a normal answer from a live
+                        // station — striking a source off for that freezes the
+                        // displayed song for the rest of the station's
+                        // playback, because an empty pass deliberately leaves
+                        // the previous answer on screen.
+                        if !answer.reachedSource {
+                            self.songSourceFailures[name, default: 0] += 1
+                        }
                         if let note = answer.note { self.songSourceLastNote[name] = note }
                     } else {
                         // An answer clears the count: a source that works

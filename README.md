@@ -27,13 +27,18 @@ authorization from their provider for every stream they configure.
 - Current-song title/artist from the stream's ICY/Shoutcast title, the provider's EPG, or a
   broadcaster lookup by channel key when the stream carries nothing — with album art resolved
   from Apple's public catalog, and the channel key editable per station in stream diagnostics
+- Song info is re-polled while a station plays, and a lookup takes the newest *timestamped*
+  play in the response rather than trusting its order, so the title and cover follow the audio
+  instead of freezing on whichever play the source happened to list first
 - Channel logos are background-keyed and drawn without a plate behind them
 - Background audio, lock-screen & Control Center controls, now-playing metadata + artwork
 - Headphone/Bluetooth/AirPlay route changes, call/Siri interruption handling
 - Automatic reconnection with exponential backoff; configurable stream timeout
 - Cellular-streaming opt-in setting; pull-to-refresh and manual refresh
 - Loading / empty / offline / expired-session / malformed-playlist states
-- Dark Mode, Dynamic Type, VoiceOver labels, iPhone and iPad layouts
+- One appearance: a graphite base with a single muted brass accent, matte throughout — no blur
+  materials, gloss or shadows (`IPTVRadio/Features/Components/Theme.swift` holds every colour)
+- Dynamic Type, VoiceOver labels, iPhone and iPad layouts
 - Account management, filter-rule editor, cache clearing, and logout in Settings
 
 ## Project layout
