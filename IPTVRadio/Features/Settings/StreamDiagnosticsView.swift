@@ -40,7 +40,7 @@ struct StreamDiagnosticsView: View {
                                 .font(.footnote.weight(.medium))
                             Text(failure)
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.appTextSecondary)
                         }
                         .accessibilityIdentifier("diagnostics.previousFailure")
                     }
@@ -51,6 +51,7 @@ struct StreamDiagnosticsView: View {
                         LabeledContent("Media requests", value: "\(requests)")
                     }
                 }
+                .appFormSection()
                 // Rendered whenever a station is playing, not only once a
                 // source has answered: the channel key field below is needed
                 // exactly when nothing is answering.
@@ -67,7 +68,7 @@ struct StreamDiagnosticsView: View {
                                 if let detail = report.detail {
                                     Text(detail)
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Color.appTextSecondary)
                                 }
                             }
                         }
@@ -79,6 +80,7 @@ struct StreamDiagnosticsView: View {
                     } footer: {
                         Text("Where the current track is looked up when the stream carries no metadata, and what each source answered. A show name is not a track: it is shown, but album art is only searched for once both an artist and a title are known.\n\nA status such as “HTTP 404” means the channel could not be matched by name at that source; “no song in response” means it was matched and is not playing a track right now.")
                     }
+                    .appFormSection()
                 }
                 if !diagnostics.candidates.isEmpty {
                     Section {
@@ -92,7 +94,7 @@ struct StreamDiagnosticsView: View {
                                     if case .failed(let reason) = candidate.outcome, let reason {
                                         Text(reason)
                                             .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(Color.appTextSecondary)
                                     }
                                 }
                             }
@@ -113,28 +115,33 @@ struct StreamDiagnosticsView: View {
                              ? "This station starts on a remembered endpoint, so the formats above it are skipped rather than retried. That keeps starts fast, but the audio-only formats (MP3/AAC) are the ones that carry per-song titles — retry to probe them again."
                              : "Formats are tried in order. The audio-only ones (MP3/AAC) are preferred: they carry the original audio and are the only formats that publish per-song titles."))
                     }
+                    .appFormSection()
                 }
 
                 Section {
                     Text("Updated \(diagnostics.updatedAt.formatted(date: .omitted, time: .standard))")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.appTextTertiary)
                 }
+                .appFormSection()
             } else {
                 Section("Active stream") {
                     Text("No active stream. Play a station to collect diagnostics.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.appTextSecondary)
                 }
+                .appFormSection()
             }
 
             Section {
-                Text("This app plays your provider's stream exactly as delivered — no transcoding, EQ or volume processing.\n\n“Observed bitrate” is the recent download rate and is highest right after playback starts; it does not describe audio quality. HLS streams often do not report audio bitrate figures at all.\n\nIf audio quality sounds low, switch “Stream format” in Settings ▸ Playback and compare — the format line above shows which option is playing.\n\nIf this station came from an M3U playlist link and sounds worse than another player, sign in with your provider's Xtream portal details (server URL, username, password) instead — that plays the provider's original stream rather than a re-packaged copy.")
+                Text("This app plays your provider's stream exactly as delivered — no transcoding, EQ or volume processing.\n\n“Observed bitrate” is the recent download rate and is highest right after playback starts; it does not describe audio quality. HLS streams often do not report audio bitrate figures at all.\n\nIf audio quality sounds low, use “Retry preferred formats” above: the app then probes the audio-only formats again instead of resuming on the endpoint it remembered, and the format line shows which option is playing.\n\nIf this station came from an M3U playlist link and sounds worse than another player, sign in with your provider's Xtream portal details (server URL, username, password) instead — that plays the provider's original stream rather than a re-packaged copy.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.appTextSecondary)
             } header: {
                 Text("How to read this")
             }
+            .appFormSection()
         }
+        .appScrollBackground()
         .navigationTitle("Stream diagnostics")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -172,11 +179,13 @@ struct StreamDiagnosticsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Channel key for this station")
                     .font(.footnote.weight(.medium))
-                HStack {
+                HStack(spacing: 10) {
                     TextField("e.g. octane", text: $channelKeyDraft)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .font(.callout.monospaced())
                         .accessibilityIdentifier("diagnostics.channelKeyField")
+                        .appFieldBackground()
                     Button("Save") {
                         appEnvironment.songLookupKeys.setKey(channelKeyDraft, for: station.id)
                         // Replayed so the next poll uses the new key straight
@@ -187,7 +196,7 @@ struct StreamDiagnosticsView: View {
                 }
                 Text("Set this when the keys above come back “HTTP 404” — that means the channel could not be matched by name. Leave it empty to go back to automatic matching.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.appTextSecondary)
             }
         }
         .task(id: station.id) {
@@ -216,9 +225,9 @@ struct StreamDiagnosticsView: View {
 
     private func songOutcomeColor(_ outcome: SongSourceReport.Outcome) -> Color {
         switch outcome {
-        case .song: return .green
-        case .programme: return .orange
-        case .nothing: return .secondary
+        case .song: return .appLive
+        case .programme: return .appAccent
+        case .nothing: return .appTextTertiary
         }
     }
 
@@ -233,9 +242,9 @@ struct StreamDiagnosticsView: View {
 
     private func outcomeColor(_ outcome: StreamCandidateReport.Outcome) -> Color {
         switch outcome {
-        case .playing: return .green
-        case .failed: return .orange
-        case .notTried, .skipped: return .secondary
+        case .playing: return .appLive
+        case .failed: return .appAlert
+        case .notTried, .skipped: return .appTextTertiary
         }
     }
 
@@ -253,9 +262,10 @@ struct StreamDiagnosticsSummaryCard: View {
         VStack(spacing: 3) {
             Text(formatLine)
                 .font(.caption2.weight(.medium))
+                .foregroundStyle(Color.appTextSecondary)
             Text(bitrateLine)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.appTextTertiary)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("nowplaying.diagnostics")

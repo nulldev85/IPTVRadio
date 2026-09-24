@@ -17,7 +17,7 @@ struct LoginView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: 22) {
                     header
 
                     Picker("Sign-in method", selection: $mode) {
@@ -36,7 +36,7 @@ struct LoginView: View {
                     if let warning = auth.insecureEndpointWarning {
                         Label(warning, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Color.appAlert)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("login.insecureWarning")
                     }
@@ -44,7 +44,7 @@ struct LoginView: View {
                     if let error = errorMessage {
                         Label(error, systemImage: "xmark.octagon.fill")
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Color.appAlert)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("login.error")
                     }
@@ -53,9 +53,10 @@ struct LoginView: View {
 
                     authorizationNotice
                 }
-                .padding()
+                .padding(.horizontal, 22)
+                .padding(.bottom, 32)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Color.appBackground.ignoresSafeArea())
             .navigationTitle("Sign In")
             .onAppear {
                 mode = environment.settings.authMode
@@ -64,20 +65,23 @@ struct LoginView: View {
     }
 
     private var header: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.system(size: 44))
-                .foregroundStyle(Color.accentColor)
+                .font(.system(size: 42, weight: .light))
+                .foregroundStyle(Color.appAccent)
                 .accessibilityHidden(true)
+                .padding(.bottom, 2)
             Text("Radio for your IPTV subscription")
                 .font(.title3.weight(.semibold))
+                .foregroundStyle(Color.appTextPrimary)
                 .multilineTextAlignment(.center)
             Text("Sign in with your own provider account. This app does not provide any channels itself.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.appTextSecondary)
                 .multilineTextAlignment(.center)
         }
-        .padding(.top, 24)
+        .padding(.top, 28)
+        .padding(.bottom, 4)
     }
 
     private var xtreamForm: some View {
@@ -87,21 +91,24 @@ struct LoginView: View {
                 .keyboardType(.URL)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .accessibilityIdentifier("login.server")
                 .accessibilityLabel(Text("Server or portal URL"))
+                .appFieldBackground()
             TextField("Username", text: $username)
                 .textContentType(.username)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .accessibilityIdentifier("login.username")
+                .appFieldBackground()
             SecureField("Password", text: $password)
                 .textContentType(.password)
                 .submitLabel(.go)
                 .onSubmit(signIn)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .accessibilityIdentifier("login.password")
+                .appFieldBackground()
         }
     }
 
@@ -112,11 +119,12 @@ struct LoginView: View {
                 .keyboardType(.URL)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .accessibilityIdentifier("login.playlistURL")
+                .appFieldBackground()
             Text("The playlist is downloaded from your own provider. URLs containing embedded credentials are stored only in the Keychain and never logged.")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.appTextSecondary)
         }
     }
 
@@ -124,19 +132,13 @@ struct LoginView: View {
         Button {
             signIn()
         } label: {
-            Group {
-                if isSigningIn {
-                    ProgressView().tint(.white)
-                } else {
-                    Text("Sign In").font(.headline)
-                }
+            if isSigningIn {
+                ProgressView().tint(Color.appAccentContrast)
+            } else {
+                Text("Sign In")
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 44)
         }
-        .background(Color.accentColor)
-        .foregroundStyle(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .buttonStyle(AppProminentButtonStyle(fullWidth: true))
         .disabled(isSigningIn)
         .accessibilityIdentifier("login.submit")
     }
@@ -145,14 +147,13 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Authorization notice", systemImage: "checkmark.shield")
                 .font(.footnote.weight(.semibold))
+                .foregroundStyle(Color.appTextPrimary)
             Text("You must have valid authorization from your provider to access the streams you use with this app. This app is a client for your own subscription only; it does not bundle, scrape, or redistribute channels and does not bypass DRM or access restrictions.")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.appTextSecondary)
         }
-        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .appCard()
     }
 
     private func signIn() {

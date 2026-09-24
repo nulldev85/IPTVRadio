@@ -20,6 +20,7 @@ struct SettingsView: View {
                 cacheSection
                 privacySection
             }
+            .appScrollBackground()
             .navigationTitle("Settings")
             .alert("Sign out?", isPresented: $confirmSignOut) {
                 Button("Sign Out", role: .destructive) {
@@ -45,7 +46,7 @@ struct SettingsView: View {
             }
             if let warning = auth.insecureEndpointWarning {
                 Label(warning, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.appAlert)
                     .font(.footnote)
             }
             Button("Sign Out", role: .destructive) {
@@ -53,6 +54,7 @@ struct SettingsView: View {
             }
             .accessibilityIdentifier("settings.signOut")
         }
+        .appFormSection()
     }
 
     private var playbackSection: some View {
@@ -64,7 +66,7 @@ struct SettingsView: View {
                     Text("Stream timeout")
                     Spacer()
                     Text("\(Int(settings.streamTimeout)) s")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.appTextSecondary)
                 }
                 Slider(value: $settings.streamTimeout, in: 5...60, step: 1)
             }
@@ -76,7 +78,7 @@ struct SettingsView: View {
                     Text("Auto-retry attempts")
                     Spacer()
                     Text("\(settings.retryLimit)")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.appTextSecondary)
                 }
                 Slider(value: Binding(
                     get: { Double(settings.retryLimit) },
@@ -100,6 +102,7 @@ struct SettingsView: View {
         } footer: {
             Text("“Prefer audio-only stream” plays a channel's dedicated audio track when its HLS manifest offers one — better quality for radio and much less data than downloading its video variant.\n\n“Look up song artwork online” sends the current song's artist and title to Apple's public catalog to fetch album art when the stream itself carries none. No account or tracking is involved; disable it for fully offline metadata.")
         }
+        .appFormSection()
     }
 
     private var filteringSection: some View {
@@ -116,6 +119,7 @@ struct SettingsView: View {
         } footer: {
             Text("Providers label channels differently. Tune the keyword rules if stations are missing or misclassified.")
         }
+        .appFormSection()
     }
 
     private var cacheSection: some View {
@@ -131,6 +135,7 @@ struct SettingsView: View {
                 Text("Cached stations were removed. A refresh will re-download your lineup.")
             }
         }
+        .appFormSection()
     }
 
     private var privacySection: some View {
@@ -141,6 +146,7 @@ struct SettingsView: View {
         } footer: {
             Text("No analytics, no tracking. Credentials are stored only in the Keychain and never logged.")
         }
+        .appFormSection()
     }
 
     private var cacheSize: Int {
@@ -187,6 +193,9 @@ struct DetectionRulesEditorView: View {
         Form {
             Section {
                 TextEditor(text: $siriusText)
+                    .scrollContentBackground(.hidden)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(Color.appTextPrimary)
                     .frame(minHeight: 60)
                     .accessibilityLabel("Sirius keywords, one per line")
             } header: {
@@ -194,9 +203,13 @@ struct DetectionRulesEditorView: View {
             } footer: {
                 Text("Case-insensitive. Matched against station names, groups and EPG ids. One keyword per line.")
             }
+            .appFormSection()
 
             Section {
                 TextEditor(text: $radioGroupText)
+                    .scrollContentBackground(.hidden)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(Color.appTextPrimary)
                     .frame(minHeight: 80)
                     .accessibilityLabel("Radio group keywords, one per line")
             } header: {
@@ -204,9 +217,13 @@ struct DetectionRulesEditorView: View {
             } footer: {
                 Text("Group titles (categories) that indicate audio stations, one per line.")
             }
+            .appFormSection()
 
             Section {
                 TextEditor(text: $radioNameText)
+                    .scrollContentBackground(.hidden)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(Color.appTextPrimary)
                     .frame(minHeight: 100)
                     .accessibilityLabel("Radio name keywords, one per line")
             } header: {
@@ -214,9 +231,13 @@ struct DetectionRulesEditorView: View {
             } footer: {
                 Text("Channel-name keywords that indicate audio, one per line.")
             }
+            .appFormSection()
 
             Section {
                 TextEditor(text: $videoGroupText)
+                    .scrollContentBackground(.hidden)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(Color.appTextPrimary)
                     .frame(minHeight: 60)
                     .accessibilityLabel("Video group keywords, one per line")
             } header: {
@@ -224,6 +245,7 @@ struct DetectionRulesEditorView: View {
             } footer: {
                 Text("Group titles that indicate video channels, which are excluded, one per line.")
             }
+            .appFormSection()
 
             Section {
                 Button("Reset to defaults") {
@@ -231,7 +253,9 @@ struct DetectionRulesEditorView: View {
                     loadFields()
                 }
             }
+            .appFormSection()
         }
+        .appScrollBackground()
         .navigationTitle("Detection rules")
         .onAppear { loadFields() }
         .onDisappear { saveFields() }
@@ -266,38 +290,44 @@ struct PrivacyNoticeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Image(systemName: "lock.shield")
-                    .font(.system(size: 40))
-                    .foregroundStyle(Color.accentColor)
+                    .font(.system(size: 38, weight: .light))
+                    .foregroundStyle(Color.appAccent)
 
                 Text("Privacy & Authorization")
                     .font(.title2.weight(.semibold))
+                    .foregroundStyle(Color.appTextPrimary)
 
                 Text("Authorization requirement")
                     .font(.headline)
+                    .foregroundStyle(Color.appTextPrimary)
                 Text("You must hold valid authorization from your provider to access the streams you configure in this app. This app is a client for your own subscription only. It does not bundle, scrape, redistribute, or provide access to any channels, and it does not attempt to bypass DRM, authentication, geographic restrictions, or provider limitations.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.appTextSecondary)
 
                 Text("Your data")
                     .font(.headline)
+                    .foregroundStyle(Color.appTextPrimary)
                 Text("Credentials (server URL, username, password or playlist URL) are stored exclusively in the iOS Keychain. Station lists and preferences stay on your device. Nothing is uploaded anywhere by this app.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.appTextSecondary)
 
                 Text("No tracking")
                     .font(.headline)
+                    .foregroundStyle(Color.appTextPrimary)
                 Text("This app contains no analytics, advertising, or third-party tracking SDKs. Logs are scrubbed of usernames, passwords and credential-bearing URLs.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.appTextSecondary)
 
                 Text("Secure connections")
                     .font(.headline)
+                    .foregroundStyle(Color.appTextPrimary)
                 Text("HTTPS is preferred. If your provider only offers an unencrypted HTTP endpoint, the app clearly warns you before you continue. Because providers differ, connections to provider-supplied HTTP endpoints (including artwork servers) are allowed; the app still warns you whenever an insecure portal is detected.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.appTextSecondary)
             }
             .padding()
         }
+        .background(Color.appBackground)
         .navigationTitle("Privacy")
         .navigationBarTitleDisplayMode(.inline)
     }

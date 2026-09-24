@@ -42,6 +42,7 @@ struct SearchView: View {
                 }
             }
             .listStyle(.plain)
+            .appScrollBackground()
         }
     }
 }

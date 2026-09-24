@@ -25,10 +25,11 @@ struct MiniPlayerView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(playback.nowPlayingMetadata?.title ?? station.name)
                                     .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(Color.appTextPrimary)
                                     .lineLimit(1)
                                 Text(playback.nowPlayingMetadata?.artist ?? stateDescription)
                                     .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Color.appTextSecondary)
                                     .lineLimit(1)
                             }
 
@@ -49,6 +50,8 @@ struct MiniPlayerView: View {
                     } label: {
                         Image(systemName: iconName)
                             .font(.title3)
+                            .foregroundStyle(Color.appAccent)
+                            .frame(width: 38, height: 38)
                     }
                     .accessibilityLabel(toggleAccessibilityLabel)
                     .accessibilityIdentifier("miniplayer.toggle")
@@ -56,15 +59,24 @@ struct MiniPlayerView: View {
                     Button {
                         playback.stop()
                     } label: {
+                        // A step quieter and smaller than play/pause: stopping
+                        // is the rarer action of the two.
                         Image(systemName: "stop.fill")
-                            .font(.title3)
+                            .font(.callout)
+                            .foregroundStyle(Color.appTextSecondary)
+                            .frame(width: 38, height: 38)
                     }
                     .accessibilityLabel("Stop")
                     .accessibilityIdentifier("miniplayer.stop")
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.bar)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                // Flat surface, not `.bar`: the system material is translucent
+                // and picks up whatever scrolls behind it. This shares its
+                // colour with the tab bar below, so the two read as one dock,
+                // separated from the content only by a hairline.
+                .background(Color.appSurface)
+                .appTopHairline()
             }
         }
         .animation(.easeInOut(duration: 0.2), value: playback.state.station?.id)

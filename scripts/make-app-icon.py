@@ -2,8 +2,13 @@
 """Generates the Aether app icon.
 
 The icon is a broadcast mark: a transmitter dot with signal arcs radiating
-symmetrically left and right, in a cool gradient on near-black. It is drawn at
-4x and downsampled, which is what gives the arcs clean anti-aliased edges.
+symmetrically left and right, in muted brass on graphite — the same two colours
+the app itself is built from (see Theme.swift). It is drawn at 4x and
+downsampled, which is what gives the arcs clean anti-aliased edges.
+
+Deliberately matte: a flat graphite field and no glow behind the mark. The only
+gradients are shallow two-tone sweeps, which give the brass a metallic read
+without turning the icon glossy.
 
 The output is deliberately opaque RGB — iOS rejects app icons with an alpha
 channel — and full-bleed square, because iOS applies its own rounded-rect mask.
@@ -22,12 +27,12 @@ SS = 4                      # supersample factor
 SIZE = FINAL * SS
 CENTER = SIZE // 2
 
-# Near-black backdrop, matching the app's OLED-friendly dark theme.
-BG_TOP = (11, 11, 16)
-BG_BOTTOM = (5, 5, 10)
-# Cool accent gradient for the mark.
-ACCENT_FROM = (125, 246, 255)   # pale cyan
-ACCENT_TO = (88, 92, 255)       # indigo
+# Graphite backdrop, one shade either side of the app's base colour.
+BG_TOP = (30, 30, 34)
+BG_BOTTOM = (14, 14, 17)
+# Brass gradient for the mark, bracketing the app's accent.
+ACCENT_FROM = (223, 196, 152)   # pale brass
+ACCENT_TO = (176, 131, 79)      # deep brass
 
 DOT_RADIUS = 180 * SS // 4
 ARC_RADII = [600, 940, 1280]
@@ -55,33 +60,8 @@ def diagonal_gradient(size, start, end):
     return rotated.crop((left, top, left + size[0], top + size[1]))
 
 
-def radial_glow(size, peak, extent):
-    """Smooth radial falloff.
-
-    Drawn tiny and upscaled: interpolation gives a clean ramp, where stacked
-    ellipses leave visible concentric banding.
-    """
-    small = 96
-    field = Image.new("L", (small, small), 0)
-    pixels = field.load()
-    mid = (small - 1) / 2
-    for y in range(small):
-        for x in range(small):
-            dx = (x - mid) / mid
-            dy = (y - mid) / mid
-            d = min(1.0, (dx * dx + dy * dy) ** 0.5 / extent)
-            # Smoothstep falloff, brightest at the centre.
-            t = 1.0 - d
-            pixels[x, y] = round(peak * t * t * (3 - 2 * t))
-    return field.resize(size, Image.BICUBIC)
-
-
 def build():
     canvas = vertical_gradient((SIZE, SIZE), BG_TOP, BG_BOTTOM)
-
-    # A faint glow behind the mark gives depth without adding clutter.
-    glow = radial_glow((SIZE, SIZE), peak=34, extent=0.95)
-    canvas.paste(diagonal_gradient((SIZE, SIZE), ACCENT_FROM, ACCENT_TO), (0, 0), glow)
 
     # The mark itself, drawn into a mask so it can be filled with a gradient.
     mask = Image.new("L", (SIZE, SIZE), 0)

@@ -24,6 +24,14 @@
 	  project.pbxproj. Duplicating it is harmless — this file wins, with the
 	  same value.
 	-->
+	<!--
+	  One appearance, everywhere. The app is designed against a graphite base
+	  (see Theme.swift); this locks UIKit's own chrome — alerts, the keyboard,
+	  the search field, the generated launch screen — to it as well, so nothing
+	  flashes light on a device set to light mode.
+	-->
+	<key>UIUserInterfaceStyle</key>
+	<string>Dark</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

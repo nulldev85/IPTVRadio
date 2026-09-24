@@ -43,11 +43,11 @@ struct LaunchLoadingView: View {
         VStack(spacing: 16) {
             Image(systemName: "dot.radiowaves.left.and.right")
                 .font(.system(size: 48))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.appAccent)
             ProgressView()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .background(Color.appBackground)
         .accessibilityLabel(Text("Loading"))
     }
 }

@@ -19,18 +19,18 @@ struct StationRow: View {
             // library copy when one is available.
             playback.play(library.freshStation(matching: station), in: nil)
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 StationArtwork(logoURL: station.logoURL, size: 52)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(station.name)
                         .font(.body.weight(isCurrent ? .semibold : .regular))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(isCurrent ? Color.appAccent : Color.appTextPrimary)
                         .lineLimit(2)
                     if !station.groupTitle.isEmpty {
                         Text(station.groupTitle)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.appTextSecondary)
                             .lineLimit(1)
                     }
                 }
@@ -45,15 +45,19 @@ struct StationRow: View {
                     favorites.toggle(station)
                 } label: {
                     Image(systemName: favorites.isFavorite(station) ? "star.fill" : "star")
-                        .foregroundStyle(favorites.isFavorite(station) ? Color.yellow : Color.secondary)
+                        .font(.subheadline)
+                        .foregroundStyle(favorites.isFavorite(station) ? Color.appAccent : Color.appTextTertiary)
+                        .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(favorites.isFavorite(station) ? "Remove from favorites" : "Add to favorites")
                 .accessibilityIdentifier("station.favorite.\(station.name)")
             }
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .appListRow()
         .accessibilityIdentifier("station.row.\(station.name)")
         .accessibilityElement(children: .combine)
         .accessibilityHint("Plays this station")
@@ -69,13 +73,13 @@ struct StationRow: View {
                 Text("Live")
                     .font(.caption2.weight(.semibold))
             }
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(Color.appLive)
         case .loading:
             ProgressView().controlSize(.small)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.appAlert)
         default:
             EmptyView()
         }
@@ -128,11 +132,11 @@ struct StationArtwork: View {
     /// Only shown when there is no logo, or it could not be loaded.
     private var placeholder: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(.tertiarySystemFill))
+            RoundedRectangle(cornerRadius: AppTheme.smallCorner, style: .continuous)
+                .fill(Color.appElevated)
             Image(systemName: "antenna.radiowaves.left.and.right")
                 .font(.system(size: size * 0.38))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.appTextTertiary)
         }
     }
 }
@@ -152,7 +156,7 @@ struct PlaybackArtwork: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.smallCorner, style: .continuous))
                     .accessibilityHidden(true)
             } else {
                 StationArtwork(logoURL: station.logoURL, size: size)

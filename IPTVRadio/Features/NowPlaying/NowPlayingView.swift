@@ -58,12 +58,13 @@ struct NowPlayingView: View {
                                 if let title = metadata.title {
                                     Text(title)
                                         .font(.title3.weight(.semibold))
+                                        .foregroundStyle(Color.appTextPrimary)
                                         .multilineTextAlignment(.center)
                                 }
                                 if let artist = metadata.artist {
                                     Text(artist)
                                         .font(.subheadline)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Color.appTextSecondary)
                                         .multilineTextAlignment(.center)
                                 }
                             }
@@ -71,29 +72,33 @@ struct NowPlayingView: View {
                         }
                         Text(station.name)
                             .font(playback.nowPlayingMetadata?.title == nil ? .title2.weight(.semibold) : .footnote)
-                            .foregroundStyle(playback.nowPlayingMetadata?.title == nil ? Color.primary : Color.secondary)
+                            .foregroundStyle(playback.nowPlayingMetadata?.title == nil ? Color.appTextPrimary : Color.appTextSecondary)
                             .multilineTextAlignment(.center)
                             .accessibilityIdentifier("nowplaying.title")
                         Text(stateText)
-                            .font(.caption.weight(.medium))
+                            .font(.caption2.weight(.medium))
+                            .tracking(0.6)
                             .foregroundStyle(stateColor)
                             .accessibilityIdentifier("nowplaying.state")
                     }
 
                     controlRow
 
-                    HStack(spacing: 28) {
+                    // Utilities, deliberately a step quieter than the transport
+                    // above them: same size, secondary colour, no plates.
+                    HStack(spacing: 34) {
                         SleepTimerButton(showSheet: $showSleepTimerSheet)
                         RoutePickerButton()
                         Button {
                             playback.retry()
                         } label: {
                             Image(systemName: "arrow.clockwise")
-                                .font(.title3)
+                                .font(.system(size: 17))
                         }
                         .accessibilityLabel("Retry connection")
                         .accessibilityIdentifier("nowplaying.retry")
                     }
+                    .foregroundStyle(Color.appTextSecondary)
 
                     if let diagnostics = playback.streamDiagnostics {
                         StreamDiagnosticsSummaryCard(diagnostics: diagnostics)
@@ -115,7 +120,7 @@ struct NowPlayingView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title2)
-                        .foregroundStyle(.white, .black.opacity(0.35))
+                        .foregroundStyle(Color.appTextPrimary, Color.black.opacity(0.4))
                 }
                 .padding(.trailing, 18)
                 .padding(.top, 14)
@@ -151,18 +156,20 @@ struct NowPlayingView: View {
                     .frame(width: width, height: height)
                     .clipped()
             } else {
-                // Nothing to show yet: a tint rather than a void, so the screen
-                // looks deliberate while the artwork is still loading.
+                // Nothing to show yet: a graphite plate rather than a void, so
+                // the screen looks deliberate while the artwork is still
+                // loading. Neutral, not tinted — a coloured wash here is the
+                // first thing that makes an app look cheap.
                 LinearGradient(
-                    colors: [Color.accentColor.opacity(0.35), Color.black.opacity(0.6)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                    colors: [Color.appElevated, Color.appSurface],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
                 .frame(width: width, height: height)
                 .overlay {
                     Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 64))
-                        .foregroundStyle(.white.opacity(0.35))
+                        .font(.system(size: 56, weight: .light))
+                        .foregroundStyle(Color.appTextTertiary)
                 }
             }
 
@@ -215,7 +222,7 @@ struct NowPlayingView: View {
             .accessibilityLabel("Next station")
             .accessibilityIdentifier("nowplaying.next")
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Color.appTextPrimary)
     }
 
     private var mainButtonIcon: String {
@@ -250,10 +257,10 @@ struct NowPlayingView: View {
 
     private var stateColor: Color {
         switch playback.state {
-        case .playing: return .green
-        case .loading: return .orange
-        case .failed: return .red
-        default: return .secondary
+        case .playing: return .appLive
+        case .loading: return .appTextSecondary
+        case .failed: return .appAlert
+        default: return .appTextSecondary
         }
     }
 }
@@ -266,8 +273,8 @@ struct NowPlayingView: View {
 /// have to stay legible against whatever a provider happens to serve — a dark
 /// album cover one minute, a white station logo the next.
 ///
-/// With no artwork at all it is a gradient in the app's accent, so the screen
-/// looks deliberate rather than broken.
+/// With no artwork at all it is a graphite gradient — the theme's own surfaces,
+/// never a colour wash — so the screen looks deliberate rather than broken.
 private struct NowPlayingBackdrop: View {
     let image: UIImage?
 
@@ -276,12 +283,12 @@ private struct NowPlayingBackdrop: View {
             // Also the fallback when there is nothing to show.
             LinearGradient(
                 colors: [
-                    Color.accentColor.opacity(0.5),
-                    Color.black.opacity(0.85),
+                    Color.appElevated,
+                    Color.appBackground,
                     Color.black
                 ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: .top,
+                endPoint: .bottom
             )
 
             if let image {
@@ -348,7 +355,7 @@ struct RoutePickerButton: View {
 struct AVRoutePickerViewRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
-        view.tintColor = .label
+        view.tintColor = .appTextSecondary
         return view
     }
 
@@ -372,9 +379,12 @@ struct SleepTimerSheet: View {
                             dismiss()
                         } label: {
                             Text("\(Int(minutes)) minutes")
+                                .foregroundStyle(Color.appTextPrimary)
                         }
                     }
                 }
+                .listRowBackground(Color.appSurface)
+                .listRowSeparatorTint(Color.appHairline)
                 if playback.sleepTimerDeadline != nil {
                     Section {
                         Button(role: .destructive) {
@@ -384,8 +394,10 @@ struct SleepTimerSheet: View {
                             Text("Cancel sleep timer")
                         }
                     }
+                    .listRowBackground(Color.appSurface)
                 }
             }
+            .appScrollBackground()
             .navigationTitle("Sleep Timer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -19,7 +19,10 @@ struct FavoritesTabView: View {
                             StationRow(station: entry.station)
                         }
                     }
-                    .listStyle(.insetGrouped)
+                    // Plain, like every other station list: inset-grouped cards
+                    // put a second surface under rows that already carry one.
+                    .listStyle(.plain)
+                    .appScrollBackground()
                 }
             }
             .navigationTitle("Favorites")

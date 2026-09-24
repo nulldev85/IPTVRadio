@@ -27,7 +27,8 @@ struct RadioHomeView: View {
                             AllStationsView(title: "SiriusXM Stations", stations: library.siriusStations)
                         } label: {
                             Text("All (\(library.siriusStations.count))")
-                                .font(.footnote)
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(Color.appAccent)
                         }
                         .accessibilityIdentifier("radio.seeAll")
                     }
@@ -58,9 +59,12 @@ struct RadioHomeView: View {
                 } footer: {
                     Text("Stations whose name, category or metadata matches your SiriusXM rules.")
                         .font(.caption2)
+                        .foregroundStyle(Color.appTextTertiary)
+                        .padding(.top, 8)
                 }
             }
             .listStyle(.plain)
+            .appScrollBackground()
         )
     }
 }
@@ -77,6 +81,7 @@ struct AllStationsView: View {
             }
         }
         .listStyle(.plain)
+        .appScrollBackground()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
     }

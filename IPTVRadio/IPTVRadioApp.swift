@@ -22,7 +22,12 @@ struct IPTVRadioApp: App {
                 .environmentObject(environment.favorites)
                 .environmentObject(environment.history)
                 .environmentObject(environment.connectivity)
-                .tint(Color.accentColor)
+                .tint(Color.appAccent)
+                // The app has one appearance: the graphite theme. Locking it
+                // here (and in Info.plist, for UIKit's own chrome) is what
+                // lets every screen be designed for a dark base instead of
+                // hedging between two.
+                .preferredColorScheme(.dark)
         }
     }
 }
@@ -32,7 +37,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // Audio session configuration happens in PlaybackEngine when playback starts.
+        // Tab bar and navigation bars are UIKit, so the theme has to be
+        // pushed into their appearance proxies before the first view is
+        // built. Audio session configuration happens in PlaybackEngine when
+        // playback starts.
+        AppTheme.applyChromeAppearance()
         return true
     }
 }
