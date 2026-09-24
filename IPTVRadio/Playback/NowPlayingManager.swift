@@ -145,6 +145,14 @@ final class NowPlayingManager {
         }
         if let image = song?.artworkImage {
             info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        } else if !stationChanged,
+                  let existing = infoCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] {
+            // This rebuilds the dictionary from scratch, so artwork already
+            // applied for this station — the channel logo, which arrives later
+            // over the network — would be dropped by any unrelated update such
+            // as a pause or a route change. Carried over while the station is
+            // the same; a station change must not inherit the old logo.
+            info[MPMediaItemPropertyArtwork] = existing
         }
         infoCenter.nowPlayingInfo = info
     }

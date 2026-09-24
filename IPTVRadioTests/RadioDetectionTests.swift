@@ -43,7 +43,7 @@ final class RadioDetectionTests: XCTestCase {
     }
 
     func testTSPlaybackURLWithM3U8AnalysisURLStillDetectedAsRadio() {
-        // The format preference can reorder playback to .ts, but detection
+        // Playback is reordered to .ts, but detection
         // must keep using the playlist's declared .m3u8 URL so radio
         // stations are never mistaken for video.
         let channel = RawChannel(

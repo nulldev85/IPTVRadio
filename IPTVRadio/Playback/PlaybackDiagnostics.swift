@@ -61,6 +61,57 @@ struct StreamDiagnosticsSample: Equatable {
     var audioFormat: String? = nil
 }
 
+/// What became of one stream-format candidate for the current station.
+///
+/// SECURITY: carries the container format only, never the URL — provider
+/// stream URLs embed the username and password.
+struct StreamCandidateReport: Equatable, Identifiable {
+    enum Outcome: Equatable {
+        /// This candidate is the one currently playing.
+        case playing
+        /// Tried and rejected. Carries the sanitized reason when there is one.
+        case failed(String?)
+        /// Never reached, because an earlier candidate worked.
+        case notTried
+        /// Jumped over because a remembered endpoint won on a previous play.
+        case skipped
+    }
+
+    /// 1-based, matching the "option N of M" line.
+    var index: Int
+    /// Lowercased container extension, e.g. "ts", "mp3".
+    var format: String
+    var outcome: Outcome
+
+    var id: Int { index }
+}
+
+/// What one out-of-stream song source did on the last lookup.
+///
+/// Shown per source rather than collapsed into one line, because the useful
+/// question is never "is a song showing" but "which source failed, and how":
+/// an EPG listing a show, a metadata host answering 403 and a device with no
+/// network all look the same on the now-playing bar.
+struct SongSourceReport: Equatable, Identifiable {
+    /// The source's label, e.g. "provider EPG".
+    var source: String
+    /// What it produced: a song, programme info, or nothing.
+    var outcome: Outcome
+    /// The source's own note, already free of URLs and credentials.
+    var detail: String?
+
+    enum Outcome: Equatable {
+        /// A title *and* an artist: an actual track.
+        case song
+        /// A title with no artist — a show name, not a track.
+        case programme
+        /// Nothing usable came back.
+        case nothing
+    }
+
+    var id: String { source }
+}
+
 /// User-visible diagnostics for the currently playing stream.
 struct StreamDiagnostics: Equatable {
     var stationName: String
@@ -87,6 +138,22 @@ struct StreamDiagnostics: Equatable {
     var lastFormatFailure: String?
     /// True when the stream itself provided song info (ID3 metadata).
     var songInfoFromStream: Bool
+    /// Which out-of-stream source supplied the current song, when one did.
+    /// Distinguishes "nothing publishes this track" from "the stream is quiet".
+    var songInfoSource: String?
+    /// True when what that source supplied is programme information (a show
+    /// name) rather than a track. Kept separate from `songInfoSource` because
+    /// naming the source alone reads as "the song came from here", which is
+    /// exactly the confusion a show name in the now-playing bar causes.
+    var songInfoIsProgrammeOnly: Bool = false
+    /// Every out-of-stream source tried on the last lookup, and what it did.
+    var songSources: [SongSourceReport] = []
+    /// Every stream-format candidate for this station and what became of it.
+    var candidates: [StreamCandidateReport] = []
+    /// True when playback started at a remembered endpoint rather than the
+    /// preferred one. Fast, but it means an early failure can keep a station on
+    /// a fallback format indefinitely, so it is surfaced rather than silent.
+    var startedAtRememberedEndpoint: Bool = false
 
     /// Best available single bitrate figure for compact display. Observed
     /// bitrate is intentionally excluded: it reflects the recent download

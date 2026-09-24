@@ -34,19 +34,16 @@ enum LogoBackgroundKeyer {
 
         // Sample border pixels (two rows, two columns, stepped).
         var samples: [(Int, Int, Int)] = []
-        var redSum = 0, greenSum = 0, blueSum = 0
 
         func sample(_ x: Int, _ y: Int) {
             let offset = (y * width + x) * 4
             let alpha = Int(pixels[offset + 3])
             guard alpha > 40 else { return }
-            let red = Int(pixels[offset])
-            let green = Int(pixels[offset + 1])
-            let blue = Int(pixels[offset + 2])
-            samples.append((red, green, blue))
-            redSum += red
-            greenSum += green
-            blueSum += blue
+            samples.append((
+                Int(pixels[offset]),
+                Int(pixels[offset + 1]),
+                Int(pixels[offset + 2])
+            ))
         }
 
         let stepX = max(1, width / 64)
@@ -62,15 +59,45 @@ enum LogoBackgroundKeyer {
         guard samples.count >= 16 else { return image }
 
         let count = samples.count
-        let redAverage = redSum / count
-        let greenAverage = greenSum / count
-        let blueAverage = blueSum / count
+
+        // Key on the *dominant* border color rather than the mean. Any logo
+        // with a colored element touching its edge drags the mean away from the
+        // real background, so the uniformity check below fails and the white box
+        // survives. Bucketing the samples and taking the most populous bucket
+        // finds the background colour even when the border is not perfectly
+        // clean, then averaging within that bucket absorbs JPEG noise.
+        var buckets: [Int: (weight: Int, red: Int, green: Int, blue: Int)] = [:]
+        for (red, green, blue) in samples {
+            let key = (red / 32) << 10 | (green / 32) << 5 | (blue / 32)
+            var bucket = buckets[key] ?? (weight: 0, red: 0, green: 0, blue: 0)
+            bucket.weight += 1
+            bucket.red += red
+            bucket.green += green
+            bucket.blue += blue
+            buckets[key] = bucket
+        }
+        // Sorted by key on a tie: Dictionary iteration order varies per
+        // process, so `values.max(by:)` alone would key out the white plate on
+        // one launch and a brand-coloured border band on the next, punching a
+        // transparent hole through the logo — and cache whichever won.
+        guard let dominant = buckets.sorted(by: { lhs, rhs in
+            lhs.value.weight != rhs.value.weight
+                ? lhs.value.weight > rhs.value.weight
+                : lhs.key < rhs.key
+        }).first?.value else {
+            return image
+        }
+        let redAverage = dominant.red / dominant.weight
+        let greenAverage = dominant.green / dominant.weight
+        let blueAverage = dominant.blue / dominant.weight
 
         func distance(_ red: Int, _ green: Int, _ blue: Int) -> Int {
             abs(red - redAverage) + abs(green - greenAverage) + abs(blue - blueAverage)
         }
 
-        // Only key when the background is convincingly uniform.
+        // Only key when that dominant color really is the background: most of
+        // the border has to sit close to it, or this is artwork, not a logo on
+        // a plate, and it is returned untouched.
         let nearCount = samples.filter { distance($0.0, $0.1, $0.2) <= 60 }.count
         guard Double(nearCount) / Double(count) >= 0.7 else { return image }
 

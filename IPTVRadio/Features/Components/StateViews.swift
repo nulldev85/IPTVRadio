@@ -1,10 +1,6 @@
 import SwiftUI
 
 /// Reusable presentation states: loading, empty, offline, expired, error.
-struct StateViewsLibrary {
-    private init() {}
-}
-
 struct LoadingStateView: View {
     var message = "Loading stations…"
 

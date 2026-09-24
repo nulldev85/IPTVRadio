@@ -15,5 +15,18 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!--
+	  Background audio. Without this iOS suspends the app the moment it leaves
+	  the foreground and playback dies with it. This is also declared by the
+	  INFOPLIST_KEY_UIBackgroundModes build setting, but it is spelled out here
+	  too: it is the single switch the whole feature depends on, and keeping it
+	  in the file makes it greppable and reviewable instead of buried in
+	  project.pbxproj. Duplicating it is harmless — this file wins, with the
+	  same value.
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 </dict>
 </plist>

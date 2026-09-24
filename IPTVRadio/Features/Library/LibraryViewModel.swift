@@ -136,7 +136,6 @@ final class LibraryViewModel: ObservableObject {
     /// stuck on "Loading" because of a hung request.
     private func fetch(stored: CredentialsStore.StoredCredentials) async -> LibraryRefreshResult {
         let rules = settings.detectionRules
-        let preference = settings.streamFormatPreference
         let timeoutMessage = "Your provider took too long to respond. Check your connection, then pull to refresh."
         return await withTimeout(
             seconds: refreshTimeout,
@@ -146,16 +145,14 @@ final class LibraryViewModel: ObservableObject {
                 return await libraryService.refresh(
                     credentials: xtream,
                     http: httpClient,
-                    rules: rules,
-                    formatPreference: preference
+                    rules: rules
                 )
             }
             if let m3uURL = stored.m3uURL {
                 return await libraryService.refresh(
                     credentials: M3UPlaylistCredentials(url: m3uURL),
                     http: httpClient,
-                    rules: rules,
-                    formatPreference: preference
+                    rules: rules
                 )
             }
             return .failure(ProviderError.notAuthenticated.errorDescription ?? "Sign in required.")

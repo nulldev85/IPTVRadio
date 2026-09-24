@@ -11,10 +11,10 @@ enum LibraryRefreshResult: Equatable {
 
 /// Derives alternate stream formats for playlist entries that follow the
 /// Xtream live-URL pattern (`.../live/{user}/{pass}/{id}.{ts|m3u8}`), so the
-/// stream-format preference and automatic runtime fallback also work for
+/// stream-format ordering and automatic runtime fallback also work for
 /// stations imported from an M3U playlist. Other URLs are left untouched.
 enum PlaylistStreamFormats {
-    static func candidates(for url: URL, preference: StreamFormatPreference) -> [URL] {
+    static func candidates(for url: URL) -> [URL] {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             return [url]
         }
@@ -43,11 +43,11 @@ enum PlaylistStreamFormats {
             return [url]
         }
 
-        // Keep the playlist's URL as primary when it is already the preferred
-        // format; otherwise try the preferred format first (with fallback).
-        let originalIsPreferred = (preference == .automatic && originalIsTS)
-            || (preference == .hlsFirst && !originalIsTS)
-        return originalIsPreferred ? [url, sibling] : [sibling, url]
+        // MPEG-TS is the original stream and HLS is usually the panel's
+        // transcode of it, so the .ts URL leads whichever one the playlist
+        // named — as primary when the playlist already named it, and ahead of
+        // it otherwise, with the other kept as a fallback.
+        return originalIsTS ? [url, sibling] : [sibling, url]
     }
 }
 
@@ -68,7 +68,6 @@ final class LibraryService: ObservableObject {
         credentials: XtreamCredentials,
         http: HTTPClient,
         rules: RadioDetectionRules,
-        formatPreference: StreamFormatPreference = .automatic
     ) async -> LibraryRefreshResult {
         do {
             let client = try XtreamClient(credentials: credentials, http: http)
@@ -92,11 +91,9 @@ final class LibraryService: ObservableObject {
             //
             // Audio quality note: panels often transcode their HLS (.m3u8)
             // output, while the audio-only endpoints carry the original audio.
-            // Audio-only formats are always tried first (this is a radio app)
-            // and the preference only decides the order of the muxed streams.
-            let orderedFormats: [String] = formatPreference == .hlsFirst
-                ? ["mp3", "aac", "m3u8", "ts"]
-                : ["mp3", "aac", "ts", "m3u8"]
+            // Audio-only leads because this is a radio app, then the original
+            // MPEG-TS, then HLS as the last resort.
+            let orderedFormats = ["mp3", "aac", "ts", "m3u8"]
             var rawChannels: [RawChannel] = streams.map { stream in
                 var candidates: [URL] = []
 
@@ -120,7 +117,7 @@ final class LibraryService: ObservableObject {
                 let unique = candidates.filter { seen.insert($0.absoluteString).inserted }
                 let primary = unique.first ?? client.streamURL(streamID: stream.streamID)
                 // Detection always sees the HLS URL, independent of the
-                // format preference, so radio classification stays stable.
+                // playback ordering, so radio classification stays stable.
                 let analysisURL = client.streamURL(streamID: stream.streamID, format: "m3u8")
 
                 let group = categoriesByID[stream.categoryID ?? ""]?.name ?? ""
@@ -166,7 +163,6 @@ final class LibraryService: ObservableObject {
         credentials: M3UPlaylistCredentials,
         http: HTTPClient,
         rules: RadioDetectionRules,
-        formatPreference: StreamFormatPreference = .automatic
     ) async -> LibraryRefreshResult {
         do {
             let client = M3UClient(http: http)
@@ -178,7 +174,6 @@ final class LibraryService: ObservableObject {
             let channels = items.map { item in
                 let formatCandidates = PlaylistStreamFormats.candidates(
                     for: item.url,
-                    preference: formatPreference
                 )
                 return RawChannel(
                     name: item.name,

@@ -82,28 +82,58 @@ struct StationRow: View {
     }
 }
 
-/// Async artwork with graceful fallback.
+/// A station's channel logo.
+///
+/// Provider logos are background-keyed once (see `LogoBackgroundKeyer`) so they
+/// sit on any theme. Nothing is drawn behind a logo that loaded: a filled
+/// rounded square behind a keyed logo just restores the box the keying removed,
+/// which is what made every logo look like it sat on a grey tile.
 struct StationArtwork: View {
     let logoURL: URL?
     var size: CGFloat = 52
 
+    @State private var image: UIImage?
+    @State private var didFail = false
+
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(.tertiarySystemFill))
-            if let logoURL {
-                AsyncArtworkImage(url: logoURL)
-                    .aspectRatio(contentMode: .fill)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-            } else {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.system(size: size * 0.38))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    // Fit, not fill: provider logos are often wide wordmarks,
+                    // and filling crops them into a square.
+                    .aspectRatio(contentMode: .fit)
+            } else if logoURL == nil || didFail {
+                placeholder
             }
+            // While loading, stay empty rather than flashing a grey plate.
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+        .task(id: logoURL) {
+            // Reset first. This view keeps its position across station changes
+            // (the mini player and the now playing screen both reuse it), so
+            // leaving the previous station's image in place shows its logo for
+            // the whole of the next station's fetch — and permanently, for a
+            // station that has no logo at all and returns early below.
+            image = nil
+            didFail = false
+            guard let logoURL else { return }
+            let loaded = await ArtworkCache.shared.image(for: logoURL)
+            image = loaded
+            didFail = loaded == nil
+        }
+    }
+
+    /// Only shown when there is no logo, or it could not be loaded.
+    private var placeholder: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(.tertiarySystemFill))
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.system(size: size * 0.38))
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -129,26 +159,6 @@ struct PlaybackArtwork: View {
             }
         }
         .frame(width: size, height: size)
-    }
-}
-
-struct AsyncArtworkImage: View {
-    let url: URL
-
-    @State private var image: UIImage?
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-            } else {
-                Color(.tertiarySystemFill)
-            }
-        }
-        .task(id: url) {
-            image = await ArtworkCache.shared.image(for: url)
-        }
     }
 }
 

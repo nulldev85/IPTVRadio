@@ -5,6 +5,12 @@ import SwiftUI
 /// (format, fallback position, bitrates) is shown here instead.
 struct StreamDiagnosticsView: View {
     @EnvironmentObject private var playback: PlaybackEngine
+    @EnvironmentObject private var appEnvironment: AppEnvironment
+
+    /// The channel key field, seeded from what is stored for this station.
+    @State private var channelKeyDraft = ""
+    /// Station the draft was seeded for, so switching station reseeds it.
+    @State private var draftStationID: String?
 
     var body: some View {
         Form {
@@ -23,6 +29,7 @@ struct StreamDiagnosticsView: View {
                         LabeledContent("Audio format", value: audioFormat)
                     }
                     LabeledContent("Song info from stream", value: diagnostics.songInfoFromStream ? "Received" : "Not provided")
+                    LabeledContent("Song info source", value: songSourceValue(diagnostics))
                     LabeledContent("Audio-only rendition", value: audioOnlyValue(diagnostics))
                     if let variants = diagnostics.availableVariants, variants > 0 {
                         LabeledContent("Variants in stream", value: "\(variants)")
@@ -44,6 +51,70 @@ struct StreamDiagnosticsView: View {
                         LabeledContent("Media requests", value: "\(requests)")
                     }
                 }
+                // Rendered whenever a station is playing, not only once a
+                // source has answered: the channel key field below is needed
+                // exactly when nothing is answering.
+                if playback.state.station != nil {
+                    Section {
+                        ForEach(diagnostics.songSources) { report in
+                            VStack(alignment: .leading, spacing: 2) {
+                                LabeledContent {
+                                    Text(songOutcomeText(report.outcome))
+                                        .foregroundStyle(songOutcomeColor(report.outcome))
+                                } label: {
+                                    Text(report.source)
+                                }
+                                if let detail = report.detail {
+                                    Text(detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        if let station = playback.state.station {
+                            channelKeyEditor(for: station)
+                        }
+                    } header: {
+                        Text("Song lookup")
+                    } footer: {
+                        Text("Where the current track is looked up when the stream carries no metadata, and what each source answered. A show name is not a track: it is shown, but album art is only searched for once both an artist and a title are known.\n\nA status such as “HTTP 404” means the channel could not be matched by name at that source; “no song in response” means it was matched and is not playing a track right now.")
+                    }
+                }
+                if !diagnostics.candidates.isEmpty {
+                    Section {
+                        ForEach(diagnostics.candidates) { candidate in
+                            LabeledContent {
+                                Text(outcomeText(candidate.outcome))
+                                    .foregroundStyle(outcomeColor(candidate.outcome))
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(candidate.index). \(formatName(candidate.format))")
+                                    if case .failed(let reason) = candidate.outcome, let reason {
+                                        Text(reason)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                        Button("Retry preferred formats") {
+                            playback.retryPreferredFormats()
+                        }
+                        .accessibilityIdentifier("diagnostics.retryPreferredFormats")
+                        Button("Forget format and stop") {
+                            playback.forgetRememberedFormat()
+                        }
+                        .accessibilityIdentifier("diagnostics.forgetRememberedFormat")
+                    } header: {
+                        Text("Stream formats tried")
+                    } footer: {
+                        Text("Retrying replays the station straight away, so a connection is open again while the preferred formats are probed — and a panel that caps connections refuses a second one with the same 403 it uses for a format it will not serve. To tell those apart, use “Forget format and stop”, wait a minute for the provider to release the connection, then play the station again: the probe then runs with nothing else open.\n\n"
+                             + (diagnostics.startedAtRememberedEndpoint
+                             ? "This station starts on a remembered endpoint, so the formats above it are skipped rather than retried. That keeps starts fast, but the audio-only formats (MP3/AAC) are the ones that carry per-song titles — retry to probe them again."
+                             : "Formats are tried in order. The audio-only ones (MP3/AAC) are preferred: they carry the original audio and are the only formats that publish per-song titles."))
+                    }
+                }
+
                 Section {
                     Text("Updated \(diagnostics.updatedAt.formatted(date: .omitted, time: .standard))")
                         .font(.footnote)
@@ -80,6 +151,91 @@ struct StreamDiagnosticsView: View {
         case "m3u8": return "HLS (.m3u8)"
         case "": return "unknown"
         default: return streamExtension.uppercased()
+        }
+    }
+
+    /// Channel key control for the playing station.
+    ///
+    /// The escape hatch for the whole feature. Broadcaster channel keys are not
+    /// published anywhere authoritative and the panel's label for a channel is
+    /// not the key, so no table or naming rule can be complete. Rather than
+    /// leave a station permanently unable to show a song, the keys being tried
+    /// are shown and the right one can be typed in.
+    @ViewBuilder
+    private func channelKeyEditor(for station: RadioStation) -> some View {
+        let resolved = ChannelKeyResolver(overrides: appEnvironment.songLookupKeys).keys(for: station)
+        VStack(alignment: .leading, spacing: 8) {
+            if !resolved.isEmpty {
+                LabeledContent("Channel keys tried", value: resolved.joined(separator: ", "))
+                    .font(.footnote)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Channel key for this station")
+                    .font(.footnote.weight(.medium))
+                HStack {
+                    TextField("e.g. octane", text: $channelKeyDraft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("diagnostics.channelKeyField")
+                    Button("Save") {
+                        appEnvironment.songLookupKeys.setKey(channelKeyDraft, for: station.id)
+                        // Replayed so the next poll uses the new key straight
+                        // away; a lookup otherwise waits out its 30s interval.
+                        playback.retry()
+                    }
+                    .accessibilityIdentifier("diagnostics.saveChannelKey")
+                }
+                Text("Set this when the keys above come back “HTTP 404” — that means the channel could not be matched by name. Leave it empty to go back to automatic matching.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task(id: station.id) {
+            guard draftStationID != station.id else { return }
+            draftStationID = station.id
+            channelKeyDraft = appEnvironment.songLookupKeys.key(for: station.id) ?? ""
+        }
+    }
+
+    /// The song-info source line. Names the source and, when what it supplied
+    /// is a show name rather than a track, says so — naming the source alone
+    /// reads as "the song came from here".
+    private func songSourceValue(_ diagnostics: StreamDiagnostics) -> String {
+        if diagnostics.songInfoFromStream { return "The stream itself" }
+        guard let source = diagnostics.songInfoSource else { return "None answered" }
+        return diagnostics.songInfoIsProgrammeOnly ? "\(source) (show info only)" : source
+    }
+
+    private func songOutcomeText(_ outcome: SongSourceReport.Outcome) -> String {
+        switch outcome {
+        case .song: return "Track"
+        case .programme: return "Show info"
+        case .nothing: return "Nothing"
+        }
+    }
+
+    private func songOutcomeColor(_ outcome: SongSourceReport.Outcome) -> Color {
+        switch outcome {
+        case .song: return .green
+        case .programme: return .orange
+        case .nothing: return .secondary
+        }
+    }
+
+    private func outcomeText(_ outcome: StreamCandidateReport.Outcome) -> String {
+        switch outcome {
+        case .playing: return "Playing"
+        case .failed: return "Failed"
+        case .notTried: return "Not tried"
+        case .skipped: return "Skipped"
+        }
+    }
+
+    private func outcomeColor(_ outcome: StreamCandidateReport.Outcome) -> Color {
+        switch outcome {
+        case .playing: return .green
+        case .failed: return .orange
+        case .notTried, .skipped: return .secondary
         }
     }
 

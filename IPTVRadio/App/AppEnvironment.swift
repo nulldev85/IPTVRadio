@@ -37,6 +37,8 @@ final class AppEnvironment: ObservableObject {
     let connectivity: ConnectivityMonitor
     let cache: StationCache
     let httpClient: HTTPClient
+    /// Per-station channel keys for the song lookup, editable by the listener.
+    let songLookupKeys: SongLookupKeyStore
     let playback: PlaybackEngine
     let library: LibraryViewModel
     let auth: AuthViewModel
@@ -66,16 +68,15 @@ final class AppEnvironment: ObservableObject {
             ? MockHTTPClient()
             : URLSessionHTTPClient.providerDefault
 
+        let keyDefaults = uitestMode
+            ? UserDefaults(suiteName: "uitest-songkeys") ?? .standard
+            : UserDefaults.standard
+        let songLookupKeys = SongLookupKeyStore(defaults: keyDefaults)
+        self.songLookupKeys = songLookupKeys
+        let channelKeys = ChannelKeyResolver(overrides: songLookupKeys)
+
         let nowPlaying = NowPlayingManager()
-        let audioPlayer: AudioPlayerControlling
-        let engineKind = settings.playbackEngine
-        if uitestMode {
-            audioPlayer = MockAudioPlayer()
-        } else if engineKind == .vlc {
-            audioPlayer = VLCPlayerAdapter()
-        } else {
-            audioPlayer = AVAudioPlayerAdapter()
-        }
+        let audioPlayer: AudioPlayerControlling = uitestMode ? MockAudioPlayer() : VLCPlayerAdapter()
         playback = PlaybackEngine(
             player: audioPlayer,
             settings: settings,
@@ -83,10 +84,17 @@ final class AppEnvironment: ObservableObject {
             history: history,
             nowPlaying: nowPlaying,
             http: httpClient,
-            epgProvider: uitestMode ? nil : XtreamEPGProvider(credentials: credentials, http: httpClient),
-            // The compatibility engine buffers deeply, so it needs a longer
-            // stall threshold before the app forces a reconnect.
-            stallTimeout: engineKind == .vlc ? 25 : 12
+            // Ordered most authoritative first: the panel's own EPG knows the
+            // channel, and the broadcaster is consulted only when it has
+            // nothing — which for SiriusXM relays is most of the time.
+            songProviders: uitestMode ? [] : [
+                XtreamEPGProvider(credentials: credentials, http: httpClient),
+                SiriusXMNowPlayingProvider(http: httpClient, resolver: channelKeys),
+                XMPlaylistNowPlayingProvider(http: httpClient, resolver: channelKeys),
+            ],
+            // The engine buffers deeply, so it needs a generous stall threshold
+            // before the app forces a reconnect.
+            stallTimeout: 25
         )
         library = LibraryViewModel(
             libraryService: LibraryService(cache: cache),

@@ -36,11 +36,28 @@ struct URLSessionHTTPClient: HTTPClient {
 /// Builds requests. SECURITY: never logs the resulting URLs (they embed
 /// credentials in Xtream deployments).
 enum RequestBuilder {
-    static func get(_ url: URL, timeout: TimeInterval = 20) -> URLRequest {
+    /// Default identity for provider APIs.
+    static let defaultUserAgent = "IPTVRadio/1.0 (iOS)"
+
+    /// Identity for public web endpoints that serve JSON to browsers.
+    ///
+    /// Some of them sit behind a CDN that answers a bare tool user-agent with a
+    /// challenge page or a 403, so a request that is honest about being a tool
+    /// gets nothing. This is a plain browser identity for public, unauthenticated
+    /// resources — nothing here bypasses authentication or access control.
+    static let browserUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
+        + "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+
+    static func get(
+        _ url: URL,
+        timeout: TimeInterval = 20,
+        userAgent: String = RequestBuilder.defaultUserAgent
+    ) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = timeout
-        request.setValue("IPTVRadio/1.0 (iOS)", forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return request
     }

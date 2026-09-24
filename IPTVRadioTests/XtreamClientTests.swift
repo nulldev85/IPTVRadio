@@ -124,21 +124,22 @@ final class XtreamClientTests: XCTestCase {
         XCTAssertTrue(faction?.streamCandidates.contains { $0.absoluteString.hasPrefix("http://") } ?? false)
     }
     @MainActor
-    func testHLSFirstPreferenceOrdersCandidates() async {
+    func testAudioOnlyEndpointsLeadTheCandidateOrder() async {
+        // This is a radio app: the audio-only endpoints carry the provider's
+        // original audio, then the original MPEG-TS, and the panel's HLS
+        // transcode only as a last resort.
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("lib-test-\(UUID().uuidString)")
         let service = LibraryService(cache: StationCache(fileStore: JSONFileStore(directory: temp)))
         let result = await service.refresh(
             credentials: Fixtures.makeCredentials(),
             http: MockHTTP.xtreamClient(),
-            rules: .default,
-            formatPreference: .hlsFirst
+            rules: .default
         )
         guard case .success(let snapshot) = result else {
             return XCTFail("Expected success, got \(result)")
         }
         let hits = snapshot.allRadioStations.first { $0.name.contains("SiriusXM Hits 1") }
-        XCTAssertEqual(hits?.streamCandidates.map(\.pathExtension), ["mp3", "aac", "m3u8", "ts"],
-                       "Audio-only endpoints lead in every mode; the preference orders the muxed streams")
+        XCTAssertEqual(hits?.streamCandidates.map(\.pathExtension), ["mp3", "aac", "ts", "m3u8"])
     }
 
     // MARK: EPG (song info)
@@ -178,9 +179,114 @@ final class XtreamClientTests: XCTestCase {
         try await credentials.save(CredentialsStore.StoredCredentials(xtream: Fixtures.makeCredentials(), m3uURL: nil))
         let provider = XtreamEPGProvider(credentials: credentials, http: http)
 
-        let update = await provider.currentSongInfo(streamID: "8020")
+        let update = await provider.currentSongInfo(streamID: "8020").update
         XCTAssertEqual(update?.artist, "Daft Punk")
         XCTAssertEqual(update?.title, "Around the World")
+    }
+
+    // MARK: Which EPG listing is "now"
+    //
+    // get_short_epg returns listings in ascending start order, so the one on
+    // air is at the front. Taking the last one showed the furthest-future show.
+
+    private func entries(_ json: String) -> [XtreamEPGEntry] {
+        (try? XtreamDecoder.decodeShortEPG(Data(json.utf8))) ?? []
+    }
+
+    private func b64(_ text: String) -> String {
+        Data(text.utf8).base64EncodedString()
+    }
+
+    func testEPGPrefersTheListingFlaggedNowPlaying() {
+        let list = entries("""
+        {"epg_listings":[
+          {"title":"\(b64("Earlier Show"))","now_playing":0},
+          {"title":"\(b64("Current Show"))","now_playing":1},
+          {"title":"\(b64("Later Show"))","now_playing":0}
+        ]}
+        """)
+        let current = XtreamEPGProvider.currentEntry(in: list)
+        XCTAssertEqual(EPGText.decoded(current?.title), "Current Show")
+    }
+
+    func testEPGPicksTheListingCoveringNowByTimestamp() {
+        let now = Date().timeIntervalSince1970
+        let list = entries("""
+        {"epg_listings":[
+          {"title":"\(b64("Finished Show"))","start_timestamp":\(Int(now - 7200)),"stop_timestamp":\(Int(now - 3600))},
+          {"title":"\(b64("On Air Now"))","start_timestamp":\(Int(now - 60)),"stop_timestamp":\(Int(now + 1800))},
+          {"title":"\(b64("Upcoming Show"))","start_timestamp":\(Int(now + 1800)),"stop_timestamp":\(Int(now + 5400))}
+        ]}
+        """)
+        let current = XtreamEPGProvider.currentEntry(in: list)
+        XCTAssertEqual(EPGText.decoded(current?.title), "On Air Now")
+    }
+
+    func testEPGFallsBackToTheFirstListingNotTheLast() {
+        let list = entries("""
+        {"epg_listings":[
+          {"title":"\(b64("First Listing"))"},
+          {"title":"\(b64("Last Listing"))"}
+        ]}
+        """)
+        let current = XtreamEPGProvider.currentEntry(in: list)
+        XCTAssertEqual(
+            EPGText.decoded(current?.title), "First Listing",
+            "With nothing to order by, the front of the list is now, not the back"
+        )
+    }
+
+    // MARK: Song vs programme
+
+    @MainActor
+    private func makeProvider(json: String) async throws -> XtreamEPGProvider {
+        let http = MockHTTP.client { request in
+            let url = request.url?.absoluteString ?? ""
+            if url.contains("get_short_epg") { return (200, Data(json.utf8)) }
+            return (404, Data())
+        }
+        let credentials = CredentialsStore(secrets: MemorySecretStore())
+        try await credentials.save(
+            CredentialsStore.StoredCredentials(xtream: Fixtures.makeCredentials(), m3uURL: nil)
+        )
+        return XtreamEPGProvider(credentials: credentials, http: http)
+    }
+
+    @MainActor
+    func testEPGProgrammeNameIsReturnedWithoutAnArtist() async throws {
+        // A show name is not a track. Returning it with no artist is what keeps
+        // it out of the album-art lookup, which would otherwise search the
+        // music catalogue for a show title.
+        let provider = try await makeProvider(
+            json: #"{"epg_listings":[{"title":"\#(b64("The Heat with Mina SayWhat"))","description":""}]}"#
+        )
+        let update = await provider.currentSongInfo(streamID: "8020").update
+        XCTAssertEqual(update?.title, "The Heat with Mina SayWhat")
+        XCTAssertNil(update?.artist, "A programme name must not be passed off as an artist/title pair")
+    }
+
+    @MainActor
+    func testEPGDoesNotMineTheDescriptionForASongWhenATitleExists() async throws {
+        // Descriptions are prose, and prose contains dashes. Splitting one
+        // yields a well-formed artist and title that are not a song at all,
+        // which would then be shown as the current track and sent to the music
+        // catalogue for album art.
+        let provider = try await makeProvider(
+            json: #"{"epg_listings":[{"title":"\#(b64("The Heat"))","description":"\#(b64("Hip-hop and R&B - hosted live from Philadelphia"))"}]}"#
+        )
+        let update = await provider.currentSongInfo(streamID: "8020").update
+        XCTAssertEqual(update?.title, "The Heat")
+        XCTAssertNil(update?.artist, "A programme blurb must not become an artist/title pair")
+    }
+
+    @MainActor
+    func testEPGUsesTheDescriptionOnlyWhenThereIsNoTitle() async throws {
+        let provider = try await makeProvider(
+            json: #"{"epg_listings":[{"title":"","description":"\#(b64("Drake - Nokia"))"}]}"#
+        )
+        let update = await provider.currentSongInfo(streamID: "8020").update
+        XCTAssertEqual(update?.artist, "Drake")
+        XCTAssertEqual(update?.title, "Nokia")
     }
 }
 

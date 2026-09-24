@@ -13,6 +13,11 @@ final class StubAudioPlayer: AudioPlayerControlling {
     var onPlaybackResumed: (() -> Void)?
 
     private(set) var loadedURLs: [URL] = []
+    /// Simulated playback progress; nil models an engine that cannot report it.
+    private(set) var progressReading: Double?
+    /// When set, every reading advances — an engine whose audio keeps flowing
+    /// while it reports routine buffering.
+    var progressAdvancesPerReading = false
     private(set) var playCount = 0
     private(set) var pauseCount = 0
     private(set) var stopCount = 0
@@ -21,29 +26,44 @@ final class StubAudioPlayer: AudioPlayerControlling {
         loadedURLs.append(url)
     }
 
+    var playbackProgress: Double? {
+        guard let value = progressReading else { return nil }
+        if progressAdvancesPerReading { progressReading = value + 1 }
+        return value
+    }
+
     func play() { playCount += 1 }
     func pause() { pauseCount += 1 }
     func stop() { stopCount += 1 }
 
     func simulateReady() { onReady?() }
     func simulateFailure(_ message: String) { onFailure?(message) }
+    func setProgress(_ value: Double?) { progressReading = value }
 }
 
-/// Deterministic endpoint resolver for tests (no networking).
-final class StubEndpointResolver: StreamEndpointResolving, @unchecked Sendable {
-    var resolvedURL: URL?
-
-    func resolveFinalURL(for url: URL) async -> URL? {
-        resolvedURL
-    }
-}
-
-/// Stub EPG provider for tests.
-final class StubEPGProvider: ShortEPGProviding, @unchecked Sendable {
+/// Stub out-of-stream song source for tests.
+final class StubSongProvider: SongInfoProviding, @unchecked Sendable {
     var update: StreamMetadataUpdate?
+    var note: String?
+    let sourceName: String
+    /// Counts lookups, so a test can prove a source was (or was not) asked.
+    private(set) var askCount = 0
 
-    func currentSongInfo(streamID: String) async -> StreamMetadataUpdate? {
-        update
+    init(sourceName: String = "stub source", update: StreamMetadataUpdate? = nil, note: String? = nil) {
+        self.sourceName = sourceName
+        self.update = update
+        self.note = note
+    }
+
+    /// Overrides the static answer, given the 1-based call number. Lets a test
+    /// describe a source that starts working after a few failures without
+    /// racing the poll loop to mutate it at the right moment.
+    var answer: (@Sendable (Int) -> SongLookup)?
+
+    func currentSong(for station: RadioStation) async -> SongLookup {
+        askCount += 1
+        if let answer { return answer(askCount) }
+        return SongLookup(update: update, note: note)
     }
 }
 
@@ -55,9 +75,9 @@ final class PlaybackEngineTests: XCTestCase {
         http: HTTPClient = URLSessionHTTPClient.providerDefault,
         audioOnlyProbe: Bool = false,
         artworkLookup: ArtworkLookupService? = nil,
-        endpointResolver: StreamEndpointResolving = StubEndpointResolver(),
-        epgProvider: ShortEPGProviding? = nil,
-        stallTimeout: TimeInterval = 12
+        songProviders: [any SongInfoProviding] = [],
+        stallTimeout: TimeInterval = 12,
+        songPollInterval: TimeInterval = 30
     ) async -> (PlaybackEngine, StubAudioPlayer, ConnectivityMonitor, HistoryStore) {
         let settings = await SettingsStore(defaults: defaults)
         await MainActor.run {
@@ -80,9 +100,9 @@ final class PlaybackEngineTests: XCTestCase {
             probeCache: HLSProbeCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("probe-cache-\(UUID().uuidString)"))),
             candidateCache: PlaybackCandidateCache(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("candidate-cache-\(UUID().uuidString)"))),
             artworkLookup: artworkLookup,
-            endpointResolver: endpointResolver,
-            epgProvider: epgProvider,
-            stallTimeout: stallTimeout
+            songProviders: songProviders,
+            stallTimeout: stallTimeout,
+            songPollInterval: songPollInterval
         )
         return (engine, player, connectivity, history)
     }
@@ -546,6 +566,533 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testRoutineBufferingWithFlowingAudioDoesNotReconnect() async {
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1,
+            stallTimeout: 0.4
+        )
+        let s = station("healthy-buffering")
+        engine.play(s)
+        player.simulateReady()
+        let loadsAfterStart = player.loadedURLs.count
+
+        // Live engines report buffering routinely as their network cache
+        // refills. While playback keeps advancing the stream is healthy and
+        // must be left alone: reconnecting on the report alone is what made
+        // audio drop every few seconds.
+        player.setProgress(0)
+        player.progressAdvancesPerReading = true
+        player.onStalled?()
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+
+        XCTAssertEqual(player.loadedURLs.count, loadsAfterStart,
+                       "Buffering must not tear down a stream whose audio still flows")
+        XCTAssertEqual(engine.state, .playing(s))
+        XCTAssertFalse(engine.isBuffering)
+    }
+
+    @MainActor
+    func testStalledAudioWithNoProgressReconnects() async {
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1,
+            stallTimeout: 0.4
+        )
+        let s = station("frozen")
+        engine.play(s)
+        player.simulateReady()
+
+        // Progress is frozen: this stall is real and must be recovered from.
+        player.setProgress(9)
+        player.onStalled?()
+        try? await Task.sleep(nanoseconds: 1_800_000_000)
+
+        XCTAssertTrue(player.loadedURLs.count >= 2, "A genuinely stalled stream must be reloaded")
+    }
+
+    @MainActor
+    func testBufferingIsSurfacedWhileAudioIsSilent() async {
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1,
+            stallTimeout: 4
+        )
+        let s = station("buffering-flag")
+        engine.play(s)
+        player.simulateReady()
+        XCTAssertFalse(engine.isBuffering)
+
+        player.setProgress(5)
+        player.onStalled?()
+        XCTAssertTrue(engine.isBuffering, "A silent stream must not look like it is playing")
+    }
+
+    @MainActor
+    func testFailureAfterStopDoesNotResurrectTheStation() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        let s = station("late-failure")
+        engine.play(s)
+        player.simulateReady()
+        engine.stop()
+
+        // A callback still in flight from the torn-down stream must not put a
+        // failed station back on screen after an explicit stop.
+        player.simulateFailure("socket closed")
+        XCTAssertEqual(engine.state, .stopped(nil))
+    }
+
+    @MainActor
+    func testOnlyARealTitleCountsAsStreamSuppliedSongInfo() async {
+        // receivedSongInfoFromStream switches off the provider's EPG, which for
+        // streams carrying no metadata is the only source of the current song.
+        // Artwork alone must not set it; a real title must.
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        let s = station("song-info-flag")
+        engine.play(s)
+        player.simulateReady()
+
+        func refreshDiagnostics() {
+            player.onDiagnostics?(StreamDiagnosticsSample(
+                streamExtension: "ts",
+                indicatedBitrate: nil,
+                observedBitrate: nil,
+                averageAudioBitrate: nil,
+                audioTrackDataRate: nil,
+                mediaRequests: 1
+            ))
+        }
+
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+        player.onMetadata?(StreamMetadataUpdate(title: nil, artist: nil, artworkData: png))
+        refreshDiagnostics()
+        XCTAssertFalse(
+            engine.streamDiagnostics?.songInfoFromStream ?? true,
+            "Artwork with no title must leave the EPG as the song source"
+        )
+
+        player.onMetadata?(StreamMetadataUpdate(title: "Digital Love", artist: "Daft Punk", artworkData: nil))
+        refreshDiagnostics()
+        XCTAssertTrue(
+            engine.streamDiagnostics?.songInfoFromStream ?? false,
+            "A real title from the stream must take precedence over the EPG"
+        )
+    }
+
+    @MainActor
+    func testARealSongOutranksAnEarlierSourcesProgrammeInfo() async {
+        // The decisive case. A panel whose EPG always names the current show
+        // answers every poll, so stopping at the first non-nil answer meant the
+        // broadcaster — the only source that may carry the actual track — was
+        // never asked. A title with an artist is a song; a title alone is
+        // programme info and must not end the search.
+        let epg = StubSongProvider(
+            sourceName: "provider EPG",
+            update: StreamMetadataUpdate(title: "90s on 9 with a guest DJ", artist: nil, artworkData: nil)
+        )
+        let broadcaster = StubSongProvider(
+            sourceName: "SiriusXM channel metadata",
+            update: StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil)
+        )
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [epg, broadcaster]
+        )
+        let s = RadioStation(
+            name: "90s on 9",
+            streamURL: URL(string: "https://host.example/live/u/p/77.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "77"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<50 where engine.nowPlayingMetadata?.title == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(engine.nowPlayingMetadata?.artist, "Drake")
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Nokia")
+        // No further sample is pushed here on purpose: the compatibility engine
+        // emits exactly one, at startup, long before any lookup returns. The
+        // source must still be current, or the row cannot answer the question
+        // it exists for.
+        XCTAssertEqual(
+            engine.streamDiagnostics?.songInfoSource, "SiriusXM channel metadata",
+            "Diagnostics must refresh when the song source changes, not stay frozen at playback start"
+        )
+    }
+
+    @MainActor
+    func testProgrammeInfoIsUsedWhenNoSourceHasASong() async {
+        let epg = StubSongProvider(
+            sourceName: "provider EPG",
+            update: StreamMetadataUpdate(title: "The Heat with a guest DJ", artist: nil, artworkData: nil)
+        )
+        let broadcaster = StubSongProvider(sourceName: "SiriusXM channel metadata", update: nil)
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [epg, broadcaster]
+        )
+        let s = RadioStation(
+            name: "The Heat",
+            streamURL: URL(string: "https://host.example/live/u/p/78.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "78"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<50 where engine.nowPlayingMetadata?.title == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "The Heat with a guest DJ")
+        XCTAssertNil(engine.nowPlayingMetadata?.artist, "Programme info carries no artist, so no album art is attempted")
+        XCTAssertEqual(engine.streamDiagnostics?.songInfoSource, "provider EPG")
+    }
+
+    @MainActor
+    func testDiagnosticsReportWhatEverySongSourceAnswered() async {
+        // "No song is showing" has at least five causes that look identical on
+        // the now-playing bar: no EPG id, an empty EPG, an EPG listing a show, a
+        // metadata host refusing the request, and no network. They need
+        // different fixes, and the app is installed from CI artifacts onto a
+        // device with no console — so the reason has to reach the screen.
+        let epg = StubSongProvider(
+            sourceName: "provider EPG",
+            update: StreamMetadataUpdate(title: "Mark Strigl on Ozzy's Boneyard", artist: nil, artworkData: nil),
+            note: "show info only, no track"
+        )
+        let broadcaster = StubSongProvider(
+            sourceName: "SiriusXM channel metadata",
+            update: nil,
+            note: "ozzysboneyard: HTTP 404"
+        )
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [epg, broadcaster]
+        )
+        let s = RadioStation(
+            name: "Ozzy's Boneyard",
+            streamURL: URL(string: "https://host.example/live/u/p/79.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "79"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<50 where (engine.streamDiagnostics?.songSources.count ?? 0) < 2 {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        let reports = engine.streamDiagnostics?.songSources ?? []
+        XCTAssertEqual(reports.map(\.source), ["provider EPG", "SiriusXM channel metadata"])
+        XCTAssertEqual(reports.first?.outcome, .programme)
+        XCTAssertEqual(reports.first?.detail, "show info only, no track")
+        XCTAssertEqual(reports.last?.outcome, .nothing)
+        XCTAssertEqual(
+            reports.last?.detail, "ozzysboneyard: HTTP 404",
+            "The broadcaster's status is the whole diagnosis when the EPG only has a show"
+        )
+        XCTAssertTrue(
+            engine.streamDiagnostics?.songInfoIsProgrammeOnly ?? false,
+            "A show name on screen must not be reported as though the song came from that source"
+        )
+    }
+
+    @MainActor
+    func testASourceIsNotAskedOnceAnEarlierOneSuppliedATrack() async {
+        let broadcaster = StubSongProvider(
+            sourceName: "SiriusXM channel metadata",
+            update: StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil)
+        )
+        let extra = StubSongProvider(sourceName: "last resort", update: nil)
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [broadcaster, extra]
+        )
+        let s = RadioStation(
+            name: "90s on 9",
+            streamURL: URL(string: "https://host.example/live/u/p/80.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "80"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<50 where engine.nowPlayingMetadata?.artist == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(engine.streamDiagnostics?.songSources.map(\.outcome), [.song])
+        XCTAssertEqual(extra.askCount, 0, "A track is the best answer available; nothing after it is worth asking")
+        XCTAssertFalse(engine.streamDiagnostics?.songInfoIsProgrammeOnly ?? true)
+    }
+
+    @MainActor
+    func testASourceThatKeepsComingBackEmptyIsLeftAlone() async {
+        // On device the broadcaster's endpoint refused every channel key with
+        // 403. At four keys a poll that is eight pointless requests a minute for
+        // as long as the station plays, so a source that cannot answer is
+        // stopped — but still reported, with the reason it gave.
+        let dead = StubSongProvider(
+            sourceName: "SiriusXM channel metadata",
+            update: nil,
+            note: "theheat: HTTP 403"
+        )
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [dead],
+            songPollInterval: 0.02
+        )
+        let s = RadioStation(
+            name: "The Heat",
+            streamURL: URL(string: "https://host.example/live/u/p/81.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "81"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        // Long enough for many more passes than the limit allows.
+        for _ in 0..<60 where dead.askCount < 4 {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(dead.askCount, 3, "Three empty answers is enough to stop asking")
+        let report = engine.streamDiagnostics?.songSources.first
+        XCTAssertEqual(report?.outcome, .nothing)
+        XCTAssertEqual(
+            report?.detail, "no longer asked — theheat: HTTP 403",
+            "A source being skipped must still show why, or it looks like it is simply quiet"
+        )
+    }
+
+    @MainActor
+    func testAnAnswerClearsTheFailureCount() async {
+        // A source that works intermittently must keep being asked. Scripted
+        // by call number rather than mutated mid-test, so the two empty answers
+        // cannot accidentally become three and trip the limit.
+        let flaky = StubSongProvider(sourceName: "SiriusXM playlist tracker")
+        flaky.answer = { call in
+            call <= 2
+                ? .empty("HTTP 500")
+                : .found(StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil))
+        }
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [flaky],
+            songPollInterval: 0.02
+        )
+        let s = RadioStation(
+            name: "Octane",
+            streamURL: URL(string: "https://host.example/live/u/p/82.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "82"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<80 where engine.nowPlayingMetadata?.artist == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(engine.nowPlayingMetadata?.artist, "Drake")
+        XCTAssertEqual(engine.streamDiagnostics?.songSources.first?.outcome, .song)
+    }
+
+    @MainActor
+    func testLateFailuresFromAnAbandonedStreamAreIgnored() async {
+        // libVLC reports a dying stream more than once. Each report used to be
+        // taken as a fresh failure: the second arrived while the reconnect from
+        // the first was still waiting out its backoff, burned another attempt
+        // from the budget, and gave up on a station that had one reconnect
+        // left. Abandoning a load now closes the gate on anything more the
+        // player says about it.
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1
+        )
+        let s = RadioStation(
+            name: "Octane",
+            streamURL: URL(string: "https://host.example/live/u/p/90.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        XCTAssertTrue(engine.state.isPlaying)
+
+        // The stream dies: one reconnect is scheduled, one attempt left.
+        player.simulateFailure("Stream stopped")
+        XCTAssertTrue(engine.state.isBusy, "The first failure schedules a reconnect")
+
+        // The same death, reported again.
+        player.simulateFailure("Stream stopped")
+
+        XCTAssertTrue(
+            engine.state.isBusy,
+            "A repeat report of the same failure must not spend the last retry and give up"
+        )
+        if case .failed = engine.state {
+            XCTFail("Gave up after one real failure because the player reported it twice")
+        }
+    }
+
+    @MainActor
+    func testAnExplicitStopSilencesLateFailures() async {
+        // The mirror image: after the listener stops, nothing the torn-down
+        // stream says should resurrect the mini player.
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        let s = RadioStation(
+            name: "Octane",
+            streamURL: URL(string: "https://host.example/live/u/p/91.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        engine.stop()
+        player.simulateFailure("Stream stopped")
+
+        XCTAssertNil(engine.state.station, "A stopped engine must stay stopped")
+    }
+
+    // MARK: Stream-format candidates
+
+    @MainActor
+    func testDiagnosticsReportEveryCandidateOutcome() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let mp3 = URL(string: "https://edge.example.net/live/u/p/1.mp3")!
+        let ts = URL(string: "https://edge.example.net/live/u/p/1.ts")!
+        let hls = URL(string: "https://edge.example.net/live/u/p/1.m3u8")!
+        let s = RadioStation(
+            name: "Candidates",
+            streamURL: mp3,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [ts, hls]
+        )
+
+        engine.play(s)
+        player.simulateFailure("Cannot open the audio endpoint")
+        player.simulateReady()
+
+        let reports = engine.streamDiagnostics?.candidates ?? []
+        XCTAssertEqual(reports.map(\.format), ["mp3", "ts", "m3u8"])
+        if case .failed(let reason) = reports.first?.outcome {
+            XCTAssertNotNil(reason, "A rejected format should carry its reason")
+        } else {
+            XCTFail("The audio-only candidate must be recorded as failed, got \(String(describing: reports.first?.outcome))")
+        }
+        XCTAssertEqual(reports[1].outcome, .playing)
+        XCTAssertEqual(
+            reports[2].outcome, .notTried,
+            "A candidate never reached must not be reported as a failure"
+        )
+    }
+
+    @MainActor
+    func testRetryPreferredFormatsUnpinsARememberedEndpoint() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let mp3 = URL(string: "https://edge.example.net/live/u/p/1.mp3")!
+        let ts = URL(string: "https://edge.example.net/live/u/p/1.ts")!
+        let s = RadioStation(
+            name: "Pinned",
+            streamURL: mp3,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [ts]
+        )
+
+        engine.play(s)
+        player.simulateFailure("mp3 unavailable")
+        player.simulateReady()
+        engine.stop()
+
+        engine.play(s)
+        XCTAssertEqual(player.loadedURLs.last, ts, "Later plays start at the remembered endpoint")
+
+        // That memo is what can hold a station on a format carrying no song
+        // metadata, so asking for the preferred formats again has to work.
+        engine.retryPreferredFormats()
+        XCTAssertEqual(player.loadedURLs.last, mp3, "Retrying must probe the preferred format again")
+    }
+
+    @MainActor
+    func testForgetRememberedFormatStopsWithoutReplaying() async {
+        // Retrying replays at once, so a connection is open again exactly when
+        // the preferred endpoints are probed — and a panel that caps
+        // connections refuses a second one with the same 403 it uses for a
+        // format it will not serve. Stopping instead lets the next play probe
+        // with nothing else open, which is the only way to tell those apart.
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let mp3 = URL(string: "https://edge.example.net/live/u/p/3.mp3")!
+        let ts = URL(string: "https://edge.example.net/live/u/p/3.ts")!
+        let s = RadioStation(
+            name: "Clean probe",
+            streamURL: mp3,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [ts]
+        )
+
+        engine.play(s)
+        player.simulateFailure("mp3 unavailable")
+        player.simulateReady()
+        let loadsBeforeForgetting = player.loadedURLs.count
+
+        engine.forgetRememberedFormat()
+        XCTAssertEqual(engine.state, .stopped(nil), "Forgetting must stop, not replay")
+        XCTAssertEqual(
+            player.loadedURLs.count, loadsBeforeForgetting,
+            "Nothing may be loaded: an open connection is what confuses the probe"
+        )
+
+        // The next play starts at the preferred format again.
+        engine.play(s)
+        XCTAssertEqual(player.loadedURLs.last, mp3)
+    }
+
+    @MainActor
+    func testSkippedCandidatesAreReportedAsSkippedNotUntried() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
+        let mp3 = URL(string: "https://edge.example.net/live/u/p/2.mp3")!
+        let ts = URL(string: "https://edge.example.net/live/u/p/2.ts")!
+        let s = RadioStation(
+            name: "Skipping",
+            streamURL: mp3,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [ts]
+        )
+
+        engine.play(s)
+        player.simulateFailure("mp3 unavailable")
+        player.simulateReady()
+        engine.stop()
+
+        engine.play(s)
+        player.simulateReady()
+
+        let reports = engine.streamDiagnostics?.candidates ?? []
+        XCTAssertEqual(
+            reports.first?.outcome, .skipped,
+            "Jumped-over formats must read as skipped, not untried"
+        )
+        XCTAssertTrue(engine.streamDiagnostics?.startedAtRememberedEndpoint ?? false)
+    }
+
+    @MainActor
     func testQuickStreamEndSkipsToNextFormat() async {
         let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), retryLimit: 0)
         let primary = URL(string: "https://edge.example.net/live/u/p/finite.ts")!
@@ -603,59 +1150,16 @@ final class PlaybackEngineTests: XCTestCase {
 
     // MARK: Redirected audio endpoints
 
-    @MainActor
-    func testRedirectedAudioEndpointIsResolvedBeforePlayback() async {
-        let resolver = StubEndpointResolver()
-        resolver.resolvedURL = URL(string: "https://cdn.example.net/final/stream.mp3")!
-        let (engine, player, _, _) = await makeEngine(
-            defaults: makeIsolatedDefaults(),
-            audioOnlyProbe: true,
-            endpointResolver: resolver
-        )
-        let primary = URL(string: "https://host.example/live/u/p/1.mp3")!
-        let s = RadioStation(name: "Redirected", streamURL: primary, groupTitle: "Music Radio", source: .xtream)
-
-        engine.play(s)
-        for _ in 0..<50 where player.loadedURLs.isEmpty {
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-        XCTAssertEqual(
-            player.loadedURLs.first?.absoluteString,
-            "https://cdn.example.net/final/stream.mp3",
-            "The redirect-resolved audio endpoint should be played"
-        )
-        player.simulateReady()
-        XCTAssertEqual(engine.state, .playing(s))
-    }
-
-    @MainActor
-    func testUnresolvableAudioEndpointFallsBackToOriginalURL() async {
-        let resolver = StubEndpointResolver()
-        resolver.resolvedURL = nil
-        let (engine, player, _, _) = await makeEngine(
-            defaults: makeIsolatedDefaults(),
-            audioOnlyProbe: true,
-            endpointResolver: resolver
-        )
-        let primary = URL(string: "https://host.example/live/u/p/1.aac")!
-        let s = RadioStation(name: "Unresolved", streamURL: primary, groupTitle: "Music Radio", source: .xtream)
-
-        engine.play(s)
-        for _ in 0..<50 where player.loadedURLs.isEmpty {
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-        XCTAssertEqual(player.loadedURLs.first, primary, "Without a resolution the original endpoint is used")
-    }
-
     // MARK: EPG song info
 
     @MainActor
-    func testEPGProvidesSongInfoWhenStreamHasNone() async {
-        let provider = StubEPGProvider()
-        provider.update = StreamMetadataUpdate(title: "Around the World", artist: "Daft Punk", artworkData: nil)
+    func testOutOfStreamSourceProvidesSongInfoWhenStreamHasNone() async {
+        let provider = StubSongProvider(
+            update: StreamMetadataUpdate(title: "Around the World", artist: "Daft Punk", artworkData: nil)
+        )
         let (engine, player, _, _) = await makeEngine(
             defaults: makeIsolatedDefaults(),
-            epgProvider: provider
+            songProviders: [provider]
         )
         let s = RadioStation(
             name: "EPG Station",
