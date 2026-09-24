@@ -64,8 +64,14 @@ final class StubSongProvider: SongInfoProviding, @unchecked Sendable {
         self.note = note
     }
 
+    /// Overrides the static answer, given the 1-based call number. Lets a test
+    /// describe a source that starts working after a few failures without
+    /// racing the poll loop to mutate it at the right moment.
+    var answer: (@Sendable (Int) -> SongLookup)?
+
     func currentSong(for station: RadioStation) async -> SongLookup {
         askCount += 1
+        if let answer { return answer(askCount) }
         return SongLookup(update: update, note: note)
     }
 }
@@ -80,7 +86,8 @@ final class PlaybackEngineTests: XCTestCase {
         artworkLookup: ArtworkLookupService? = nil,
         endpointResolver: StreamEndpointResolving = StubEndpointResolver(),
         songProviders: [any SongInfoProviding] = [],
-        stallTimeout: TimeInterval = 12
+        stallTimeout: TimeInterval = 12,
+        songPollInterval: TimeInterval = 30
     ) async -> (PlaybackEngine, StubAudioPlayer, ConnectivityMonitor, HistoryStore) {
         let settings = await SettingsStore(defaults: defaults)
         await MainActor.run {
@@ -105,7 +112,8 @@ final class PlaybackEngineTests: XCTestCase {
             artworkLookup: artworkLookup,
             endpointResolver: endpointResolver,
             songProviders: songProviders,
-            stallTimeout: stallTimeout
+            stallTimeout: stallTimeout,
+            songPollInterval: songPollInterval
         )
         return (engine, player, connectivity, history)
     }
@@ -835,6 +843,80 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(engine.streamDiagnostics?.songSources.map(\.outcome), [.song])
         XCTAssertEqual(extra.askCount, 0, "A track is the best answer available; nothing after it is worth asking")
         XCTAssertFalse(engine.streamDiagnostics?.songInfoIsProgrammeOnly ?? true)
+    }
+
+    @MainActor
+    func testASourceThatKeepsComingBackEmptyIsLeftAlone() async {
+        // On device the broadcaster's endpoint refused every channel key with
+        // 403. At four keys a poll that is eight pointless requests a minute for
+        // as long as the station plays, so a source that cannot answer is
+        // stopped — but still reported, with the reason it gave.
+        let dead = StubSongProvider(
+            sourceName: "SiriusXM channel metadata",
+            update: nil,
+            note: "theheat: HTTP 403"
+        )
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [dead],
+            songPollInterval: 0.02
+        )
+        let s = RadioStation(
+            name: "The Heat",
+            streamURL: URL(string: "https://host.example/live/u/p/81.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "81"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        // Long enough for many more passes than the limit allows.
+        for _ in 0..<60 where dead.askCount < 4 {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(dead.askCount, 3, "Three empty answers is enough to stop asking")
+        let report = engine.streamDiagnostics?.songSources.first
+        XCTAssertEqual(report?.outcome, .nothing)
+        XCTAssertEqual(
+            report?.detail, "no longer asked — theheat: HTTP 403",
+            "A source being skipped must still show why, or it looks like it is simply quiet"
+        )
+    }
+
+    @MainActor
+    func testAnAnswerClearsTheFailureCount() async {
+        // A source that works intermittently must keep being asked. Scripted
+        // by call number rather than mutated mid-test, so the two empty answers
+        // cannot accidentally become three and trip the limit.
+        let flaky = StubSongProvider(sourceName: "SiriusXM playlist tracker")
+        flaky.answer = { call in
+            call <= 2
+                ? .empty("HTTP 500")
+                : .found(StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil))
+        }
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [flaky],
+            songPollInterval: 0.02
+        )
+        let s = RadioStation(
+            name: "Octane",
+            streamURL: URL(string: "https://host.example/live/u/p/82.ts")!,
+            groupTitle: "Music Radio",
+            source: .xtream,
+            xtreamStreamID: "82"
+        )
+
+        engine.play(s)
+        player.simulateReady()
+        for _ in 0..<80 where engine.nowPlayingMetadata?.artist == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(engine.nowPlayingMetadata?.artist, "Drake")
+        XCTAssertEqual(engine.streamDiagnostics?.songSources.first?.outcome, .song)
     }
 
     // MARK: Stream-format candidates

@@ -418,6 +418,9 @@ final class PlaybackEngine: ObservableObject {
     private var stallTask: Task<Void, Never>?
     private var playbackStartedAt: Date?
     private let stallTimeout: TimeInterval
+    /// Gap between song-lookup passes. Injectable so the polling loop's own
+    /// behaviour — the per-source backoff above — is testable without waiting.
+    private let songPollInterval: TimeInterval
     /// Online song-artwork lookup for streams with text-only metadata.
     private var artworkLookupTask: Task<Void, Never>?
     /// Resolved (redirect-followed) audio endpoints, keyed by original URL.
@@ -432,6 +435,21 @@ final class PlaybackEngine: ObservableObject {
     /// with no console, to tell "nothing publishes this track" apart from "the
     /// lookup never reached anything".
     private var songSourceReports: [SongSourceReport] = []
+    /// Consecutive empty answers per source for the current station.
+    private var songSourceFailures: [String: Int] = [:]
+    /// The last note each source gave, so a source that is no longer being
+    /// asked still shows why it stopped.
+    private var songSourceLastNote: [String: String] = [:]
+    /// Empty answers in a row before a source is left alone for this station.
+    ///
+    /// A source that cannot answer for a channel generally cannot answer for it
+    /// at all: on device the broadcaster's own endpoint refused every key with
+    /// 403, which at four keys a poll is eight pointless requests a minute for
+    /// as long as the station plays. Three strikes is enough to establish that
+    /// while still tolerating a transient failure, and the station's own reset
+    /// clears it — so setting a channel key and saving, which replays the
+    /// station, asks every source again.
+    private static let songSourceFailureLimit = 3
     /// Last sample published, so diagnostics can be rebuilt when something
     /// other than the player changes. The compatibility engine emits a sample
     /// only once, at startup, so without this every field derived from engine
@@ -461,7 +479,8 @@ final class PlaybackEngine: ObservableObject {
         artworkLookup: ArtworkLookupService? = nil,
         endpointResolver: StreamEndpointResolving = StreamRedirectResolver(),
         songProviders: [any SongInfoProviding] = [],
-        stallTimeout: TimeInterval = 12
+        stallTimeout: TimeInterval = 12,
+        songPollInterval: TimeInterval = 30
     ) {
         self.player = player
         self.audioSession = audioSession
@@ -476,6 +495,7 @@ final class PlaybackEngine: ObservableObject {
         self.endpointResolver = endpointResolver
         self.songProviders = songProviders
         self.stallTimeout = stallTimeout
+        self.songPollInterval = songPollInterval
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
         nowPlaying.commandDelegate = self
@@ -515,6 +535,8 @@ final class PlaybackEngine: ObservableObject {
         songInfoSource = nil
         songInfoIsProgrammeOnly = false
         songSourceReports = []
+        songSourceFailures = [:]
+        songSourceLastNote = [:]
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
         artworkLookupTask = nil
@@ -574,6 +596,8 @@ final class PlaybackEngine: ObservableObject {
         songInfoSource = nil
         songInfoIsProgrammeOnly = false
         songSourceReports = []
+        songSourceFailures = [:]
+        songSourceLastNote = [:]
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
         artworkLookupTask = nil
@@ -1213,6 +1237,23 @@ final class PlaybackEngine: ObservableObject {
                 var programme: (source: String, update: StreamMetadataUpdate)?
                 var reports: [SongSourceReport] = []
                 for provider in self.songProviders {
+                    let name = provider.sourceName
+                    // A source that has come back empty repeatedly for this
+                    // station is left alone rather than asked forever. Still
+                    // reported, with the reason it gave, so it is visible that
+                    // it is being skipped rather than quietly succeeding.
+                    if (self.songSourceFailures[name] ?? 0) >= Self.songSourceFailureLimit {
+                        let reason = self.songSourceLastNote[name]
+                        reports.append(
+                            SongSourceReport(
+                                source: name,
+                                outcome: .nothing,
+                                detail: reason.map { "no longer asked — \($0)" }
+                                    ?? "no longer asked after \(Self.songSourceFailureLimit) empty lookups"
+                            )
+                        )
+                        continue
+                    }
                     let answer = await provider.currentSong(for: station)
                     if Task.isCancelled { return }
                     var outcome = SongSourceReport.Outcome.nothing
@@ -1224,6 +1265,14 @@ final class PlaybackEngine: ObservableObject {
                             outcome = .programme
                             if programme == nil { programme = (provider.sourceName, update) }
                         }
+                    }
+                    if outcome == .nothing {
+                        self.songSourceFailures[name, default: 0] += 1
+                        if let note = answer.note { self.songSourceLastNote[name] = note }
+                    } else {
+                        // An answer clears the count: a source that works
+                        // intermittently keeps being asked.
+                        self.songSourceFailures[name] = 0
                     }
                     reports.append(
                         SongSourceReport(
@@ -1275,7 +1324,9 @@ final class PlaybackEngine: ObservableObject {
                         )
                     }
                 }
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                try? await Task.sleep(
+                    nanoseconds: UInt64(max(0.01, self.songPollInterval) * 1_000_000_000)
+                )
             }
         }
     }
