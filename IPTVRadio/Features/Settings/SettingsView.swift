@@ -13,18 +13,25 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                accountSection
-                appearanceSection
-                playbackSection
-                filteringSection
-                cacheSection
-                privacySection
+            ZStack {
+                AetherTheme.background.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        accountSection
+                        appearanceSection
+                        playbackSection
+                        filteringSection
+                        cacheSection
+                        privacySection
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 32)
+                }
             }
-            .listStyle(.plain)
             .toggleStyle(AetherSettingsToggleStyle())
-            .scrollContentBackground(.hidden)
             .navigationTitle("Settings")
+            .toolbarBackground(.hidden, for: .navigationBar)
             .alert("Sign out?", isPresented: $confirmSignOut) {
                 Button("Sign Out", role: .destructive) {
                     playback.stop()
@@ -34,24 +41,22 @@ struct SettingsView: View {
             } message: {
                 Text("Credentials are removed from the Keychain and cached data is cleared.")
             }
-            .background(AetherTheme.background.ignoresSafeArea())
         }
     }
 
     private var appearanceSection: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 0) {
+            settingsHeader("Appearance")
             Toggle("Liquid Glass navigation", isOn: $settings.liquidGlassEnabled)
                 .accessibilityIdentifier("settings.liquidGlass")
                 .aetherSettingsRow()
-        } header: {
-            Text("Appearance")
-        } footer: {
-            Text("Turn off for a flat, full-width tab bar. The change takes effect immediately.")
+            settingsFooter("Turn off for a flat, full-width tab bar. The change takes effect immediately.")
         }
     }
 
     private var accountSection: some View {
-        Section("Account") {
+        VStack(alignment: .leading, spacing: 0) {
+            settingsHeader("Account")
             if let session = activeSessionDescription {
                 LabeledContent("Status", value: session.status)
                     .aetherSettingsRow()
@@ -78,7 +83,8 @@ struct SettingsView: View {
     }
 
     private var playbackSection: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 0) {
+            settingsHeader("Playback")
             Toggle("Allow cellular streaming", isOn: $settings.cellularAllowed)
                 .accessibilityIdentifier("settings.cellular")
                 .aetherSettingsRow()
@@ -119,39 +125,39 @@ struct SettingsView: View {
             Toggle("Look up song artwork online", isOn: $settings.lookupSongArtwork)
                 .accessibilityIdentifier("settings.artworkLookup")
                 .aetherSettingsRow()
-            NavigationLink("Stream diagnostics") {
+            NavigationLink {
                 StreamDiagnosticsView()
+            } label: {
+                settingsNavigationLabel("Stream diagnostics")
             }
             .accessibilityIdentifier("settings.streamDiagnostics")
             .aetherSettingsRow()
-        } header: {
-            Text("Playback")
-        } footer: {
-            Text("“Prefer audio-only stream” plays a channel's dedicated audio track when its HLS manifest offers one — better quality for radio and much less data than downloading its video variant.\n\n“Look up song artwork online” sends the current song's artist and title to Apple's public catalog to fetch album art when the stream itself carries none. No account or tracking is involved; disable it for fully offline metadata.")
+            settingsFooter("“Prefer audio-only stream” plays a channel's dedicated audio track when its HLS manifest offers one — better quality for radio and much less data than downloading its video variant.\n\n“Look up song artwork online” sends the current song's artist and title to Apple's public catalog to fetch album art when the stream itself carries none. No account or tracking is involved; disable it for fully offline metadata.")
         }
     }
 
     private var filteringSection: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 0) {
+            settingsHeader("Station filtering")
             Toggle("Show only SiriusXM-labelled stations", isOn: $settings.siriusOnly)
                 .accessibilityIdentifier("settings.siriusOnly")
                 .aetherSettingsRow()
             Toggle("Show all detected radio stations", isOn: $settings.showAllStations)
                 .accessibilityIdentifier("settings.showAll")
                 .aetherSettingsRow()
-            NavigationLink("Detection rules") {
+            NavigationLink {
                 DetectionRulesEditorView()
+            } label: {
+                settingsNavigationLabel("Detection rules")
             }
             .aetherSettingsRow()
-        } header: {
-            Text("Station filtering")
-        } footer: {
-            Text("Providers label channels differently. Tune the keyword rules if stations are missing or misclassified.")
+            settingsFooter("Providers label channels differently. Tune the keyword rules if stations are missing or misclassified.")
         }
     }
 
     private var cacheSection: some View {
-        Section("Data") {
+        VStack(alignment: .leading, spacing: 0) {
+            settingsHeader("Data")
             LabeledContent("Cached data size", value: ByteCountFormatter.string(fromByteCount: Int64(cacheSize), countStyle: .file))
                 .aetherSettingsRow()
             Button("Clear station cache") {
@@ -168,14 +174,43 @@ struct SettingsView: View {
     }
 
     private var privacySection: some View {
-        Section {
-            NavigationLink("Privacy & authorization") {
+        VStack(alignment: .leading, spacing: 0) {
+            settingsHeader("Privacy")
+            NavigationLink {
                 PrivacyNoticeView()
+            } label: {
+                settingsNavigationLabel("Privacy & authorization")
             }
             .aetherSettingsRow()
-        } footer: {
-            Text("No analytics, no tracking. Credentials are stored only in the Keychain and never logged.")
+            settingsFooter("No analytics, no tracking. Credentials are stored only in the Keychain and never logged.")
         }
+    }
+
+    private func settingsHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.headline)
+            .foregroundStyle(AetherTheme.secondaryText)
+            .padding(.top, 24)
+            .padding(.bottom, 8)
+    }
+
+    private func settingsFooter(_ message: String) -> some View {
+        Text(message)
+            .font(.footnote)
+            .foregroundStyle(AetherTheme.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 8)
+    }
+
+    private func settingsNavigationLabel(_ title: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AetherTheme.mutedIcon)
+        }
+        .foregroundStyle(AetherTheme.secondaryText)
     }
 
     private var cacheSize: Int {
@@ -196,8 +231,8 @@ struct SettingsView: View {
 
 private extension View {
     func aetherSettingsRow() -> some View {
-        listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
+        frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .padding(.vertical, 6)
     }
 }
 
