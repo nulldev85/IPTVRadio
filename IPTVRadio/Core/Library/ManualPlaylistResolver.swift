@@ -21,13 +21,13 @@ struct ManualPlaylistResolver {
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
         request.setValue("audio/x-mpegurl, audio/x-scpls, text/plain", forHTTPHeaderField: "Accept")
-        let data: Data
-        let response: HTTPURLResponse
+        let result: (Data, HTTPURLResponse)
         do {
-            (data, response) = try await httpClient.data(for: request)
+            result = try await httpClient.data(for: request)
         } catch {
             throw ManualStationError.playlistUnavailable
         }
+        let (data, response) = result
         guard (200..<300).contains(response.statusCode) else {
             throw ManualStationError.playlistUnavailable
         }
