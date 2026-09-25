@@ -123,8 +123,11 @@ private struct LiveActivityBadge: View {
     private func barHeight(_ index: Int, at date: Date) -> CGFloat {
         let peaks: [CGFloat] = [10, 14, 17, 14, 10]
         guard !reduceMotion else { return peaks[index] }
-        let cycle = date.timeIntervalSinceReferenceDate * (2 * Double.pi / 1.6)
-        let level = (sin(cycle - Double(index) * 0.65) + 1) / 2
+        let cycle = date.timeIntervalSinceReferenceDate * (2 * Double.pi / 2.4)
+        // A single peak travels across the bars and eases into each reversal.
+        let center = 2 + 1.6 * sin(cycle)
+        let distance = Double(index) - center
+        let level = exp(-0.8 * distance * distance)
         return 4 + (peaks[index] - 4) * CGFloat(0.2 + 0.8 * level)
     }
 }
