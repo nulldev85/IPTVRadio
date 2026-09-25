@@ -147,7 +147,7 @@ private struct ManualStationEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Station") {
+                Section {
                     TextField("Station name", text: $name)
                         .textContentType(.name)
                         .accessibilityIdentifier("manual.name")
@@ -156,6 +156,8 @@ private struct ManualStationEditorView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier("manual.url")
+                } header: {
+                    Text("Station")
                 } footer: {
                     Text("Use a direct MP3, AAC, AAC+, Ogg, Opus, FLAC or HLS (.m3u8) link, or an M3U/PLS station playlist. HTTP and HTTPS are supported.")
                 }
