@@ -20,16 +20,22 @@ struct IPTVRadioApp: App {
         ] {
             itemAppearance.normal.iconColor = inactive
             itemAppearance.normal.titleTextAttributes = [.foregroundColor: inactive]
-            itemAppearance.selected.iconColor = active
+            itemAppearance.selected.iconColor = inactive
             itemAppearance.selected.titleTextAttributes = [.foregroundColor: active]
         }
         UITabBar.appearance().standardAppearance = tabAppearance
         UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+        // SwiftUI's TabView tint can override the item's selected appearance.
+        // Set the UIKit tint as well so the selected symbol stays blue-gray.
+        UITabBar.appearance().tintColor = inactive
+        UITabBar.appearance().unselectedItemTintColor = inactive
 
         let navigationAppearance = UINavigationBarAppearance()
         navigationAppearance.configureWithTransparentBackground()
         navigationAppearance.titleTextAttributes = [.foregroundColor: active]
         navigationAppearance.largeTitleTextAttributes = [.foregroundColor: active]
+        navigationAppearance.buttonAppearance.normal.titleTextAttributes = [.foregroundColor: inactive]
+        navigationAppearance.doneButtonAppearance.normal.titleTextAttributes = [.foregroundColor: inactive]
         UINavigationBar.appearance().standardAppearance = navigationAppearance
         UINavigationBar.appearance().scrollEdgeAppearance = navigationAppearance
         UINavigationBar.appearance().tintColor = inactive

@@ -30,7 +30,7 @@ struct MainTabView: View {
             tabContent { SettingsView() }
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
-        .tint(AetherTheme.secondaryText)
+        .tint(AetherTheme.mutedIcon)
         .background(AetherTheme.background.ignoresSafeArea())
         .sheet(isPresented: $showNowPlaying) {
             NowPlayingView()

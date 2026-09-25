@@ -78,6 +78,7 @@ struct ManualRadioView: View {
                                     Text("Done")
                                 } else {
                                     Image(systemName: "arrow.up.arrow.down")
+                                        .foregroundStyle(AetherTheme.mutedIcon)
                                 }
                             }
                             .accessibilityLabel(isReordering ? "Done reordering" : "Reorder stations")
