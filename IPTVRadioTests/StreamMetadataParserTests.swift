@@ -15,6 +15,16 @@ final class StreamMetadataParserTests: XCTestCase {
         XCTAssertEqual(split.title, "Digital Love")
     }
 
+    func testSplitsCommonRadioSeparators() {
+        for combined in ["Daft Punk – Digital Love", "Daft Punk — Digital Love", "Daft Punk | Digital Love"] {
+            let split = StreamMetadataParser.splittingCombinedTitle(
+                StreamMetadataUpdate(title: combined, artist: nil, artworkData: nil)
+            )
+            XCTAssertEqual(split.artist, "Daft Punk")
+            XCTAssertEqual(split.title, "Digital Love")
+        }
+    }
+
     func testSplitKeepsAnArtistTheStreamAlreadyProvided() {
         let split = StreamMetadataParser.splittingCombinedTitle(
             StreamMetadataUpdate(title: "A - B", artist: "Real Artist", artworkData: nil)

@@ -1342,6 +1342,33 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testManualStreamTrackIsNotReplacedByFallbackLookup() async {
+        let provider = StubSongProvider(update: StreamMetadataUpdate(
+            title: "Delayed Lookup", artist: "Other Artist", artworkData: nil
+        ))
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [provider],
+            songPollInterval: 0.02
+        )
+        let station = RadioStation(
+            name: "Manual Radio",
+            streamURL: URL(string: "https://radio.example.org/live.aac")!,
+            source: .manual
+        )
+        engine.play(station)
+        player.onMetadata?(StreamMetadataUpdate(
+            title: "Current Song", artist: "Current Artist", artworkData: nil
+        ))
+        player.simulateReady()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Current Song")
+        XCTAssertEqual(engine.nowPlayingMetadata?.artist, "Current Artist")
+        XCTAssertEqual(provider.askCount, 0)
+        engine.stop()
+    }
+
+    @MainActor
     func testManualSongSurvivesTemporaryEmptyLookup() async {
         let provider = StubSongProvider()
         provider.answer = { call in

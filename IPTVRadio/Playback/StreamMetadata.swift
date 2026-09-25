@@ -47,7 +47,9 @@ enum StreamMetadataParser {
     static func splittingCombinedTitle(_ update: StreamMetadataUpdate) -> StreamMetadataUpdate {
         var update = update
         guard update.artist == nil, let title = update.title,
-              let separator = title.range(of: " - ") else { return update }
+              let separator = [" - ", " – ", " — ", " | ", " • "]
+                .compactMap({ title.range(of: $0) }).min(by: { $0.lowerBound < $1.lowerBound })
+        else { return update }
         let artist = String(title[..<separator.lowerBound]).trimmingCharacters(in: .whitespaces)
         let song = String(title[separator.upperBound...]).trimmingCharacters(in: .whitespaces)
         guard !artist.isEmpty, !song.isEmpty else { return update }

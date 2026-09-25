@@ -893,10 +893,11 @@ final class PlaybackEngine: ObservableObject {
             var loggedOutcome = false
             while !Task.isCancelled {
                 guard let self, self.wantsPlayback, self.state.station?.id == station.id else { return }
-                // Provider channels trust their own stream title. Manual
-                // stations keep checking the broadcaster so the title and
-                // artwork can follow each subsequent song.
-                if self.receivedSongInfoFromStream && station.source != .manual { return }
+                // A complete track from the stream is authoritative for all
+                // stations. Manual stations still need fallback polling when
+                // the stream has only a show name or no metadata at all.
+                if self.hasAuthoritativeStreamTrack ||
+                    (self.receivedSongInfoFromStream && station.source != .manual) { return }
 
                 // A title *with an artist* is a track; a title alone is
                 // programme information, such as a show name. The first
@@ -961,7 +962,8 @@ final class PlaybackEngine: ObservableObject {
 
                 // Re-check after the awaits: provider streams may publish a
                 // title while a slower lookup is still in flight.
-                if self.receivedSongInfoFromStream && station.source != .manual { return }
+                if self.hasAuthoritativeStreamTrack ||
+                    (self.receivedSongInfoFromStream && station.source != .manual) { return }
                 self.songSourceReports = reports
                 if let best = song ?? programme {
                     self.songInfoSource = best.source
@@ -1000,6 +1002,11 @@ final class PlaybackEngine: ObservableObject {
                 )
             }
         }
+    }
+
+    private var hasAuthoritativeStreamTrack: Bool {
+        receivedSongInfoFromStream && songInfoSource == "stream metadata" &&
+            !(nowPlayingMetadata?.artist?.isEmpty ?? true)
     }
 
     private func cancelWatchdog() {

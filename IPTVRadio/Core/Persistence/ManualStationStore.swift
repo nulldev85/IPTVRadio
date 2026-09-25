@@ -178,17 +178,15 @@ final class ManualStationStore: ObservableObject {
 /// Logos for the local streams Aether can identify from their public URLs.
 /// A listener-supplied artwork URL always takes priority.
 enum KnownManualStation {
-    static func hasICYMetadata(for url: URL) -> Bool {
-        let value = url.absoluteString.lowercased()
-        return (value.contains("streamtheworld.com") && value.contains("kseqfm"))
-            || (value.contains("securenetsystems.net") && value.contains("/kfrr"))
-    }
-
     static func iHeartID(for url: URL) -> Int? {
-        let value = url.absoluteString.lowercased()
-        guard value.contains("ihrhls.com") || value.contains("iheart.com") else { return nil }
-        if value.contains("/zc141/") || value.hasSuffix("/zc141") { return 141 }
-        if value.contains("/zc149/") || value.hasSuffix("/zc149") { return 149 }
+        guard let host = url.host?.lowercased(),
+              host.contains("ihrhls.com") || host.contains("iheart.com") else { return nil }
+        for component in url.pathComponents {
+            let value = component.lowercased()
+            if value.hasPrefix("zc"), let id = Int(value.dropFirst(2)), id > 0 {
+                return id
+            }
+        }
         return nil
     }
 

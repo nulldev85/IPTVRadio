@@ -1,15 +1,22 @@
 import Foundation
 import UIKit
 
-/// Live track details for the local stations identified by their stream URLs.
-/// iHeart publishes a track history; the other two send ICY song titles in
-/// their audio responses. This backs up VLC's own metadata notifications.
+/// Independent song lookup for manually added radio streams. iHeart publishes
+/// track history; ordinary HTTP audio streams may publish ICY titles. This
+/// sidecar never changes or restarts the audio being played by VLC.
 struct ManualRadioNowPlayingProvider: SongInfoProviding {
     let http: HTTPClient
     private let artworkCache = ManualTrackArtworkCache()
+    private let icyTitleReader: @Sendable (URL) async -> String?
 
-    init(http: HTTPClient) {
+    init(
+        http: HTTPClient,
+        icyTitleReader: @escaping @Sendable (URL) async -> String? = {
+            await ICYMetadataReader().currentTitle(from: $0)
+        }
+    ) {
         self.http = http
+        self.icyTitleReader = icyTitleReader
     }
 
     var sourceName: String { "radio station metadata" }
@@ -17,17 +24,29 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
 
     func currentSong(for station: RadioStation) async -> SongLookup {
         guard station.source == .manual else { return .empty("not a manual station") }
-        if let id = KnownManualStation.iHeartID(for: station.streamURL) {
-            return await iHeartSong(id: id)
+        let streams: [URL]
+        do {
+            streams = try await ManualPlaylistResolver(httpClient: http).resolve(station.streamURL)
+        } catch {
+            return .empty("station playlist unavailable")
         }
-        if KnownManualStation.hasICYMetadata(for: station.streamURL),
-           let title = await ICYMetadataReader().currentTitle(from: station.streamURL) {
-            let update = StreamMetadataParser.splittingCombinedTitle(
-                StreamMetadataUpdate(title: title, artist: nil, artworkData: nil)
-            )
-            return .found(update)
+
+        for stream in streams.prefix(3) {
+            if let id = KnownManualStation.iHeartID(for: stream) {
+                return await iHeartSong(id: id)
+            }
+            // HLS and MPEG-TS carry timed metadata in their media. VLC reads
+            // that directly; opening a second audio stream cannot add ICY to
+            // a manifest or a transport stream.
+            if ["m3u8", "ts"].contains(stream.pathExtension.lowercased()) { continue }
+            if let title = await icyTitleReader(stream) {
+                let update = StreamMetadataParser.splittingCombinedTitle(
+                    StreamMetadataUpdate(title: title, artist: nil, artworkData: nil)
+                )
+                return .found(update)
+            }
         }
-        return .empty("no current ICY song title")
+        return .empty("stream has no current song metadata")
     }
 
     private func iHeartSong(id: Int) async -> SongLookup {
@@ -60,11 +79,16 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
 
     static func currentTrack(in tracks: [Track], now: Date) -> Track? {
         let timestamp = now.timeIntervalSince1970
-        return tracks.first {
+        let valid = tracks.filter {
             !$0.title.isEmpty && !$0.artist.isEmpty &&
-            Double($0.startTime) <= timestamp + 30 &&
-            Double($0.endTime) >= timestamp - 15
+            Double($0.startTime) <= timestamp + 30
         }
+        // The station history can lag the actual broadcast by a minute or
+        // two. Prefer a current entry, then the newest recent entry so an
+        // otherwise valid title and artwork do not disappear during that lag.
+        return valid.first(where: { Double($0.endTime) >= timestamp - 15 })
+            ?? valid.filter { Double($0.endTime) >= timestamp - 180 }
+                .max(by: { $0.startTime < $1.startTime })
     }
 
     struct TrackHistory: Decodable {
@@ -91,9 +115,9 @@ private actor ManualTrackArtworkCache {
     }
 }
 
-/// Reads only the first ICY metadata block, then closes the connection. The
-/// actual audio continues through VLC; this brief second request supplies a
-/// current title when VLCKit does not publish it to the app.
+/// Reads a few ICY metadata blocks, then closes the connection. Some stations
+/// send an empty first block during transitions; their next block has the song.
+/// The actual audio continues through VLC independently.
 struct ICYMetadataReader: Sendable {
     func currentTitle(from url: URL) async -> String? {
         let configuration = URLSessionConfiguration.ephemeral
@@ -105,37 +129,48 @@ struct ICYMetadataReader: Sendable {
         var request = URLRequest(url: url)
         request.timeoutInterval = 8
         request.setValue("1", forHTTPHeaderField: "Icy-MetaData")
+        request.setValue("Aether/1.0", forHTTPHeaderField: "User-Agent")
         guard let (bytes, response) = try? await session.bytes(for: request),
               let response = response as? HTTPURLResponse,
               (200..<300).contains(response.statusCode),
               let interval = response.value(forHTTPHeaderField: "icy-metaint").flatMap(Int.init),
-              (1...1_000_000).contains(interval) else { return nil }
+              (1...128_000).contains(interval) else { return nil }
 
         var iterator = bytes.makeAsyncIterator()
         do {
-            for _ in 0..<interval {
-                guard try await iterator.next() != nil else { return nil }
+            for _ in 0..<3 {
+                for _ in 0..<interval {
+                    guard try await iterator.next() != nil else { return nil }
+                }
+                guard let length = try await iterator.next() else { return nil }
+                let count = Int(length) * 16
+                var block = Data()
+                for _ in 0..<count {
+                    guard let byte = try await iterator.next() else { return nil }
+                    block.append(byte)
+                }
+                if let title = Self.title(from: block) { return title }
             }
-            guard let length = try await iterator.next() else { return nil }
-            let count = Int(length) * 16
-            guard count > 0 else { return nil }
-            var block = Data()
-            for _ in 0..<count {
-                guard let byte = try await iterator.next() else { return nil }
-                block.append(byte)
-            }
-            return Self.title(from: block)
+            return nil
         } catch {
             return nil
         }
     }
 
     static func title(from block: Data) -> String? {
-        guard let text = String(data: block, encoding: .utf8) ?? String(data: block, encoding: .isoLatin1),
-              let start = text.range(of: "StreamTitle='") else { return nil }
-        let rest = text[start.upperBound...]
-        guard let end = rest.range(of: "';") else { return nil }
-        let title = rest[..<end.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text = String(data: block, encoding: .utf8)
+                ?? String(data: block, encoding: .windowsCP1252)
+                ?? String(data: block, encoding: .isoLatin1),
+              let key = text.range(of: "StreamTitle", options: .caseInsensitive) else { return nil }
+        let field = text[key.upperBound...].drop(while: { $0.isWhitespace })
+        guard field.first == "=" else { return nil }
+        let value = field.dropFirst().drop(while: { $0.isWhitespace })
+        guard let quote = value.first, quote == "'" || quote == "\"" else { return nil }
+        let quoted = value.dropFirst()
+        let closing = String(quote) + ";"
+        guard let end = quoted.range(of: closing)?.lowerBound
+                ?? quoted.lastIndex(of: quote) else { return nil }
+        let title = quoted[..<end].trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty ? nil : title
     }
 }
