@@ -101,37 +101,31 @@ private struct LiveActivityBadge: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 5) {
-            TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: reduceMotion)) { context in
-                HStack(alignment: .center, spacing: 2) {
-                    ForEach(0..<5, id: \.self) { index in
-                        Capsule()
-                            .fill(LinearGradient(
-                                colors: [AetherTheme.coral, AetherTheme.coral.opacity(0.65)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ))
-                            .frame(width: 2.5, height: barHeight(index, at: context.date))
-                    }
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { context in
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(0..<5, id: \.self) { index in
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [AetherTheme.coral, AetherTheme.coral.opacity(0.65)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ))
+                        .frame(width: 3, height: barHeight(index, at: context.date))
                 }
-                .frame(width: 21, height: 16)
-                .shadow(color: AetherTheme.coral.opacity(0.45), radius: 4)
             }
-            Text("Live")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(AetherTheme.coral)
+            .frame(width: 23, height: 18)
+            .shadow(color: AetherTheme.coral.opacity(0.25), radius: 3)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Live, playing")
+        .accessibilityLabel("Playing live")
     }
 
     private func barHeight(_ index: Int, at date: Date) -> CGFloat {
-        guard !reduceMotion else { return [7, 12, 16, 10, 6][index] }
-        let time = date.timeIntervalSinceReferenceDate
-        let primary = sin(time * (3.1 + Double(index) * 0.29) + Double(index) * 1.13)
-        let secondary = sin(time * 1.7 - Double(index) * 0.81)
-        let level = (primary * 0.7 + secondary * 0.3 + 1) / 2
-        return CGFloat(5 + level * 11)
+        let peaks: [CGFloat] = [10, 14, 17, 14, 10]
+        guard !reduceMotion else { return peaks[index] }
+        let cycle = date.timeIntervalSinceReferenceDate * (2 * Double.pi / 1.6)
+        let level = (sin(cycle - Double(index) * 0.65) + 1) / 2
+        return 4 + (peaks[index] - 4) * CGFloat(0.2 + 0.8 * level)
     }
 }
 

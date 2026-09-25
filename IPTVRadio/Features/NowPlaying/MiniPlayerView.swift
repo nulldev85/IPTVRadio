@@ -67,7 +67,7 @@ struct MiniPlayerView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .foregroundStyle(AetherTheme.secondaryText)
-                .background(AetherTheme.tabBar)
+                .background(AetherTheme.tabBar.opacity(0.68))
                 .overlay(alignment: .top) {
                     AetherTheme.border.frame(height: 1)
                 }
