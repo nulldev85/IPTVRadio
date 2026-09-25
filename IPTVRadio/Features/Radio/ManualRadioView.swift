@@ -26,44 +26,39 @@ struct ManualRadioView: View {
                     emptyState
                 } else {
                     List {
-                        Section {
-                            ForEach(manualStations.entries) { entry in
-                                let index = manualStations.entries.firstIndex(where: { $0.id == entry.id }) ?? 0
-                                HStack(spacing: 4) {
-                                    StationRow(station: entry.station)
-                                    if isReordering {
-                                        ReorderButtons(
-                                            name: entry.name,
-                                            canMoveUp: index > 0,
-                                            canMoveDown: index < manualStations.entries.count - 1,
-                                            moveUp: { manualStations.move(id: entry.id, by: -1) },
-                                            moveDown: { manualStations.move(id: entry.id, by: 1) }
-                                        )
-                                    }
+                        ForEach(manualStations.entries) { entry in
+                            let index = manualStations.entries.firstIndex(where: { $0.id == entry.id }) ?? 0
+                            HStack(spacing: 4) {
+                                StationRow(station: entry.station)
+                                if isReordering {
+                                    ReorderButtons(
+                                        name: entry.name,
+                                        canMoveUp: index > 0,
+                                        canMoveDown: index < manualStations.entries.count - 1,
+                                        moveUp: { manualStations.move(id: entry.id, by: -1) },
+                                        moveDown: { manualStations.move(id: entry.id, by: 1) }
+                                    )
                                 }
-                                    .swipeActions(edge: .trailing) {
-                                        Button("Delete", role: .destructive) { delete(entry) }
-                                        Button("Edit") { editor = EditorTarget(entry: entry) }
-                                            .tint(AetherTheme.mutedIcon)
-                                    }
-                                    .contextMenu {
-                                        Button {
-                                            editor = EditorTarget(entry: entry)
-                                        } label: {
-                                            Label("Edit Station", systemImage: "pencil")
-                                        }
-                                        Button(role: .destructive) {
-                                            delete(entry)
-                                        } label: {
-                                            Label("Delete Station", systemImage: "trash")
-                                        }
-                                    }
                             }
-                        } footer: {
-                            Text(isReordering
-                                 ? "Use the arrows to place stations in your preferred order."
-                                 : "Swipe left on a station to edit or delete it.")
-                                .foregroundStyle(AetherTheme.secondaryText)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .swipeActions(edge: .trailing) {
+                                Button("Delete", role: .destructive) { delete(entry) }
+                                Button("Edit") { editor = EditorTarget(entry: entry) }
+                                    .tint(AetherTheme.mutedIcon)
+                            }
+                            .contextMenu {
+                                Button {
+                                    editor = EditorTarget(entry: entry)
+                                } label: {
+                                    Label("Edit Station", systemImage: "pencil")
+                                }
+                                Button(role: .destructive) {
+                                    delete(entry)
+                                } label: {
+                                    Label("Delete Station", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                     .listStyle(.plain)
