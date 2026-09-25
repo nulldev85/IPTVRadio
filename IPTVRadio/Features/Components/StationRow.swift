@@ -72,14 +72,16 @@ struct StationRow: View {
     @ViewBuilder
     private var playbackStateBadge: some View {
         switch playback.state {
-        case .playing, .paused:
+        case .playing:
+            LiveActivityBadge()
+        case .paused:
             HStack(spacing: 4) {
-                Image(systemName: "dot.radiowaves.left.and.right")
+                Image(systemName: "pause.fill")
                     .font(.caption2)
-                Text("Live")
+                Text("Paused")
                     .font(.caption2.weight(.semibold))
             }
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(AetherTheme.secondaryText)
         case .loading:
             ProgressView().controlSize(.small)
         case .failed:
@@ -89,6 +91,47 @@ struct StationRow: View {
         default:
             EmptyView()
         }
+    }
+}
+
+/// A restrained, continuously moving five-band signal for the active row.
+/// TimelineView only runs while this one row is playing, and respects the
+/// system's Reduce Motion setting.
+private struct LiveActivityBadge: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 5) {
+            TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: reduceMotion)) { context in
+                HStack(alignment: .center, spacing: 2) {
+                    ForEach(0..<5, id: \.self) { index in
+                        Capsule()
+                            .fill(LinearGradient(
+                                colors: [AetherTheme.coral, AetherTheme.coral.opacity(0.65)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ))
+                            .frame(width: 2.5, height: barHeight(index, at: context.date))
+                    }
+                }
+                .frame(width: 21, height: 16)
+                .shadow(color: AetherTheme.coral.opacity(0.45), radius: 4)
+            }
+            Text("Live")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(AetherTheme.coral)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Live, playing")
+    }
+
+    private func barHeight(_ index: Int, at date: Date) -> CGFloat {
+        guard !reduceMotion else { return [7, 12, 16, 10, 6][index] }
+        let time = date.timeIntervalSinceReferenceDate
+        let primary = sin(time * (3.1 + Double(index) * 0.29) + Double(index) * 1.13)
+        let secondary = sin(time * 1.7 - Double(index) * 0.81)
+        let level = (primary * 0.7 + secondary * 0.3 + 1) / 2
+        return CGFloat(5 + level * 11)
     }
 }
 
