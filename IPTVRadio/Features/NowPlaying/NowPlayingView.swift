@@ -165,15 +165,16 @@ private struct NowPlayingBackdrop: View {
                 AetherTheme.background
 
                 if let artwork {
-                    // Keep the full cover visible at the top, with a sharp
-                    // fill behind it. Blur only the area near the controls.
-                    Image(uiImage: artwork)
+                    // Extend colors and texture from the bottom of the cover
+                    // instead of showing a second, enlarged copy of it.
+                    let lowerTexture = lowerEdgeTexture(from: artwork)
+                    Image(uiImage: lowerTexture)
                         .resizable()
                         .scaledToFill()
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .clipped()
 
-                    Image(uiImage: artwork)
+                    Image(uiImage: lowerTexture)
                         .resizable()
                         .scaledToFill()
                         .frame(width: proxy.size.width, height: proxy.size.height)
@@ -238,6 +239,19 @@ private struct NowPlayingBackdrop: View {
             .clipped()
         }
         .ignoresSafeArea()
+    }
+
+    private func lowerEdgeTexture(from artwork: UIImage) -> UIImage {
+        guard let image = artwork.cgImage else { return artwork }
+        let start = image.height * 3 / 4
+        let rect = CGRect(
+            x: 0,
+            y: CGFloat(start),
+            width: CGFloat(image.width),
+            height: CGFloat(image.height - start)
+        )
+        guard let cropped = image.cropping(to: rect) else { return artwork }
+        return UIImage(cgImage: cropped, scale: artwork.scale, orientation: artwork.imageOrientation)
     }
 }
 
