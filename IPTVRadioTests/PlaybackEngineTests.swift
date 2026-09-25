@@ -129,6 +129,17 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    private func waitForReload(_ player: StubAudioPlayer) async -> Bool {
+        // The stall monitor and retry both run on timers. Give a busy CI
+        // simulator time to schedule them, but return as soon as reload occurs.
+        for _ in 0..<100 {
+            if player.loadedURLs.count >= 2 { return true }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return player.loadedURLs.count >= 2
+    }
+
+    @MainActor
     func testPlayTransitionsToPlayingOnReady() async {
         let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
         let s = station("a")
@@ -655,8 +666,8 @@ final class PlaybackEngineTests: XCTestCase {
 
         // Playback stalls and never resumes: the engine reconnects.
         player.onStalled?()
-        try? await Task.sleep(nanoseconds: 1_800_000_000)
-        XCTAssertTrue(player.loadedURLs.count >= 2, "A stalled stream must be reloaded")
+        let reloaded = await waitForReload(player)
+        XCTAssertTrue(reloaded, "A stalled stream must be reloaded")
     }
 
     @MainActor
@@ -722,9 +733,9 @@ final class PlaybackEngineTests: XCTestCase {
         // Progress is frozen: this stall is real and must be recovered from.
         player.setProgress(9)
         player.onStalled?()
-        try? await Task.sleep(nanoseconds: 1_800_000_000)
+        let reloaded = await waitForReload(player)
 
-        XCTAssertTrue(player.loadedURLs.count >= 2, "A genuinely stalled stream must be reloaded")
+        XCTAssertTrue(reloaded, "A genuinely stalled stream must be reloaded")
     }
 
     @MainActor
