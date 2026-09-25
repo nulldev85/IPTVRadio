@@ -107,6 +107,25 @@ final class IPTVRadioUITests: XCTestCase {
                       "Tapping a favorite must start playback")
     }
 
+    func testFavoritesReorderMovesExactlyOnePlace() throws {
+        let app = launch(scenario: "UITestFavorites")
+        app.buttons["Favorites"].tap()
+        app.buttons["favorites.reorder"].tap()
+
+        let hits = app.buttons["station.row.SiriusXM Hits 1"].firstMatch
+        let octane = app.buttons["station.row.SiriusXM Octane"].firstMatch
+        XCTAssertTrue(hits.waitForExistence(timeout: 8))
+        XCTAssertTrue(octane.exists)
+        let hitsWasBelow = hits.frame.minY > octane.frame.minY
+        let lowerName = hitsWasBelow ? "SiriusXM Hits 1" : "SiriusXM Octane"
+        app.buttons["reorder.up.\(lowerName)"].tap()
+        if hitsWasBelow {
+            XCTAssertLessThan(hits.frame.minY, octane.frame.minY)
+        } else {
+            XCTAssertLessThan(octane.frame.minY, hits.frame.minY)
+        }
+    }
+
     func testNowPlayingScreenShowsStateAndControls() throws {
         let app = launch(scenario: "UITestNowPlaying")
 

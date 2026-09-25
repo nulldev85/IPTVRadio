@@ -1181,4 +1181,36 @@ final class PlaybackEngineTests: XCTestCase {
         engine.stop()
         XCTAssertNil(engine.nowPlayingMetadata)
     }
+
+    @MainActor
+    func testManualStationKeepsRefreshingSongsAfterStreamMetadata() async {
+        let provider = StubSongProvider()
+        provider.answer = { call in
+            .found(StreamMetadataUpdate(
+                title: call == 1 ? "First Song" : "Second Song",
+                artist: "Test Artist",
+                artworkData: nil
+            ))
+        }
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [provider],
+            songPollInterval: 0.02
+        )
+        let station = RadioStation(
+            name: "Manual Radio",
+            streamURL: URL(string: "https://radio.example.org/live.aac")!,
+            source: .manual
+        )
+        engine.play(station)
+        player.simulateReady()
+        // A stream title used to stop all future provider checks.
+        player.onMetadata?(StreamMetadataUpdate(title: "Stream Title", artist: nil, artworkData: nil))
+        for _ in 0..<100 where engine.nowPlayingMetadata?.title != "Second Song" {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Second Song")
+        XCTAssertGreaterThanOrEqual(provider.askCount, 2)
+        engine.stop()
+    }
 }

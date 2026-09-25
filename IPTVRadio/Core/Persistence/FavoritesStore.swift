@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 /// Favorites persisted as a JSON file keyed by station id.
 @MainActor
@@ -42,9 +41,11 @@ final class FavoritesStore: ObservableObject {
         persist()
     }
 
-    func move(fromOffsets: IndexSet, toOffset: Int) {
+    func move(id: String, by offset: Int) {
         var ordered = favorites
-        ordered.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        guard let index = ordered.firstIndex(where: { $0.id == id }),
+              ordered.indices.contains(index + offset) else { return }
+        ordered.swapAt(index, index + offset)
         for (index, var entry) in ordered.enumerated() {
             entry.order = index
             entriesByID[entry.id] = entry

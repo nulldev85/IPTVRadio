@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 struct ManualStationInput {
     var name: String
@@ -85,9 +84,11 @@ final class ManualStationStore: ObservableObject {
         entries.first(where: { $0.station.id == id })?.station
     }
 
-    func move(fromOffsets: IndexSet, toOffset: Int) {
+    func move(id: String, by offset: Int) {
         var updated = entries
-        updated.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        guard let index = updated.firstIndex(where: { $0.id == id }),
+              updated.indices.contains(index + offset) else { return }
+        updated.swapAt(index, index + offset)
         do {
             try fileStore.saveThrowing(updated, filename: filename)
             entries = updated

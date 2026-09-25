@@ -16,10 +16,10 @@ struct MainTabView: View {
     var body: some View {
         TabView {
             tabContent { ManualRadioView() }
-                .tabItem { Label("Radio", systemImage: "antenna.radiowaves.left.and.right") }
+                .tabItem { Label("Radio", systemImage: "music.note.list") }
 
             tabContent { RadioHomeView() }
-                .tabItem { Label("SXM", systemImage: "dot.radiowaves.left.and.right") }
+                .tabItem { Label("SXM", systemImage: "antenna.radiowaves.left.and.right") }
 
             tabContent { SearchView() }
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }

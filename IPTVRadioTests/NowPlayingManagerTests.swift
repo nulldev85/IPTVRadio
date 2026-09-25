@@ -151,6 +151,21 @@ final class NowPlayingManagerTests: XCTestCase {
         XCTAssertEqual(manager.lastArtworkOutcome, .none)
     }
 
+    func testClearingSongRestoresStationWithoutStoppingPlayback() {
+        let manager = NowPlayingManager(artworkLoader: StubArtworkLoader())
+        defer { manager.clear() }
+        let station = makeStation("radio", withLogo: false)
+        manager.update(state: .playing(station))
+        manager.applySongMetadata(
+            NowPlayingMetadata(title: "Old Song", artist: "Old Artist", artworkData: nil),
+            station: station
+        )
+        XCTAssertEqual(manager.nowPlayingInfoForTesting?[MPMediaItemPropertyTitle] as? String, "Old Song")
+        manager.clearSongMetadata(state: .playing(station))
+        XCTAssertEqual(manager.nowPlayingInfoForTesting?[MPMediaItemPropertyTitle] as? String, station.name)
+        XCTAssertEqual(manager.nowPlayingInfoForTesting?[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 1.0)
+    }
+
     func testFailedArtworkLoadIsReportedAndNonFatal() async throws {
         let loader = StubArtworkLoader()
         loader.behavior = .status(404)

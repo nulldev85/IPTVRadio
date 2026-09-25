@@ -770,12 +770,18 @@ final class PlaybackEngine: ObservableObject {
         // the song for streams carrying no metadata of their own.
         if fromStream, let title = update.title, !title.isEmpty {
             receivedSongInfoFromStream = true
+            songInfoSource = "stream metadata"
+            songInfoIsProgrammeOnly = update.artist == nil
         }
+        let retainedArtwork = nowPlayingMetadata?.title == update.title &&
+            nowPlayingMetadata?.artist == update.artist
+            ? nowPlayingMetadata?.artworkData : nil
         let metadata = NowPlayingMetadata(
             title: update.title,
             artist: update.artist,
-            artworkData: update.artworkData
+            artworkData: update.artworkData ?? retainedArtwork
         )
+        guard metadata != nowPlayingMetadata else { return }
         nowPlayingMetadata = metadata
         nowPlaying.applySongMetadata(metadata, station: station)
 
@@ -857,8 +863,10 @@ final class PlaybackEngine: ObservableObject {
             var loggedOutcome = false
             while !Task.isCancelled {
                 guard let self, self.wantsPlayback, self.state.station?.id == station.id else { return }
-                // A title from the stream itself outranks every other source.
-                if self.receivedSongInfoFromStream { return }
+                // Provider channels trust their own stream title. Manual
+                // stations keep checking the broadcaster so the title and
+                // artwork can follow each subsequent song.
+                if self.receivedSongInfoFromStream && station.source != .manual { return }
 
                 // A title *with an artist* is a track; a title alone is
                 // programme information, such as a show name. The first
@@ -921,20 +929,27 @@ final class PlaybackEngine: ObservableObject {
                     if outcome == .song { break }
                 }
 
-                // Re-checked after the awaits: the stream's own title can
-                // arrive while a slow source is being polled, and it wins.
-                if self.receivedSongInfoFromStream { return }
+                // Re-check after the awaits: provider streams may publish a
+                // title while a slower lookup is still in flight.
+                if self.receivedSongInfoFromStream && station.source != .manual { return }
                 self.songSourceReports = reports
                 if let best = song ?? programme {
                     self.songInfoSource = best.source
                     self.songInfoIsProgrammeOnly = song == nil
                     self.handleMetadataUpdate(best.update, fromStream: false)
+                } else if station.source == .manual,
+                          let source = self.songInfoSource,
+                          source != "stream metadata",
+                          (self.songSourceFailures[source] ?? 0) >= 2 {
+                    // Do not leave the previous track and cover on screen
+                    // indefinitely when a broadcaster pauses its song feed.
+                    self.nowPlayingMetadata = nil
+                    self.songInfoSource = nil
+                    self.nowPlaying.clearSongMetadata(state: self.state)
                 }
-                // The source is deliberately *not* cleared when a pass comes
-                // back empty: it describes what is on screen, and an empty pass
-                // leaves the previous answer displayed — clearing it would put
-                // "None answered" under a visible title. The per-source reports
-                // above carry the fresh result either way.
+                // For provider channels an empty pass leaves the previous
+                // answer displayed. Manual radio is cleared above after two
+                // empty passes so a song never remains through a long break.
                 //
                 // The refresh is unconditional because the engine publishes
                 // exactly one sample, at startup, long before any lookup
@@ -959,7 +974,8 @@ final class PlaybackEngine: ObservableObject {
                     }
                 }
                 try? await Task.sleep(
-                    nanoseconds: UInt64(max(0.01, self.songPollInterval) * 1_000_000_000)
+                    nanoseconds: UInt64(max(0.01, station.source == .manual
+                        ? min(self.songPollInterval, 10) : self.songPollInterval) * 1_000_000_000)
                 )
             }
         }

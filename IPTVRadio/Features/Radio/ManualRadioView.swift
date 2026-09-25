@@ -7,6 +7,7 @@ struct ManualRadioView: View {
 
     @State private var editor: EditorTarget?
     @State private var errorMessage: String?
+    @State private var isReordering = false
 
     private struct EditorTarget: Identifiable {
         let id: String
@@ -27,7 +28,19 @@ struct ManualRadioView: View {
                     List {
                         Section {
                             ForEach(manualStations.entries) { entry in
-                                StationRow(station: entry.station)
+                                let index = manualStations.entries.firstIndex(where: { $0.id == entry.id }) ?? 0
+                                HStack(spacing: 4) {
+                                    StationRow(station: entry.station)
+                                    if isReordering {
+                                        ReorderButtons(
+                                            name: entry.name,
+                                            canMoveUp: index > 0,
+                                            canMoveDown: index < manualStations.entries.count - 1,
+                                            moveUp: { manualStations.move(id: entry.id, by: -1) },
+                                            moveDown: { manualStations.move(id: entry.id, by: 1) }
+                                        )
+                                    }
+                                }
                                     .swipeActions(edge: .trailing) {
                                         Button("Delete", role: .destructive) { delete(entry) }
                                         Button("Edit") { editor = EditorTarget(entry: entry) }
@@ -46,9 +59,10 @@ struct ManualRadioView: View {
                                         }
                                     }
                             }
-                            .onMove(perform: manualStations.move)
                         } footer: {
-                            Text("Swipe left on a station to edit or delete it.")
+                            Text(isReordering
+                                 ? "Use the arrows to place stations in your preferred order."
+                                 : "Swipe left on a station to edit or delete it.")
                                 .foregroundStyle(AetherTheme.secondaryText)
                         }
                     }
@@ -61,7 +75,12 @@ struct ManualRadioView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack {
-                        if manualStations.entries.count > 1 { EditButton() }
+                        if manualStations.entries.count > 1 || isReordering {
+                            Button(isReordering ? "Done" : "Reorder") {
+                                isReordering.toggle()
+                            }
+                            .accessibilityIdentifier("manual.reorder")
+                        }
                         Button {
                             editor = EditorTarget()
                         } label: {

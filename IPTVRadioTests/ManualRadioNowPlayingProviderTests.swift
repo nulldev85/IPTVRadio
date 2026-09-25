@@ -24,4 +24,29 @@ final class ManualRadioNowPlayingProviderTests: XCTestCase {
             "Tame Impala - The Less I Know The Better"
         )
     }
+
+    func testIHeartProviderReturnsCurrentSongAndArtwork() async {
+        let now = Int(Date().timeIntervalSince1970)
+        let response = """
+        {"data":[{"title":"Current Song","artist":"Test Artist",\
+        "imagePath":"http://images.example.org/cover.jpg",\
+        "startTime":\(now - 30),"endTime":\(now + 120)}]}
+        """
+        let http = MockHTTP.client { request in
+            if request.url?.path.contains("trackHistory") == true {
+                return (200, Data(response.utf8))
+            }
+            return (200, Data([1, 2, 3]))
+        }
+        let provider = ManualRadioNowPlayingProvider(http: http)
+        let station = RadioStation(
+            name: "B95",
+            streamURL: URL(string: "https://stream.revma.ihrhls.com/zc141/hls.m3u8")!,
+            source: .manual
+        )
+        let result = await provider.currentSong(for: station)
+        XCTAssertEqual(result.update?.title, "Current Song")
+        XCTAssertEqual(result.update?.artist, "Test Artist")
+        XCTAssertEqual(result.update?.artworkData, Data([1, 2, 3]))
+    }
 }

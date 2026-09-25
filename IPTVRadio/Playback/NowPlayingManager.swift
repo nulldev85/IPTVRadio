@@ -184,6 +184,22 @@ final class NowPlayingManager {
         infoCenter.nowPlayingInfo = info
     }
 
+    /// Return to the station name/logo when a live source stops reporting a
+    /// current song, such as during a commercial break.
+    func clearSongMetadata(state: PlaybackState) {
+        guard let station = state.station else { return }
+        metadataLock.lock()
+        guard metadata?.id == station.id else {
+            metadataLock.unlock()
+            return
+        }
+        songMetadata = nil
+        metadataLock.unlock()
+        infoCenter.nowPlayingInfo = nil
+        update(state: state)
+        loadArtwork(for: station)
+    }
+
     private func applyArtwork(_ image: UIImage, for station: RadioStation) {
         metadataLock.lock()
         defer { metadataLock.unlock() }

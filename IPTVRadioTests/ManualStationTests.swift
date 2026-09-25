@@ -92,8 +92,8 @@ final class ManualStationTests: XCTestCase {
             )
             XCTAssertNotNil(station.logoURL)
         }
-        store.move(fromOffsets: IndexSet(integer: 0), toOffset: 3)
-        XCTAssertEqual(ManualStationStore(fileStore: files).entries.map(\.name), ["Q97.1", "B95", "New Rock"])
+        store.move(id: store.entries[0].id, by: 1)
+        XCTAssertEqual(ManualStationStore(fileStore: files).entries.map(\.name), ["Q97.1", "New Rock", "B95"])
     }
 
     func testFavoriteOrderSurvivesReload() {
@@ -106,7 +106,7 @@ final class ManualStationTests: XCTestCase {
                 source: .manual
             ))
         }
-        favorites.move(fromOffsets: IndexSet(integer: 0), toOffset: 3)
-        XCTAssertEqual(FavoritesStore(fileStore: files).favorites.map(\.station.name), ["Two", "One", "Three"])
+        favorites.move(id: favorites.favorites[0].id, by: 1)
+        XCTAssertEqual(FavoritesStore(fileStore: files).favorites.map(\.station.name), ["Two", "Three", "One"])
     }
 }

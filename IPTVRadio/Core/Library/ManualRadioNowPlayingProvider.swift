@@ -5,6 +5,11 @@ import Foundation
 /// their audio responses. This backs up VLC's own metadata notifications.
 struct ManualRadioNowPlayingProvider: SongInfoProviding {
     let http: HTTPClient
+    private let artworkCache = ManualTrackArtworkCache()
+
+    init(http: HTTPClient) {
+        self.http = http
+    }
 
     var sourceName: String { "radio station metadata" }
     var retriesAfterEmpty: Bool { true }
@@ -37,11 +42,15 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
         if let image = track.imagePath,
            var components = URLComponents(string: image) {
             components.scheme = "https"
-            if let imageURL = components.url,
-               let (data, response) = try? await http.data(for: RequestBuilder.get(imageURL, timeout: 8)),
-               (200..<300).contains(response.statusCode),
-               !data.isEmpty, data.count < 5_000_000 {
-                artwork = data
+            if let imageURL = components.url {
+                artwork = await artworkCache.image(for: imageURL.absoluteString)
+                if artwork == nil,
+                   let (data, response) = try? await http.data(for: RequestBuilder.get(imageURL, timeout: 8)),
+                   (200..<300).contains(response.statusCode),
+                   !data.isEmpty, data.count < 5_000_000 {
+                    artwork = data
+                    await artworkCache.store(data, for: imageURL.absoluteString)
+                }
             }
         }
         return .found(StreamMetadataUpdate(title: track.title, artist: track.artist, artworkData: artwork))
@@ -66,6 +75,17 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
         let imagePath: String?
         let startTime: Int
         let endTime: Int
+    }
+}
+
+private actor ManualTrackArtworkCache {
+    private var images: [String: Data] = [:]
+
+    func image(for key: String) -> Data? { images[key] }
+
+    func store(_ image: Data, for key: String) {
+        if images.count >= 30 { images.removeAll() }
+        images[key] = image
     }
 }
 
