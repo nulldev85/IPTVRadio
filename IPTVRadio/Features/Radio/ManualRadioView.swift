@@ -190,7 +190,7 @@ private struct ManualStationEditorView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier("manual.artwork")
-                    Text("Known stations get their logo automatically. Paste a logo URL to choose your own.")
+                    Text("We'll look for the station logo automatically. Paste a logo URL to choose your own.")
                         .font(.caption)
                         .foregroundStyle(AetherTheme.secondaryText)
                 }

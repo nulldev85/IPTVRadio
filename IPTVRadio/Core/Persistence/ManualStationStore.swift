@@ -130,11 +130,22 @@ final class ManualStationStore: ObservableObject {
         guard !entries.contains(where: { $0.id != id && $0.streamURL == streamURL }) else {
             throw ManualStationError.duplicate
         }
+        let discoveredLogo: URL?
+        if let logoURL {
+            discoveredLogo = logoURL
+        } else if let knownLogo = KnownManualStation.logo(for: streamURL) {
+            discoveredLogo = knownLogo
+        } else {
+            discoveredLogo = await ManualStationLogoLookup(httpClient: httpClient).findLogo(
+                name: name,
+                streamURLs: [streamURL] + playbackURLs
+            )
+        }
         let entry = ManualStationEntry(
             id: id ?? UUID().uuidString,
             name: name,
             streamURL: streamURL,
-            logoURL: logoURL,
+            logoURL: discoveredLogo,
             playbackURLs: playbackURLs
         )
         var updated = entries

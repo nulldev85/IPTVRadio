@@ -12,7 +12,10 @@ final class ManualStationTests: XCTestCase {
 
     func testDirectStreamPersistsAndEditKeepsIdentity() async throws {
         let (store, files) = makeStore()
-        let http = MockHTTP.client { _ in XCTFail("Direct streams must not be fetched when saved"); return (500, Data()) }
+        let http = MockHTTP.client { request in
+            XCTAssertTrue(request.url?.path.contains("/json/stations/search") == true)
+            return (200, Data("[]".utf8))
+        }
 
         let original = try await store.save(
             ManualStationInput(name: "  Jazz FM  ", streamURL: "https://radio.example.org/live.mp3", logoURL: ""),
@@ -79,7 +82,7 @@ final class ManualStationTests: XCTestCase {
 
     func testKnownStationLogosAndManualOrderSurviveReload() async throws {
         let (store, files) = makeStore()
-        let http = MockHTTP.client { _ in XCTFail("Direct streams should not be fetched"); return (500, Data()) }
+        let http = MockHTTP.client { _ in XCTFail("Known station logos should not need lookup"); return (500, Data()) }
         let feeds = [
             ("B95", "https://stream.revma.ihrhls.com/zc141/hls.m3u8"),
             ("Q97.1", "https://playerservices.streamtheworld.com/api/livestream-redirect/KSEQFMAAC.aac"),
@@ -94,6 +97,48 @@ final class ManualStationTests: XCTestCase {
         }
         store.move(id: store.entries[0].id, by: 1)
         XCTAssertEqual(ManualStationStore(fileStore: files).entries.map(\.name), ["Q97.1", "New Rock", "B95"])
+    }
+
+    func testDirectoryLogoIsSavedWithoutFetchingAudio() async throws {
+        let (store, files) = makeStore()
+        let http = MockHTTP.client { request in
+            XCTAssertEqual(request.url?.path, "/json/stations/search")
+            XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "name" })?.value, "Example FM")
+            let json = """
+            [{"name":"Example FM","favicon":"https://images.example.org/logo.png",
+              "url":"https://radio.example.org/live.mp3","url_resolved":"https://radio.example.org/live.mp3"}]
+            """
+            return (200, Data(json.utf8))
+        }
+        let station = try await store.save(
+            ManualStationInput(name: "Example FM", streamURL: "https://radio.example.org/live.mp3", logoURL: ""),
+            httpClient: http
+        )
+        XCTAssertEqual(station.logoURL?.absoluteString, "https://images.example.org/logo.png")
+        XCTAssertEqual(ManualStationStore(fileStore: files).entries.first?.logoURL, station.logoURL)
+    }
+
+    func testManualLogoOverridesDirectoryAndAmbiguousNameIsIgnored() async throws {
+        let (store, _) = makeStore()
+        let http = MockHTTP.client { _ in
+            let json = """
+            [{"name":"Jazz FM","favicon":"https://one.example/logo.png","url":"https://one.example/live","url_resolved":"https://one.example/live"},
+             {"name":"Jazz FM","favicon":"https://two.example/logo.png","url":"https://two.example/live","url_resolved":"https://two.example/live"}]
+            """
+            return (200, Data(json.utf8))
+        }
+        let ambiguous = try await store.save(
+            ManualStationInput(name: "Jazz FM", streamURL: "https://three.example/live", logoURL: ""),
+            httpClient: http
+        )
+        XCTAssertNil(ambiguous.logoURL)
+
+        let chosen = try await store.save(
+            ManualStationInput(name: "Jazz FM", streamURL: "https://four.example/live", logoURL: "https://mine.example/logo.png"),
+            httpClient: http
+        )
+        XCTAssertEqual(chosen.logoURL?.absoluteString, "https://mine.example/logo.png")
     }
 
     func testFavoriteOrderSurvivesReload() {
