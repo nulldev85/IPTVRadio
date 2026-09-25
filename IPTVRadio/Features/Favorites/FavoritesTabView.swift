@@ -3,6 +3,8 @@ import SwiftUI
 /// Favorites tab: only the stations the user has starred, nothing else.
 struct FavoritesTabView: View {
     @EnvironmentObject private var favorites: FavoritesStore
+    @EnvironmentObject private var settings: SettingsStore
+    @EnvironmentObject private var playback: PlaybackEngine
     @State private var isReordering = false
 
     var body: some View {
@@ -32,6 +34,14 @@ struct FavoritesTabView: View {
                             }
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
+                        }
+                        if !settings.liquidGlassEnabled {
+                            Color.clear
+                                .frame(height: 61 + (playback.state.station == nil ? 0 : 60))
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .accessibilityHidden(true)
                         }
                     }
                     .listStyle(.plain)
