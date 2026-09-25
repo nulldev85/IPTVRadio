@@ -111,7 +111,7 @@ private struct FlatTabBar: View {
                 } label: {
                     VStack(spacing: 5) {
                         Capsule()
-                            .fill(AetherTheme.secondaryText)
+                            .fill(AetherTheme.coral)
                             .frame(width: 27, height: 3)
                             .opacity(selection == tab ? 1 : 0)
                         Image(systemName: tab.symbol)
