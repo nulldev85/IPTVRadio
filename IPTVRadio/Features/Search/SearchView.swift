@@ -37,11 +37,13 @@ struct SearchView: View {
         HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(AetherTheme.mutedIcon)
-            TextField("Station, genre, show or category", text: $library.searchQuery)
+            TextField("", text: $library.searchQuery,
+                      prompt: Text("Station, genre, show or category")
+                        .foregroundStyle(AetherTheme.mutedIcon))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
-                .foregroundStyle(AetherTheme.primaryText)
+                .foregroundStyle(AetherTheme.secondaryText)
                 .accessibilityIdentifier("search.field")
             if !library.searchQuery.isEmpty {
                 Button {

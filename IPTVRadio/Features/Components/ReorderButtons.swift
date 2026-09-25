@@ -27,7 +27,7 @@ struct ReorderButtons: View {
             .accessibilityIdentifier("reorder.down.\(name)")
         }
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(AetherTheme.primaryText)
+        .foregroundStyle(AetherTheme.mutedIcon)
         .buttonStyle(.plain)
     }
 }

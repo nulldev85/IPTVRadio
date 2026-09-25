@@ -25,6 +25,8 @@ struct MiniPlayerView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(playback.nowPlayingMetadata?.title ?? station.name)
                                     .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(playback.nowPlayingMetadata?.title == nil
+                                        ? AetherTheme.primaryText : AetherTheme.secondaryText)
                                     .lineLimit(1)
                                 Text(playback.nowPlayingMetadata?.artist ?? stateDescription)
                                     .font(.caption2)
@@ -64,7 +66,7 @@ struct MiniPlayerView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .foregroundStyle(AetherTheme.primaryText)
+                .foregroundStyle(AetherTheme.secondaryText)
                 .background(AetherTheme.tabBar)
                 .overlay(alignment: .top) {
                     AetherTheme.border.frame(height: 1)

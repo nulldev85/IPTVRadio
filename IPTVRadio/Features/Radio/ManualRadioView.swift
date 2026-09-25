@@ -87,7 +87,7 @@ struct ManualRadioView: View {
                             editor = EditorTarget()
                         } label: {
                             Image(systemName: "plus")
-                                .foregroundStyle(AetherTheme.primaryText)
+                                .foregroundStyle(AetherTheme.mutedIcon)
                         }
                         .accessibilityLabel("Add station")
                         .accessibilityIdentifier("manual.add")

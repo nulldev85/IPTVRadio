@@ -4,7 +4,9 @@ import SwiftUI
 enum AetherTheme {
     static let topBlue = Color(red: 0.0 / 255, green: 48.0 / 255, blue: 97.0 / 255)
     static let primaryText = Color(red: 242.0 / 255, green: 245.0 / 255, blue: 250.0 / 255)
-    static let secondaryText = Color(red: 169.0 / 255, green: 177.0 / 255, blue: 195.0 / 255)
+    // Representative foreground pixels sampled from the supplied JPEG:
+    // supporting copy #B6BDCD, muted outline controls #7F8BA6.
+    static let secondaryText = Color(red: 182.0 / 255, green: 189.0 / 255, blue: 205.0 / 255)
     static let mutedIcon = Color(red: 127.0 / 255, green: 139.0 / 255, blue: 166.0 / 255)
     static let coral = Color(red: 255.0 / 255, green: 107.0 / 255, blue: 88.0 / 255)
     static let tabBar = Color(red: 7.0 / 255, green: 10.0 / 255, blue: 17.0 / 255)

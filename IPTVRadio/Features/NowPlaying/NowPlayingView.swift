@@ -256,7 +256,8 @@ struct RoutePickerButton: View {
 struct AVRoutePickerViewRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
-        view.tintColor = .label
+        view.tintColor = UIColor(AetherTheme.mutedIcon)
+        view.activeTintColor = UIColor(AetherTheme.secondaryText)
         return view
     }
 
