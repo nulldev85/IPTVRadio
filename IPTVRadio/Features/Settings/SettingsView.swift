@@ -20,6 +20,7 @@ struct SettingsView: View {
                 cacheSection
                 privacySection
             }
+            .toggleStyle(AetherSettingsToggleStyle())
             .scrollContentBackground(.hidden)
             .navigationTitle("Settings")
             .alert("Sign out?", isPresented: $confirmSignOut) {
@@ -158,6 +159,35 @@ struct SettingsView: View {
             session.status ?? (session.isExpired ? "Expired" : "Active"),
             session.expiryDate.map { formatter.string(from: $0) }
         )
+    }
+}
+
+/// Aether's switches keep the same charcoal track in both states; only the
+/// light thumb changes sides, so enabled options do not turn into white bars.
+private struct AetherSettingsToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                configuration.isOn.toggle()
+            }
+        } label: {
+            HStack(spacing: 12) {
+                configuration.label
+                Spacer(minLength: 8)
+                Capsule()
+                    .fill(Color(white: 0.33))
+                    .frame(width: 54, height: 30)
+                    .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                        Circle()
+                            .fill(Color(white: 0.96))
+                            .frame(width: 26, height: 26)
+                            .padding(2)
+                    }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
     }
 }
 

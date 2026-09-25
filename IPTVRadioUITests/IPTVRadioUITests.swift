@@ -146,13 +146,12 @@ final class IPTVRadioUITests: XCTestCase {
         let miniPlayer = app.buttons["miniplayer.open"].firstMatch
         miniPlayer.tap()
         XCTAssertFalse(app.buttons["nowplaying.close"].exists)
-        XCTAssertTrue(app.buttons["nowplaying.toggle"].exists)
-        XCTAssertFalse(app.buttons["nowplaying.stop"].exists)
+        XCTAssertTrue(app.buttons["nowplaying.stop"].exists)
         XCTAssertTrue(app.buttons["nowplaying.sleepTimer"].exists)
 
         // Switching stations repeatedly works without leaving the player.
         app.buttons["nowplaying.next"].tap()
-        XCTAssertTrue(app.buttons["nowplaying.toggle"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["nowplaying.stop"].waitForExistence(timeout: 8))
 
         // Swipe the sheet down; playback continues in the mini player.
         let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10))

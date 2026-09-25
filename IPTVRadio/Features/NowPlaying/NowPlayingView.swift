@@ -3,6 +3,7 @@ import AVKit
 
 /// Full now-playing screen: artwork, controls, sleep timer, route picker.
 struct NowPlayingView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var playback: PlaybackEngine
 
     @State private var showSleepTimerSheet = false
@@ -99,7 +100,12 @@ struct NowPlayingView: View {
             .accessibilityIdentifier("nowplaying.previous")
 
             Button {
-                playback.togglePlayPause()
+                if mainButtonIsStop {
+                    playback.stop()
+                    dismiss()
+                } else {
+                    playback.togglePlayPause()
+                }
             } label: {
                 Image(systemName: mainButtonIcon)
                     .font(.system(size: 44))
@@ -108,7 +114,7 @@ struct NowPlayingView: View {
                     .clipShape(Circle())
             }
             .accessibilityLabel(mainButtonLabel)
-            .accessibilityIdentifier("nowplaying.toggle")
+            .accessibilityIdentifier(mainButtonIsStop ? "nowplaying.stop" : "nowplaying.toggle")
 
             Button {
                 playback.nextStation()
@@ -125,8 +131,7 @@ struct NowPlayingView: View {
 
     private var mainButtonIcon: String {
         switch playback.state {
-        case .playing: return "pause.fill"
-        case .loading: return "hourglass"
+        case .playing, .loading: return "stop.fill"
         case .failed: return "arrow.clockwise"
         default: return "play.fill"
         }
@@ -134,11 +139,17 @@ struct NowPlayingView: View {
 
     private var mainButtonLabel: String {
         switch playback.state {
-        case .playing: return "Pause"
-        case .loading: return "Connecting"
+        case .playing, .loading: return "Stop"
         case .failed: return "Retry"
         case .paused: return "Play"
         default: return "Play"
+        }
+    }
+
+    private var mainButtonIsStop: Bool {
+        switch playback.state {
+        case .playing, .loading: return true
+        default: return false
         }
     }
 
@@ -156,42 +167,46 @@ private struct NowPlayingBackdrop: View {
                 AetherTheme.background
 
                 if let artwork {
-                    // Fill the canvas softly, then show the complete cover in
-                    // front. A square cover must not be cropped to the tall
-                    // shape of a phone screen.
+                    // The softly blurred cover fills the entire sheet. Show
+                    // the uncropped cover above it, fading its lower edge
+                    // into the same image rather than a solid black band.
                     Image(uiImage: artwork)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: proxy.size.width, height: proxy.size.height * 0.78)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
                         .clipped()
-                        .blur(radius: 36)
-                        .opacity(0.5)
+                        .blur(radius: 28)
+                        .opacity(0.85)
 
                     Image(uiImage: artwork)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: proxy.size.width, height: proxy.size.height * 0.65,
+                        .frame(width: proxy.size.width,
+                               height: min(proxy.size.width * artwork.size.height / max(artwork.size.width, 1),
+                                           proxy.size.height * 0.72),
                                alignment: .top)
-                        .overlay {
+                        .mask {
                             LinearGradient(
                                 stops: [
-                                    .init(color: .black.opacity(0.25), location: 0),
-                                    .init(color: .clear, location: 0.20),
-                                    .init(color: .clear, location: 0.60),
-                                    .init(color: .black.opacity(0.7), location: 0.86),
-                                    .init(color: .black, location: 1)
+                                    .init(color: .white, location: 0),
+                                    .init(color: .white, location: 0.72),
+                                    .init(color: .clear, location: 1)
                                 ],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
                         }
                     LinearGradient(
-                        colors: [.clear, .black.opacity(0.8), .black],
+                        stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .clear, location: 0.50),
+                            .init(color: .black.opacity(0.25), location: 0.70),
+                            .init(color: .black.opacity(0.65), location: 1)
+                        ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .frame(width: proxy.size.width, height: proxy.size.height * 0.38)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
                 } else if let logo {
                     // Wordmark logos are often transparent and much wider than
                     // a square album cover. Use them as soft color rather than

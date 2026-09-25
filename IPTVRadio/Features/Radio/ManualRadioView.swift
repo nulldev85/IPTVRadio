@@ -76,9 +76,16 @@ struct ManualRadioView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack {
                         if manualStations.entries.count > 1 || isReordering {
-                            Button(isReordering ? "Done" : "Reorder") {
+                            Button {
                                 isReordering.toggle()
+                            } label: {
+                                if isReordering {
+                                    Text("Done")
+                                } else {
+                                    Image(systemName: "arrow.up.arrow.down")
+                                }
                             }
+                            .accessibilityLabel(isReordering ? "Done reordering" : "Reorder stations")
                             .accessibilityIdentifier("manual.reorder")
                         }
                         Button {

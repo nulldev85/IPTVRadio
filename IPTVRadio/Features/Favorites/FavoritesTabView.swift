@@ -40,9 +40,16 @@ struct FavoritesTabView: View {
             .toolbar {
                 if favorites.favorites.count > 1 || isReordering {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button(isReordering ? "Done" : "Reorder") {
+                        Button {
                             isReordering.toggle()
+                        } label: {
+                            if isReordering {
+                                Text("Done")
+                            } else {
+                                Image(systemName: "arrow.up.arrow.down")
+                            }
                         }
+                        .accessibilityLabel(isReordering ? "Done reordering" : "Reorder favorites")
                         .accessibilityIdentifier("favorites.reorder")
                     }
                 }
