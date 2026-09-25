@@ -18,12 +18,18 @@ struct FavoritesTabView: View {
                         ForEach(favorites.favorites) { entry in
                             StationRow(station: entry.station)
                         }
+                        .onMove(perform: favorites.move)
                     }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
                 }
             }
             .navigationTitle("Favorites")
+            .toolbar {
+                if favorites.favorites.count > 1 {
+                    ToolbarItem(placement: .topBarTrailing) { EditButton() }
+                }
+            }
             .background(AetherTheme.background.ignoresSafeArea())
         }
     }

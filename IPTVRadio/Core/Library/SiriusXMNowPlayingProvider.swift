@@ -37,6 +37,7 @@ final class SiriusXMNowPlayingProvider: SongInfoProviding, @unchecked Sendable {
     var sourceName: String { "SiriusXM channel metadata" }
 
     func currentSong(for station: RadioStation) async -> SongLookup {
+        guard station.source != .manual else { return .empty("manual radio station") }
         // Resolved centrally: the listener's own key first, then the known
         // channel table, then shapes derived from the label. Derivation alone
         // produced nothing but 404s on device — the panel's label for a channel

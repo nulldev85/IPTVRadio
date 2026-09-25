@@ -875,7 +875,8 @@ final class PlaybackEngine: ObservableObject {
                     // station is left alone rather than asked forever. Still
                     // reported, with the reason it gave, so it is visible that
                     // it is being skipped rather than quietly succeeding.
-                    if (self.songSourceFailures[name] ?? 0) >= Self.songSourceFailureLimit {
+                    if !provider.retriesAfterEmpty &&
+                        (self.songSourceFailures[name] ?? 0) >= Self.songSourceFailureLimit {
                         let reason = self.songSourceLastNote[name]
                         reports.append(
                             SongSourceReport(

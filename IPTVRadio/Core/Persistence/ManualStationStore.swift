@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 struct ManualStationInput {
     var name: String
@@ -48,7 +49,7 @@ struct ManualStationEntry: Codable, Hashable, Identifiable {
             name: name,
             streamURL: first,
             groupTitle: Self.formatDescription(for: streamURL),
-            logoURL: logoURL,
+            logoURL: logoURL ?? KnownManualStation.logo(for: streamURL),
             source: .manual,
             alternativeStreamURLs: alternatives.isEmpty ? nil : alternatives
         )
@@ -82,6 +83,17 @@ final class ManualStationStore: ObservableObject {
 
     func station(id: String) -> RadioStation? {
         entries.first(where: { $0.station.id == id })?.station
+    }
+
+    func move(fromOffsets: IndexSet, toOffset: Int) {
+        var updated = entries
+        updated.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        do {
+            try fileStore.saveThrowing(updated, filename: filename)
+            entries = updated
+        } catch {
+            // Keep the displayed order consistent with what was saved.
+        }
     }
 
     @discardableResult
@@ -148,5 +160,40 @@ final class ManualStationStore: ObservableObject {
             throw ManualStationError.saveFailed
         }
         entries = updated
+    }
+}
+
+/// Logos for the local streams Aether can identify from their public URLs.
+/// A listener-supplied artwork URL always takes priority.
+enum KnownManualStation {
+    static func hasICYMetadata(for url: URL) -> Bool {
+        let value = url.absoluteString.lowercased()
+        return (value.contains("streamtheworld.com") && value.contains("kseqfm"))
+            || (value.contains("securenetsystems.net") && value.contains("/kfrr"))
+    }
+
+    static func iHeartID(for url: URL) -> Int? {
+        let value = url.absoluteString.lowercased()
+        guard value.contains("ihrhls.com") || value.contains("iheart.com") else { return nil }
+        if value.contains("/zc141/") || value.hasSuffix("/zc141") { return 141 }
+        if value.contains("/zc149/") || value.hasSuffix("/zc149") { return 149 }
+        return nil
+    }
+
+    static func logo(for url: URL) -> URL? {
+        let value = url.absoluteString.lowercased()
+        let image: String
+        if iHeartID(for: url) == 141 {
+            image = "https://i.iheart.com/v3/re/new_assets/5c5101e64d72695564fee9ef"
+        } else if iHeartID(for: url) == 149 {
+            image = "https://i.iheart.com/v3/re/new_assets/5f3b4852529439aac0159458"
+        } else if value.contains("streamtheworld.com") && value.contains("kseqfm") {
+            image = "https://dehayf5mhw1h7.cloudfront.net/wp-content/uploads/sites/2155/2023/08/03135133/rseq-logo.png"
+        } else if value.contains("securenetsystems.net") && value.contains("/kfrr") {
+            image = "https://dehayf5mhw1h7.cloudfront.net/wp-content/uploads/sites/2808/2026/06/03141205/kfrr-logo.webp"
+        } else {
+            return nil
+        }
+        return URL(string: image)
     }
 }

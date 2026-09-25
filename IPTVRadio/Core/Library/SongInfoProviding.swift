@@ -61,7 +61,13 @@ struct SongLookup: Sendable {
 protocol SongInfoProviding: Sendable {
     /// Short label for diagnostics and logs. Never contains credentials.
     var sourceName: String { get }
+    /// Live radio sources may be empty during ads and must be retried later.
+    var retriesAfterEmpty: Bool { get }
     func currentSong(for station: RadioStation) async -> SongLookup
+}
+
+extension SongInfoProviding {
+    var retriesAfterEmpty: Bool { false }
 }
 
 /// The provider's own EPG, keyed by the station's Xtream stream id.

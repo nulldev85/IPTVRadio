@@ -9,6 +9,10 @@ struct StationRow: View {
 
     let station: RadioStation
 
+    private var displayedStation: RadioStation {
+        station.source == .manual ? (manualStations.station(id: station.id) ?? station) : station
+    }
+
     var isCurrent: Bool {
         playback.state.station?.id == station.id
     }
@@ -19,12 +23,12 @@ struct StationRow: View {
             // app versions (with stale stream URLs). Always play the fresh
             // library copy when one is available.
             let fresh = station.source == .manual
-                ? (manualStations.station(id: station.id) ?? station)
+                ? displayedStation
                 : library.freshStation(matching: station)
             playback.play(fresh, in: nil)
         } label: {
             HStack(spacing: 12) {
-                StationArtwork(logoURL: station.logoURL, size: 52)
+                StationArtwork(logoURL: displayedStation.logoURL, size: 52)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(station.name)
@@ -46,7 +50,7 @@ struct StationRow: View {
                 }
 
                 Button {
-                    favorites.toggle(station)
+                    favorites.toggle(displayedStation)
                 } label: {
                     Image(systemName: favorites.isFavorite(station) ? "star.fill" : "star")
                         .foregroundStyle(favorites.isFavorite(station) ? AetherTheme.coral : AetherTheme.mutedIcon)

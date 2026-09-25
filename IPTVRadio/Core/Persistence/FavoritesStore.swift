@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Favorites persisted as a JSON file keyed by station id.
 @MainActor
@@ -7,6 +8,7 @@ final class FavoritesStore: ObservableObject {
         var id: String { station.id }
         var station: RadioStation
         var addedAt: Date
+        var order: Int?
     }
 
     private let fileStore: JSONFileStore
@@ -35,7 +37,18 @@ final class FavoritesStore: ObservableObject {
     }
 
     func add(_ station: RadioStation) {
-        entriesByID[station.id] = Entry(station: station, addedAt: Date())
+        let next = (entriesByID.values.compactMap(\.order).min() ?? 0) - 1
+        entriesByID[station.id] = Entry(station: station, addedAt: Date(), order: next)
+        persist()
+    }
+
+    func move(fromOffsets: IndexSet, toOffset: Int) {
+        var ordered = favorites
+        ordered.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        for (index, var entry) in ordered.enumerated() {
+            entry.order = index
+            entriesByID[entry.id] = entry
+        }
         persist()
     }
 
@@ -70,7 +83,7 @@ final class FavoritesStore: ObservableObject {
         for (_, entry) in entriesByID {
             let key = Self.matchKey(name: entry.station.name, source: entry.station.source)
             if let fresh = index[key], fresh.id != entry.station.id {
-                updated[fresh.id] = Entry(station: fresh, addedAt: entry.addedAt)
+                updated[fresh.id] = Entry(station: fresh, addedAt: entry.addedAt, order: entry.order)
                 changed = true
             } else {
                 updated[entry.station.id] = entry
@@ -89,11 +102,28 @@ final class FavoritesStore: ObservableObject {
     private func load() {
         let entries = fileStore.load([String: Entry].self, filename: filename) ?? [:]
         entriesByID = entries
-        favorites = entries.values.sorted { $0.addedAt > $1.addedAt }
+        // Existing installations had no order field. Preserve the old
+        // newest-first display before assigning stable positions.
+        let ordered = entries.values.sorted {
+            if let left = $0.order, let right = $1.order { return left < right }
+            return $0.addedAt > $1.addedAt
+        }
+        for (index, var entry) in ordered.enumerated() {
+            entry.order = index
+            entriesByID[entry.id] = entry
+        }
+        favorites = ordered.enumerated().map { index, entry in
+            var entry = entry
+            entry.order = index
+            return entry
+        }
+        if !entries.isEmpty && entries.values.contains(where: { $0.order == nil }) {
+            fileStore.save(entriesByID, filename: filename)
+        }
     }
 
     private func persist() {
         fileStore.save(entriesByID, filename: filename)
-        favorites = entriesByID.values.sorted { $0.addedAt > $1.addedAt }
+        favorites = entriesByID.values.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
     }
 }

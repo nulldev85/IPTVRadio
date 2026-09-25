@@ -33,6 +33,7 @@ final class XMPlaylistNowPlayingProvider: SongInfoProviding, @unchecked Sendable
     var sourceName: String { "SiriusXM playlist tracker" }
 
     func currentSong(for station: RadioStation) async -> SongLookup {
+        guard station.source != .manual else { return .empty("manual radio station") }
         let keys = resolver.keys(for: station)
         guard !keys.isEmpty else { return .empty("no channel key for this station") }
 

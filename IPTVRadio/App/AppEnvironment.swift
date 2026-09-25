@@ -90,6 +90,7 @@ final class AppEnvironment: ObservableObject {
             // channel, and the broadcaster is consulted only when it has
             // nothing — which for SiriusXM relays is most of the time.
             songProviders: uitestMode ? [] : [
+                ManualRadioNowPlayingProvider(http: httpClient),
                 XtreamEPGProvider(credentials: credentials, http: httpClient),
                 SiriusXMNowPlayingProvider(http: httpClient, resolver: channelKeys),
                 XMPlaylistNowPlayingProvider(http: httpClient, resolver: channelKeys),

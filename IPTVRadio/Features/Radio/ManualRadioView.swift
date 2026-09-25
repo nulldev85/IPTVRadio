@@ -46,6 +46,7 @@ struct ManualRadioView: View {
                                         }
                                     }
                             }
+                            .onMove(perform: manualStations.move)
                         } footer: {
                             Text("Swipe left on a station to edit or delete it.")
                                 .foregroundStyle(AetherTheme.secondaryText)
@@ -59,14 +60,17 @@ struct ManualRadioView: View {
             .background(AetherTheme.background.ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        editor = EditorTarget()
-                    } label: {
-                        Image(systemName: "plus")
-                            .foregroundStyle(AetherTheme.primaryText)
+                    HStack {
+                        if manualStations.entries.count > 1 { EditButton() }
+                        Button {
+                            editor = EditorTarget()
+                        } label: {
+                            Image(systemName: "plus")
+                                .foregroundStyle(AetherTheme.primaryText)
+                        }
+                        .accessibilityLabel("Add station")
+                        .accessibilityIdentifier("manual.add")
                     }
-                    .accessibilityLabel("Add station")
-                    .accessibilityIdentifier("manual.add")
                 }
             }
             .sheet(item: $editor) { target in
@@ -162,11 +166,14 @@ private struct ManualStationEditorView: View {
                     Text("Use a direct MP3, AAC, AAC+, Ogg, Opus, FLAC or HLS (.m3u8) link, or an M3U/PLS station playlist. HTTP and HTTPS are supported.")
                 }
                 Section("Optional") {
-                    TextField("Artwork URL", text: $logoURL)
+                    TextField("Logo URL", text: $logoURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier("manual.artwork")
+                    Text("Known stations get their logo automatically. Paste a logo URL to choose your own.")
+                        .font(.caption)
+                        .foregroundStyle(AetherTheme.secondaryText)
                 }
                 if let errorMessage {
                     Section {

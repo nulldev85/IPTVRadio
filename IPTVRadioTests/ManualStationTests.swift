@@ -76,4 +76,37 @@ final class ManualStationTests: XCTestCase {
             .resolve(URL(string: "https://radio.example.org/station.pls")!)
         XCTAssertEqual(plsURLs.map(\.lastPathComponent), ["live.mp3", "backup.aac"])
     }
+
+    func testKnownStationLogosAndManualOrderSurviveReload() async throws {
+        let (store, files) = makeStore()
+        let http = MockHTTP.client { _ in XCTFail("Direct streams should not be fetched"); return (500, Data()) }
+        let feeds = [
+            ("B95", "https://stream.revma.ihrhls.com/zc141/hls.m3u8"),
+            ("Q97.1", "https://playerservices.streamtheworld.com/api/livestream-redirect/KSEQFMAAC.aac"),
+            ("New Rock", "https://ice26.securenetsystems.net/KFRR"),
+        ]
+        for (name, url) in feeds {
+            let station = try await store.save(
+                ManualStationInput(name: name, streamURL: url, logoURL: ""),
+                httpClient: http
+            )
+            XCTAssertNotNil(station.logoURL)
+        }
+        store.move(fromOffsets: IndexSet(integer: 0), toOffset: 3)
+        XCTAssertEqual(ManualStationStore(fileStore: files).entries.map(\.name), ["Q97.1", "B95", "New Rock"])
+    }
+
+    func testFavoriteOrderSurvivesReload() {
+        let (_, files) = makeStore()
+        let favorites = FavoritesStore(fileStore: files)
+        for name in ["One", "Two", "Three"] {
+            favorites.add(RadioStation(
+                name: name,
+                streamURL: URL(string: "https://example.org/\(name).mp3")!,
+                source: .manual
+            ))
+        }
+        favorites.move(fromOffsets: IndexSet(integer: 0), toOffset: 3)
+        XCTAssertEqual(FavoritesStore(fileStore: files).favorites.map(\.station.name), ["Two", "One", "Three"])
+    }
 }
