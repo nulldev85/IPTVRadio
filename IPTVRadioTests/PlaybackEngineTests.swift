@@ -1,5 +1,13 @@
 import XCTest
+import AVFoundation
 @testable import IPTVRadio
+
+private final class StubAudioSession: AudioSessionControlling {
+    private(set) var activationCount = 0
+
+    func activateForPlayback() throws { activationCount += 1 }
+    func deactivate() throws {}
+}
 
 /// Deterministic mock player so engine state transitions are testable.
 @MainActor
@@ -77,7 +85,9 @@ final class PlaybackEngineTests: XCTestCase {
         artworkLookup: ArtworkLookupService? = nil,
         songProviders: [any SongInfoProviding] = [],
         stallTimeout: TimeInterval = 12,
-        songPollInterval: TimeInterval = 30
+        songPollInterval: TimeInterval = 30,
+        audioSession: AudioSessionControlling? = nil,
+        interruptionRecoveryDelay: TimeInterval = 10
     ) async -> (PlaybackEngine, StubAudioPlayer, ConnectivityMonitor, HistoryStore) {
         let settings = await SettingsStore(defaults: defaults)
         await MainActor.run {
@@ -93,6 +103,7 @@ final class PlaybackEngineTests: XCTestCase {
         let history = await HistoryStore(fileStore: JSONFileStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("engine-test-\(UUID().uuidString)")))
         let engine = await PlaybackEngine(
             player: player,
+            audioSession: audioSession ?? AVAudioSessionAdapter(),
             settings: settings,
             connectivity: connectivity,
             history: history,
@@ -102,7 +113,8 @@ final class PlaybackEngineTests: XCTestCase {
             artworkLookup: artworkLookup,
             songProviders: songProviders,
             stallTimeout: stallTimeout,
-            songPollInterval: songPollInterval
+            songPollInterval: songPollInterval,
+            interruptionRecoveryDelay: interruptionRecoveryDelay
         )
         return (engine, player, connectivity, history)
     }
@@ -159,6 +171,110 @@ final class PlaybackEngineTests: XCTestCase {
         engine.togglePlayPause()
         if case .playing = engine.state {} else { XCTFail("Expected playing") }
         XCTAssertEqual(player.pauseCount, 1)
+    }
+
+    @MainActor
+    func testNotificationInterruptionResumesWithoutShouldResumeHint() async {
+        let session = StubAudioSession()
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), audioSession: session
+        )
+        let s = station("notification")
+        engine.play(s)
+        player.simulateReady()
+
+        postInterruption(.began)
+        for _ in 0..<50 where engine.state != .paused(s) {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(engine.state, .paused(s))
+
+        // Short notification sounds do not always carry shouldResume.
+        postInterruption(.ended)
+        for _ in 0..<50 where engine.state != .playing(s) {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(engine.state, .playing(s))
+        XCTAssertEqual(session.activationCount, 2)
+        XCTAssertEqual(player.playCount, 1)
+        engine.stop()
+    }
+
+    @MainActor
+    func testInterruptedStreamReloadsIfAudioClockStaysFrozen() async {
+        let session = StubAudioSession()
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            audioSession: session,
+            interruptionRecoveryDelay: 0.05
+        )
+        let s = station("frozen-after-notification")
+        engine.play(s)
+        player.simulateReady()
+        player.setProgress(12)
+
+        postInterruption(.began)
+        for _ in 0..<50 where engine.state != .paused(s) {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        postInterruption(.ended)
+        for _ in 0..<100 where player.loadedURLs.count < 2 {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertGreaterThanOrEqual(player.loadedURLs.count, 2)
+        engine.stop()
+    }
+
+    @MainActor
+    func testInterruptionDoesNotReloadWhenAudioIsFlowing() async {
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            audioSession: StubAudioSession(),
+            interruptionRecoveryDelay: 0.05
+        )
+        let s = station("flowing-after-notification")
+        engine.play(s)
+        player.simulateReady()
+        player.setProgress(12)
+        player.progressAdvancesPerReading = true
+
+        postInterruption(.began)
+        for _ in 0..<50 where engine.state != .paused(s) {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        postInterruption(.ended)
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(player.loadedURLs.count, 1)
+        XCTAssertEqual(engine.state, .playing(s))
+        engine.stop()
+    }
+
+    @MainActor
+    func testUserPauseIsNotResumedByUnrelatedInterruption() async {
+        let session = StubAudioSession()
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), audioSession: session
+        )
+        let s = station("user-paused")
+        engine.play(s)
+        player.simulateReady()
+        engine.togglePlayPause()
+        postInterruption(.began)
+        postInterruption(.ended)
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(engine.state, .paused(s))
+        XCTAssertEqual(player.playCount, 0)
+        engine.togglePlayPause()
+        XCTAssertEqual(session.activationCount, 2, "Manual resume must reactivate audio too")
+        engine.stop()
+    }
+
+    private func postInterruption(_ type: AVAudioSession.InterruptionType) {
+        NotificationCenter.default.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: type.rawValue]
+        )
     }
 
     @MainActor

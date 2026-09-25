@@ -61,6 +61,7 @@ final class PlaybackEngine: ObservableObject {
     /// Gap between song-lookup passes. Injectable so the polling loop's own
     /// behaviour — the per-source backoff above — is testable without waiting.
     private let songPollInterval: TimeInterval
+    private let interruptionRecoveryDelay: TimeInterval
     /// Online song-artwork lookup for streams with text-only metadata.
     private var artworkLookupTask: Task<Void, Never>?
     /// True once the stream itself provided song metadata (ID3).
@@ -98,6 +99,10 @@ final class PlaybackEngine: ObservableObject {
     /// True when the listener paused on purpose, so route changes (headphones,
     /// Bluetooth) do not restart a stream they deliberately silenced.
     private var userPaused = false
+    /// Only an interruption of active playback may resume automatically.
+    private var interruptedStationID: String?
+    private var interruptedWhileLoading = false
+    private var interruptionRecoveryTask: Task<Void, Never>?
     /// What became of each stream-format candidate, keyed by its index.
     private var candidateOutcomes: [Int: StreamCandidateReport.Outcome] = [:]
     /// True when this play began at a remembered endpoint rather than the
@@ -117,7 +122,8 @@ final class PlaybackEngine: ObservableObject {
         artworkLookup: ArtworkLookupService? = nil,
         songProviders: [any SongInfoProviding] = [],
         stallTimeout: TimeInterval = 12,
-        songPollInterval: TimeInterval = 30
+        songPollInterval: TimeInterval = 30,
+        interruptionRecoveryDelay: TimeInterval = 10
     ) {
         self.player = player
         self.audioSession = audioSession
@@ -132,6 +138,7 @@ final class PlaybackEngine: ObservableObject {
         self.songProviders = songProviders
         self.stallTimeout = stallTimeout
         self.songPollInterval = songPollInterval
+        self.interruptionRecoveryDelay = interruptionRecoveryDelay
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
         nowPlaying.commandDelegate = self
@@ -150,6 +157,7 @@ final class PlaybackEngine: ObservableObject {
         probeTask?.cancel()
         epgTask?.cancel()
         artworkLookupTask?.cancel()
+        interruptionRecoveryTask?.cancel()
     }
 
     // MARK: Public controls
@@ -161,6 +169,10 @@ final class PlaybackEngine: ObservableObject {
         }
         wantsPlayback = true
         userPaused = false
+        interruptedStationID = nil
+        interruptedWhileLoading = false
+        interruptionRecoveryTask?.cancel()
+        interruptionRecoveryTask = nil
         retryAttempts = 0
         pendingStation = station
         streamCandidates = station.streamCandidates
@@ -193,14 +205,13 @@ final class PlaybackEngine: ObservableObject {
         switch state {
         case .playing(let station):
             userPaused = true
+            interruptionRecoveryTask?.cancel()
+            interruptionRecoveryTask = nil
             state = .paused(station)
             player.pause()
             nowPlaying.update(state: state)
         case .paused(let station):
-            userPaused = false
-            state = .playing(station)
-            player.play()
-            nowPlaying.update(state: state)
+            resumePausedPlayback(station, recoveringFromInterruption: true)
         case .stopped(let station), .failed(_, let station):
             if let station {
                 play(station)
@@ -226,6 +237,10 @@ final class PlaybackEngine: ObservableObject {
         nowPlaying.clear()
         isBuffering = false
         userPaused = false
+        interruptedStationID = nil
+        interruptedWhileLoading = false
+        interruptionRecoveryTask?.cancel()
+        interruptionRecoveryTask = nil
         // Dropped so a callback still in flight from the torn-down stream
         // cannot resurrect the mini player with a failure the user dismissed.
         pendingStation = nil
@@ -475,7 +490,7 @@ final class PlaybackEngine: ObservableObject {
         // Players keep emitting callbacks for a load the engine has already
         // abandoned (an explicit stop, a station switch). Acting on those
         // corrupts the current attempt, so only a live load is listened to.
-        guard hasActiveLoad, wantsPlayback,
+        guard hasActiveLoad, wantsPlayback, interruptedStationID == nil,
               let station = state.station ?? pendingStation else { return }
         // Keep the reason so diagnostics can show why a format was skipped.
         lastFormatFailure = Redactor.scrubURLs(message)
@@ -604,6 +619,7 @@ final class PlaybackEngine: ObservableObject {
             guard let self else { return }
             let endHandler = {
                 guard let station = self.state.station, self.wantsPlayback,
+                      self.interruptedStationID == nil,
                       self.hasActiveLoad else { return }
                 // Live radio should never "end". If it does within a minute the
                 // endpoint is not a live stream (e.g. a finite sample file):
@@ -821,6 +837,7 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private func handleReady() {
+        guard interruptedStationID == nil else { return }
         cancelWatchdog()
         cancelRetry()
         cancelStallWatchdog()
@@ -1049,33 +1066,93 @@ final class PlaybackEngine: ObservableObject {
 
         switch type {
         case .began:
-            if case let .playing(station) = state {
+            switch state {
+            case .playing(let station):
+                guard wantsPlayback, !userPaused else { return }
+                interruptedStationID = station.id
+                interruptedWhileLoading = false
+                interruptionRecoveryTask?.cancel()
+                interruptionRecoveryTask = nil
+                cancelStallWatchdog()
                 state = .paused(station)
                 player.pause()
                 nowPlaying.update(state: state)
+            case .loading(let station):
+                guard wantsPlayback, !userPaused else { return }
+                interruptedStationID = station.id
+                interruptedWhileLoading = true
+                cancelWatchdog()
+                state = .paused(station)
+                player.pause()
+                nowPlaying.update(state: state)
+            default:
+                break
             }
         case .ended:
-            guard let station = state.station, wantsPlayback else { return }
-            let optionsRaw = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-            let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
-            if options.contains(.shouldResume) {
-                // The system deactivated our audio session for the
-                // interruption. Calling play() without reactivating it renders
-                // silence while the player still reports itself as playing, so
-                // nothing detects the problem and the station appears to die
-                // after every phone call or Siri request.
-                do {
-                    try audioSession.activateForPlayback()
-                } catch {
-                    AppLogger.playback.error("Audio session reactivation failed after interruption")
-                }
-                userPaused = false
-                state = .playing(station)
-                player.play()
-                nowPlaying.update(state: state)
+            guard let station = state.station, station.id == interruptedStationID,
+                  wantsPlayback, !userPaused else { return }
+            let reload = interruptedWhileLoading
+            // Radio was already playing before the interruption. The optional
+            // shouldResume hint is often absent for short system sounds; our
+            // own pre-interruption state is the reliable intent signal.
+            if reload {
+                play(station)
+            } else {
+                resumePausedPlayback(station, recoveringFromInterruption: true)
             }
         @unknown default:
             break
+        }
+    }
+
+    private func resumePausedPlayback(
+        _ station: RadioStation,
+        recoveringFromInterruption: Bool,
+        activationAttempt: Int = 0
+    ) {
+        guard wantsPlayback, state.station?.id == station.id else { return }
+        userPaused = false
+        do {
+            try audioSession.activateForPlayback()
+        } catch {
+            AppLogger.playback.error("Audio session reactivation failed")
+            guard recoveringFromInterruption, activationAttempt < 3 else { return }
+            interruptionRecoveryTask?.cancel()
+            interruptionRecoveryTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled, let self,
+                      self.wantsPlayback, !self.userPaused,
+                      self.state.station?.id == station.id else { return }
+                self.resumePausedPlayback(
+                    station,
+                    recoveringFromInterruption: true,
+                    activationAttempt: activationAttempt + 1
+                )
+            }
+            return
+        }
+
+        interruptedStationID = nil
+        interruptedWhileLoading = false
+        state = .playing(station)
+        player.play()
+        nowPlaying.update(state: state)
+        guard recoveringFromInterruption else { return }
+
+        // VLC can report playing while its audio clock is frozen after a
+        // system sound. Give it time to advance, then reload only if silent.
+        let baseline = player.playbackProgress
+        let recoveryDelay = interruptionRecoveryDelay
+        interruptionRecoveryTask?.cancel()
+        interruptionRecoveryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(0.01, recoveryDelay) * 1_000_000_000))
+            guard !Task.isCancelled, let self, self.wantsPlayback,
+                  case .playing = self.state,
+                  self.state.station?.id == station.id,
+                  let baseline, let current = self.player.playbackProgress,
+                  current <= baseline else { return }
+            AppLogger.playback.info("Audio did not resume after interruption; reconnecting")
+            self.play(station)
         }
     }
 
@@ -1091,6 +1168,9 @@ final class PlaybackEngine: ObservableObject {
         case .oldDeviceUnavailable:
             // Headphones unplugged: pause to avoid blasting the speaker.
             if case let .playing(station) = state {
+                interruptedStationID = nil
+                interruptionRecoveryTask?.cancel()
+                interruptionRecoveryTask = nil
                 state = .paused(station)
                 player.pause()
                 nowPlaying.update(state: state)
@@ -1099,9 +1179,7 @@ final class PlaybackEngine: ObservableObject {
             // Resuming on the new route (e.g. Bluetooth connected mid-play),
             // unless the listener paused on purpose.
             if case let .paused(station) = state, wantsPlayback, !userPaused {
-                state = .playing(station)
-                player.play()
-                nowPlaying.update(state: state)
+                resumePausedPlayback(station, recoveringFromInterruption: true)
             }
         default:
             break
