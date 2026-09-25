@@ -110,8 +110,6 @@ struct NowPlayingView: View {
                 Image(systemName: mainButtonIcon)
                     .font(.system(size: 44))
                     .frame(width: 88, height: 88)
-                    .background(AetherTheme.raisedSurface)
-                    .clipShape(Circle())
             }
             .accessibilityLabel(mainButtonLabel)
             .accessibilityIdentifier(mainButtonIsStop ? "nowplaying.stop" : "nowplaying.toggle")
@@ -167,16 +165,32 @@ private struct NowPlayingBackdrop: View {
                 AetherTheme.background
 
                 if let artwork {
-                    // The softly blurred cover fills the entire sheet. Show
-                    // the uncropped cover above it, fading its lower edge
-                    // into the same image rather than a solid black band.
+                    // Keep the full cover visible at the top, with a sharp
+                    // fill behind it. Blur only the area near the controls.
+                    Image(uiImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+
                     Image(uiImage: artwork)
                         .resizable()
                         .scaledToFill()
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .clipped()
                         .blur(radius: 28)
-                        .opacity(0.85)
+                        .mask {
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .clear, location: 0.68),
+                                    .init(color: .white, location: 0.86),
+                                    .init(color: .white, location: 1)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
 
                     Image(uiImage: artwork)
                         .resizable()
@@ -189,7 +203,7 @@ private struct NowPlayingBackdrop: View {
                             LinearGradient(
                                 stops: [
                                     .init(color: .white, location: 0),
-                                    .init(color: .white, location: 0.72),
+                                    .init(color: .white, location: 0.88),
                                     .init(color: .clear, location: 1)
                                 ],
                                 startPoint: .top,
@@ -199,8 +213,8 @@ private struct NowPlayingBackdrop: View {
                     LinearGradient(
                         stops: [
                             .init(color: .clear, location: 0),
-                            .init(color: .clear, location: 0.50),
-                            .init(color: .black.opacity(0.25), location: 0.70),
+                            .init(color: .clear, location: 0.72),
+                            .init(color: .black.opacity(0.25), location: 0.88),
                             .init(color: .black.opacity(0.65), location: 1)
                         ],
                         startPoint: .top,
