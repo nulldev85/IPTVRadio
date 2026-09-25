@@ -44,6 +44,14 @@ final class FavoritesStore: ObservableObject {
         persist()
     }
 
+    /// Keeps a favorite's display and playback URL current after a manual edit.
+    func replace(_ station: RadioStation) {
+        guard var entry = entriesByID[station.id] else { return }
+        entry.station = station
+        entriesByID[station.id] = entry
+        persist()
+    }
+
     func station(id: String) -> RadioStation? {
         entriesByID[id]?.station
     }

@@ -5,6 +5,7 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
     enum Source: String, Codable, Hashable, Sendable {
         case xtream
         case m3u
+        case manual
     }
 
     /// Stable identifier derived from the source and stream URL.
@@ -32,6 +33,7 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
     }
 
     init(
+        id: String? = nil,
         name: String,
         streamURL: URL,
         groupTitle: String = "",
@@ -41,7 +43,7 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
         alternativeStreamURLs: [URL]? = nil,
         xtreamStreamID: String? = nil
     ) {
-        self.id = StationIdentifier.make(source: source, url: streamURL, name: name)
+        self.id = id ?? StationIdentifier.make(source: source, url: streamURL, name: name)
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         self.streamURL = streamURL
         self.groupTitle = groupTitle.trimmingCharacters(in: .whitespacesAndNewlines)

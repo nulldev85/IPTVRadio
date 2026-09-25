@@ -44,7 +44,8 @@ final class IPTVRadioUITests: XCTestCase {
     func testRadioTabListsStationsAndSeeAll() throws {
         let app = launch(scenario: "UITestBrowse")
 
-        // SiriusXM stations are prioritized on the Radio tab.
+        // SiriusXM keeps its own tab beside the listener's Radio stations.
+        app.buttons["SXM"].tap()
         XCTAssertTrue(app.staticTexts["SiriusXM Hits 1"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["SiriusXM Octane"].exists)
 
@@ -66,6 +67,30 @@ final class IPTVRadioUITests: XCTestCase {
         searchField.typeText("Jazz")
 
         XCTAssertTrue(app.staticTexts["Jazz Cafe Radio"].waitForExistence(timeout: 8))
+    }
+
+    func testManualRadioStationCanBeAddedPlayedAndRemoved() throws {
+        let app = launch(scenario: "UITestBrowse")
+        XCTAssertTrue(app.staticTexts["Your Radio stations"].waitForExistence(timeout: 8))
+
+        app.buttons["manual.addEmpty"].tap()
+        let name = app.textFields["manual.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 8))
+        name.tap()
+        name.typeText("My Test Radio")
+        let url = app.textFields["manual.url"]
+        url.tap()
+        url.typeText("https://radio.example.org/live.mp3")
+        app.buttons["manual.save"].tap()
+
+        let row = app.buttons["station.row.My Test Radio"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+        row.tap()
+        XCTAssertTrue(app.buttons["miniplayer.open"].waitForExistence(timeout: 8))
+
+        row.swipeLeft()
+        app.buttons["Delete"].tap()
+        XCTAssertTrue(app.staticTexts["Your Radio stations"].waitForExistence(timeout: 8))
     }
 
     func testFavoritesToggleAndLibraryListing() throws {
@@ -96,7 +121,7 @@ final class IPTVRadioUITests: XCTestCase {
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 8),
                       "Tab bar must remain reachable during playback")
-        app.buttons["Radio"].tap()
+        app.buttons["SXM"].tap()
         XCTAssertTrue(app.buttons["miniplayer.open"].waitForExistence(timeout: 8))
 
         let miniPlayer = app.buttons["miniplayer.open"].firstMatch

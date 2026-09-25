@@ -16,7 +16,7 @@ struct RadioHomeView: View {
                     }
                 }
             }
-            .navigationTitle("Radio")
+            .navigationTitle("SXM")
             .background(AetherTheme.background.ignoresSafeArea())
             .refreshable {
                 await library.refresh()

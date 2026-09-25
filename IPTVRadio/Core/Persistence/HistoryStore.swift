@@ -36,6 +36,16 @@ final class HistoryStore: ObservableObject {
         fileStore.remove(filename: filename)
     }
 
+    func replace(_ station: RadioStation) {
+        guard entries.contains(where: { $0.station.id == station.id }) else { return }
+        entries = entries.map { entry in
+            entry.station.id == station.id
+                ? Entry(station: station, playedAt: entry.playedAt)
+                : entry
+        }
+        fileStore.save(entries, filename: filename)
+    }
+
     /// Replaces entries saved by older app versions with the current library's
     /// station data (fresh stream URLs and format candidates), matching by
     /// name and source. Entries with no fresh match are kept as-is.

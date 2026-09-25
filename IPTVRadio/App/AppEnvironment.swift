@@ -33,6 +33,7 @@ final class AppEnvironment: ObservableObject {
     let settings: SettingsStore
     let favorites: FavoritesStore
     let history: HistoryStore
+    let manualStations: ManualStationStore
     let credentials: CredentialsStore
     let connectivity: ConnectivityMonitor
     let cache: StationCache
@@ -58,6 +59,7 @@ final class AppEnvironment: ObservableObject {
             : JSONFileStore()
         favorites = FavoritesStore(fileStore: fileStore)
         history = HistoryStore(fileStore: fileStore)
+        manualStations = ManualStationStore(fileStore: fileStore)
         // UI tests must never touch the real Keychain.
         credentials = uitestMode
             ? CredentialsStore(secrets: MemorySecretStore())

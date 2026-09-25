@@ -3,11 +3,12 @@ import SwiftUI
 /// Search across station names, genres, categories and metadata.
 struct SearchView: View {
     @EnvironmentObject private var library: LibraryViewModel
+    @EnvironmentObject private var manualStations: ManualStationStore
 
     var body: some View {
         NavigationStack {
             Group {
-                if library.state == .loaded {
+                if library.state == .loaded || !manualStations.entries.isEmpty {
                     searchContent
                 } else {
                     LibraryStateView(state: library.state) {
@@ -23,7 +24,11 @@ struct SearchView: View {
 
     @ViewBuilder
     private var searchContent: some View {
-        let results = library.searchResults()
+        let query = library.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let manualResults = manualStations.entries.map(\.station).filter {
+            $0.name.lowercased().contains(query) || $0.groupTitle.lowercased().contains(query)
+        }
+        let results = (library.state == .loaded ? library.searchResults() : []) + manualResults
         if library.searchQuery.trimmingCharacters(in: .whitespaces).count < 2 {
             EmptyStateView(
                 title: "Search your stations",

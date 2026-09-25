@@ -5,6 +5,7 @@ struct StationRow: View {
     @EnvironmentObject private var playback: PlaybackEngine
     @EnvironmentObject private var favorites: FavoritesStore
     @EnvironmentObject private var library: LibraryViewModel
+    @EnvironmentObject private var manualStations: ManualStationStore
 
     let station: RadioStation
 
@@ -17,7 +18,10 @@ struct StationRow: View {
             // Favorites and history may hold station copies saved by older
             // app versions (with stale stream URLs). Always play the fresh
             // library copy when one is available.
-            playback.play(library.freshStation(matching: station), in: nil)
+            let fresh = station.source == .manual
+                ? (manualStations.station(id: station.id) ?? station)
+                : library.freshStation(matching: station)
+            playback.play(fresh, in: nil)
         } label: {
             HStack(spacing: 12) {
                 StationArtwork(logoURL: station.logoURL, size: 52)

@@ -119,6 +119,9 @@ enum UITestSupport {
         // Deterministic settings for stable UI assertions.
         environment.settings.cellularAllowed = true
         environment.settings.showAllStations = true
+        for entry in environment.manualStations.entries {
+            try? environment.manualStations.remove(id: entry.id)
+        }
 
         switch scenario {
         case .login:

@@ -44,6 +44,7 @@ struct IPTVRadioApp: App {
                 .environmentObject(environment.settings)
                 .environmentObject(environment.favorites)
                 .environmentObject(environment.history)
+                .environmentObject(environment.manualStations)
                 .environmentObject(environment.connectivity)
                 .tint(AetherTheme.coral)
                 .preferredColorScheme(.dark)

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Main tab layout: Radio (SiriusXM-focused), Search, Library, Settings.
+/// Main tab layout: SXM, manually added Radio, Search, Favorites, Settings.
 /// Radio only — there is no TV/video browsing anywhere in the app.
 ///
 /// The mini player is attached to each tab's content rather than the TabView
@@ -15,8 +15,11 @@ struct MainTabView: View {
 
     var body: some View {
         TabView {
+            tabContent { ManualRadioView() }
+                .tabItem { Label("Radio", systemImage: "antenna.radiowaves.left.and.right") }
+
             tabContent { RadioHomeView() }
-                .tabItem { Label("Radio", systemImage: "dot.radiowaves.left.and.right") }
+                .tabItem { Label("SXM", systemImage: "dot.radiowaves.left.and.right") }
 
             tabContent { SearchView() }
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }

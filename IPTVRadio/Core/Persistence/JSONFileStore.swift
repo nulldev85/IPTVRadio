@@ -19,19 +19,23 @@ struct JSONFileStore: Sendable {
     }
 
     func save<T: Encodable>(_ value: T, filename: String) {
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: directory.path) {
-            try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(value)
-            try data.write(to: url(for: filename), options: .atomic)
+            try saveThrowing(value, filename: filename)
         } catch {
             AppLogger.persistence.error("Failed to persist \(filename, privacy: .public)")
         }
+    }
+
+    func saveThrowing<T: Encodable>(_ value: T, filename: String) throws {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: directory.path) {
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(value)
+        try data.write(to: url(for: filename), options: .atomic)
     }
 
     func load<T: Decodable>(_ type: T.Type, filename: String) -> T? {
