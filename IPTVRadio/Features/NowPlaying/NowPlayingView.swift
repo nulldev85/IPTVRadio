@@ -4,6 +4,8 @@ import AVKit
 /// Full now-playing screen: artwork, controls, sleep timer, route picker.
 struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var playback: PlaybackEngine
 
     @State private var showSleepTimerSheet = false
@@ -25,10 +27,17 @@ struct NowPlayingView: View {
 
     private func content(for station: RadioStation) -> some View {
         GeometryReader { proxy in
-            VStack(spacing: 24) {
-                // Artwork is drawn edge to edge behind this view. Its lower
-                // edge fades into the solid area above the controls.
-                Spacer(minLength: max(160, proxy.size.height * 0.38))
+            VStack(spacing: 0) {
+                Spacer(minLength: 20)
+
+                VinylRecordView(
+                    artwork: playback.nowPlayingMetadata?.artworkImage ?? stationLogo,
+                    isSpinning: playback.state.isPlaying && scenePhase == .active && !reduceMotion
+                )
+                .frame(width: recordSize(in: proxy.size), height: recordSize(in: proxy.size))
+                .shadow(color: .black.opacity(0.6), radius: 28, y: 18)
+
+                Spacer(minLength: 24)
 
                 if let metadata = playback.nowPlayingMetadata,
                    metadata.title != nil || metadata.artist != nil {
@@ -50,7 +59,7 @@ struct NowPlayingView: View {
                     .accessibilityIdentifier("nowplaying.song")
                 }
 
-                Spacer()
+                Spacer(minLength: 20)
 
                 controlRow
 
@@ -66,6 +75,7 @@ struct NowPlayingView: View {
                     .accessibilityLabel("Retry connection")
                     .accessibilityIdentifier("nowplaying.retry")
                 }
+                .padding(.top, 20)
                 .padding(.bottom, 24)
             }
             .padding(.horizontal, 24)
@@ -85,6 +95,10 @@ struct NowPlayingView: View {
             guard let url = station.logoURL else { return }
             stationLogo = await ArtworkCache.shared.image(for: url)
         }
+    }
+
+    private func recordSize(in size: CGSize) -> CGFloat {
+        min(size.width - 48, size.height * 0.49)
     }
 
     private var controlRow: some View {
@@ -153,86 +167,31 @@ struct NowPlayingView: View {
 
 }
 
-/// Full-width artwork that gradually disappears into the dark control area.
-/// The fallback is the same blue-to-black gradient as the rest of Aether.
+/// Cover art supplies atmosphere behind the record without competing with its
+/// grooves, song text, or controls. A channel logo is the fallback artwork.
 private struct NowPlayingBackdrop: View {
     let artwork: UIImage?
     let logo: UIImage?
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack(alignment: .top) {
+            ZStack {
                 AetherTheme.background
 
-                if let artwork {
-                    // Extend colors and texture from the bottom of the cover
-                    // instead of showing a second, enlarged copy of it.
-                    let lowerTexture = lowerEdgeTexture(from: artwork)
-                    Image(uiImage: lowerTexture)
+                if let image = artwork ?? logo {
+                    Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .clipped()
-
-                    Image(uiImage: lowerTexture)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: proxy.size.width, height: proxy.size.height)
-                        .clipped()
-                        .blur(radius: 28)
-                        .mask {
+                        .blur(radius: 38)
+                        .overlay {
                             LinearGradient(
-                                stops: [
-                                    .init(color: .clear, location: 0),
-                                    .init(color: .clear, location: 0.68),
-                                    .init(color: .white, location: 0.86),
-                                    .init(color: .white, location: 1)
-                                ],
+                                colors: [.black.opacity(0.64), .black.opacity(0.55), .black.opacity(0.84)],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
                         }
-
-                    Image(uiImage: artwork)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: proxy.size.width,
-                               height: min(proxy.size.width * artwork.size.height / max(artwork.size.width, 1),
-                                           proxy.size.height * 0.72),
-                               alignment: .top)
-                        .mask {
-                            LinearGradient(
-                                stops: [
-                                    .init(color: .white, location: 0),
-                                    .init(color: .white, location: 0.88),
-                                    .init(color: .clear, location: 1)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        }
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .clear, location: 0.72),
-                            .init(color: .black.opacity(0.25), location: 0.88),
-                            .init(color: .black.opacity(0.65), location: 1)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                } else if let logo {
-                    // Wordmark logos are often transparent and much wider than
-                    // a square album cover. Use them as soft color rather than
-                    // enlarging and cropping the mark behind the controls.
-                    Image(uiImage: logo)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: proxy.size.width, height: proxy.size.height * 0.65)
-                        .blur(radius: 55)
-                        .scaleEffect(1.2)
-                        .opacity(0.55)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -241,18 +200,6 @@ private struct NowPlayingBackdrop: View {
         .ignoresSafeArea()
     }
 
-    private func lowerEdgeTexture(from artwork: UIImage) -> UIImage {
-        guard let image = artwork.cgImage else { return artwork }
-        let start = image.height * 3 / 4
-        let rect = CGRect(
-            x: 0,
-            y: CGFloat(start),
-            width: CGFloat(image.width),
-            height: CGFloat(image.height - start)
-        )
-        guard let cropped = image.cropping(to: rect) else { return artwork }
-        return UIImage(cgImage: cropped, scale: artwork.scale, orientation: artwork.imageOrientation)
-    }
 }
 
 /// Sleep timer trigger button with active-timer indicator.

@@ -146,6 +146,8 @@ final class IPTVRadioUITests: XCTestCase {
         let miniPlayer = app.buttons["miniplayer.open"].firstMatch
         miniPlayer.tap()
         XCTAssertFalse(app.buttons["nowplaying.close"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "nowplaying.vinyl").firstMatch.waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["nowplaying.stop"].exists)
         XCTAssertTrue(app.buttons["nowplaying.sleepTimer"].exists)
 
