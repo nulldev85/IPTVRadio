@@ -156,24 +156,42 @@ private struct NowPlayingBackdrop: View {
                 AetherTheme.background
 
                 if let artwork {
+                    // Fill the canvas softly, then show the complete cover in
+                    // front. A square cover must not be cropped to the tall
+                    // shape of a phone screen.
                     Image(uiImage: artwork)
                         .resizable()
                         .scaledToFill()
                         .frame(width: proxy.size.width, height: proxy.size.height * 0.78)
                         .clipped()
+                        .blur(radius: 36)
+                        .opacity(0.5)
+
+                    Image(uiImage: artwork)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: proxy.size.width, height: proxy.size.height * 0.65,
+                               alignment: .top)
                         .overlay {
                             LinearGradient(
                                 stops: [
-                                    .init(color: .black.opacity(0.40), location: 0),
+                                    .init(color: .black.opacity(0.25), location: 0),
                                     .init(color: .clear, location: 0.20),
-                                    .init(color: .clear, location: 0.42),
-                                    .init(color: .black.opacity(0.65), location: 0.72),
+                                    .init(color: .clear, location: 0.60),
+                                    .init(color: .black.opacity(0.7), location: 0.86),
                                     .init(color: .black, location: 1)
                                 ],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
                         }
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.8), .black],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(width: proxy.size.width, height: proxy.size.height * 0.38)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
                 } else if let logo {
                     // Wordmark logos are often transparent and much wider than
                     // a square album cover. Use them as soft color rather than

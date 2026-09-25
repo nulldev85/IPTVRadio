@@ -782,6 +782,8 @@ final class PlaybackEngine: ObservableObject {
             artworkData: update.artworkData ?? retainedArtwork
         )
         guard metadata != nowPlayingMetadata else { return }
+        artworkLookupTask?.cancel()
+        artworkLookupTask = nil
         nowPlayingMetadata = metadata
         nowPlaying.applySongMetadata(metadata, station: station)
 
@@ -791,18 +793,29 @@ final class PlaybackEngine: ObservableObject {
               settings.lookupSongArtwork,
               let artist = metadata.artist, !artist.isEmpty,
               let title = metadata.title, !title.isEmpty else { return }
-        artworkLookupTask?.cancel()
         artworkLookupTask = Task { [weak self] in
             guard let self else { return }
-            guard let data = await self.artworkLookup.artworkData(artist: artist, title: title) else { return }
-            guard !Task.isCancelled else { return }
-            // Only apply if the same song is still playing.
-            guard let current = self.nowPlayingMetadata,
-                  current.title == title, current.artist == artist else { return }
-            let enriched = NowPlayingMetadata(title: title, artist: artist, artworkData: data)
-            self.nowPlayingMetadata = enriched
-            if let activeStation = self.state.station {
-                self.nowPlaying.applySongMetadata(enriched, station: activeStation)
+            for attempt in 0..<3 {
+                if attempt > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(attempt * 8) * 1_000_000_000)
+                }
+                guard !Task.isCancelled else { return }
+                guard let current = self.nowPlayingMetadata,
+                      current.title == title, current.artist == artist,
+                      current.artworkData == nil else { return }
+                guard let data = await self.artworkLookup.artworkData(artist: artist, title: title) else {
+                    continue
+                }
+                guard !Task.isCancelled else { return }
+                guard let latest = self.nowPlayingMetadata,
+                      latest.title == title, latest.artist == artist,
+                      latest.artworkData == nil else { return }
+                let enriched = NowPlayingMetadata(title: title, artist: artist, artworkData: data)
+                self.nowPlayingMetadata = enriched
+                if let activeStation = self.state.station {
+                    self.nowPlaying.applySongMetadata(enriched, station: activeStation)
+                }
+                return
             }
         }
     }
@@ -937,19 +950,10 @@ final class PlaybackEngine: ObservableObject {
                     self.songInfoSource = best.source
                     self.songInfoIsProgrammeOnly = song == nil
                     self.handleMetadataUpdate(best.update, fromStream: false)
-                } else if station.source == .manual,
-                          let source = self.songInfoSource,
-                          source != "stream metadata",
-                          (self.songSourceFailures[source] ?? 0) >= 2 {
-                    // Do not leave the previous track and cover on screen
-                    // indefinitely when a broadcaster pauses its song feed.
-                    self.nowPlayingMetadata = nil
-                    self.songInfoSource = nil
-                    self.nowPlaying.clearSongMetadata(state: self.state)
                 }
-                // For provider channels an empty pass leaves the previous
-                // answer displayed. Manual radio is cleared above after two
-                // empty passes so a song never remains through a long break.
+                // A missed or delayed response must not erase the last known
+                // song. The next valid track replaces it; changing stations
+                // or stopping playback clears it.
                 //
                 // The refresh is unconditional because the engine publishes
                 // exactly one sample, at startup, long before any lookup

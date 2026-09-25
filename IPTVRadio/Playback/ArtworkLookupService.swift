@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Looks up song artwork from Apple's public catalog (iTunes Search API) for
 /// radio streams that carry only text metadata (artist/title) and no embedded
@@ -34,10 +35,7 @@ struct ArtworkLookupService {
 
         do {
             let (data, response) = try await http.data(for: RequestBuilder.get(searchURL, timeout: 8))
-            guard (200..<300).contains(response.statusCode) else {
-                cache.store(.notFound, for: term)
-                return nil
-            }
+            guard (200..<300).contains(response.statusCode) else { return nil }
             let results = try JSONDecoder().decode(ITunesSearchResponse.self, from: data)
             guard let artworkString = results.results.first?.artworkUrl100,
                   let artworkURL = URL(string: artworkString.replacingOccurrences(of: "100x100", with: "600x600")) else {
@@ -45,16 +43,11 @@ struct ArtworkLookupService {
                 return nil
             }
             let (imageData, imageResponse) = try await http.data(for: RequestBuilder.get(artworkURL, timeout: 8))
-            guard (200..<300).contains(imageResponse.statusCode), !imageData.isEmpty else {
-                cache.store(.notFound, for: term)
-                return nil
-            }
+            guard (200..<300).contains(imageResponse.statusCode),
+                  UIImage(data: imageData) != nil else { return nil }
             cache.store(.artwork(imageData), for: term)
             return imageData
-        } catch {
-            cache.store(.notFound, for: term)
-            return nil
-        }
+        } catch { return nil }
     }
 }
 
@@ -66,8 +59,8 @@ private struct ITunesSearchResponse: Decodable {
     var results: [Result]
 }
 
-/// Session-lifetime cache. Misses are cached too, so a song with no catalog
-/// match is not looked up again on every metadata refresh.
+/// Session-lifetime cache. A valid empty catalog result is cached; request
+/// errors are not, so a temporary network failure can recover on retry.
 private final class ArtworkLookupCache {
     enum Entry {
         case artwork(Data)

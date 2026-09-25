@@ -1213,4 +1213,32 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(provider.askCount, 2)
         engine.stop()
     }
+
+    @MainActor
+    func testManualSongSurvivesTemporaryEmptyLookup() async {
+        let provider = StubSongProvider()
+        provider.answer = { call in
+            call == 1
+                ? .found(StreamMetadataUpdate(title: "Current Song", artist: "Test Artist", artworkData: nil))
+                : .empty("temporary metadata delay")
+        }
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [provider],
+            songPollInterval: 0.02
+        )
+        let station = RadioStation(
+            name: "Manual Radio",
+            streamURL: URL(string: "https://radio.example.org/live.aac")!,
+            source: .manual
+        )
+        engine.play(station)
+        player.simulateReady()
+        for _ in 0..<50 where provider.askCount < 4 {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertGreaterThanOrEqual(provider.askCount, 4)
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Current Song")
+        engine.stop()
+    }
 }

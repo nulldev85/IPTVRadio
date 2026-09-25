@@ -4,7 +4,9 @@ import XCTest
 final class ArtworkLookupServiceTests: XCTestCase {
     func testReturnsArtworkDataAndUpscalesURL() async {
         let searchJSON = #"{"results":[{"artworkUrl100":"https://art.example/100x100bb.jpg"}]}"#
-        let imageData = Data([0x89, 0x50, 0x4E, 0x47])
+        let imageData = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )!
         let http = MockHTTP.client { request in
             let url = request.url?.absoluteString ?? ""
             if url.contains("itunes.apple.com/search") {
@@ -50,6 +52,27 @@ final class ArtworkLookupServiceTests: XCTestCase {
         _ = await service.artworkData(artist: "Nobody", title: "Nothing")
         _ = await service.artworkData(artist: "Nobody", title: "Nothing")
         XCTAssertEqual(counter.value, 1, "A song with no match must not be looked up repeatedly")
+    }
+
+    func testTemporaryFailureCanRecoverOnNextLookup() async {
+        let counter = RequestCounter()
+        let imageData = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )!
+        let http = MockHTTP.client { request in
+            if request.url?.host == "itunes.apple.com" {
+                counter.increment()
+                if counter.value == 1 { return (503, Data()) }
+                return (200, Data(#"{"results":[{"artworkUrl100":"https://art.example/100x100bb.jpg"}]}"#.utf8))
+            }
+            return (200, imageData)
+        }
+        let service = ArtworkLookupService(http: http)
+        let first = await service.artworkData(artist: "Artist", title: "Song")
+        let second = await service.artworkData(artist: "Artist", title: "Song")
+        XCTAssertNil(first)
+        XCTAssertEqual(second, imageData)
+        XCTAssertEqual(counter.value, 2)
     }
 }
 

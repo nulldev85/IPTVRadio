@@ -27,6 +27,9 @@ final class ManualRadioNowPlayingProviderTests: XCTestCase {
 
     func testIHeartProviderReturnsCurrentSongAndArtwork() async {
         let now = Int(Date().timeIntervalSince1970)
+        let imageData = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )!
         let response = """
         {"data":[{"title":"Current Song","artist":"Test Artist",\
         "imagePath":"http://images.example.org/cover.jpg",\
@@ -36,7 +39,7 @@ final class ManualRadioNowPlayingProviderTests: XCTestCase {
             if request.url?.path.contains("trackHistory") == true {
                 return (200, Data(response.utf8))
             }
-            return (200, Data([1, 2, 3]))
+            return (200, imageData)
         }
         let provider = ManualRadioNowPlayingProvider(http: http)
         let station = RadioStation(
@@ -47,6 +50,6 @@ final class ManualRadioNowPlayingProviderTests: XCTestCase {
         let result = await provider.currentSong(for: station)
         XCTAssertEqual(result.update?.title, "Current Song")
         XCTAssertEqual(result.update?.artist, "Test Artist")
-        XCTAssertEqual(result.update?.artworkData, Data([1, 2, 3]))
+        XCTAssertEqual(result.update?.artworkData, imageData)
     }
 }

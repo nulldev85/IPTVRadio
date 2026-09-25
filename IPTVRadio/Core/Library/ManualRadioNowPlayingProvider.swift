@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Live track details for the local stations identified by their stream URLs.
 /// iHeart publishes a track history; the other two send ICY song titles in
@@ -47,7 +48,8 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
                 if artwork == nil,
                    let (data, response) = try? await http.data(for: RequestBuilder.get(imageURL, timeout: 8)),
                    (200..<300).contains(response.statusCode),
-                   !data.isEmpty, data.count < 5_000_000 {
+                   !data.isEmpty, data.count < 5_000_000,
+                   UIImage(data: data) != nil {
                     artwork = data
                     await artworkCache.store(data, for: imageURL.absoluteString)
                 }
