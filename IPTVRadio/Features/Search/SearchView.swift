@@ -7,19 +7,57 @@ struct SearchView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if library.state == .loaded || !manualStations.entries.isEmpty {
-                    searchContent
-                } else {
-                    LibraryStateView(state: library.state) {
-                        Task { await library.refresh() }
+            ZStack {
+                AetherTheme.background.ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    searchField
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+
+                    Group {
+                        if library.state == .loaded || !manualStations.entries.isEmpty {
+                            searchContent
+                        } else {
+                            LibraryStateView(state: library.state) {
+                                Task { await library.refresh() }
+                            }
+                        }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .navigationTitle("Search")
-            .searchable(text: $library.searchQuery, prompt: "Station, genre, show or category")
-            .background(AetherTheme.background.ignoresSafeArea())
+            .toolbarBackground(.hidden, for: .navigationBar)
         }
+        .background(AetherTheme.background.ignoresSafeArea())
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(AetherTheme.mutedIcon)
+            TextField("Station, genre, show or category", text: $library.searchQuery)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .foregroundStyle(AetherTheme.primaryText)
+                .accessibilityIdentifier("search.field")
+            if !library.searchQuery.isEmpty {
+                Button {
+                    library.searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(AetherTheme.mutedIcon)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .font(.body)
+        .padding(.horizontal, 16)
+        .frame(height: 52)
+        .background(AetherTheme.raisedSurface, in: Capsule())
+        .overlay(Capsule().stroke(AetherTheme.border, lineWidth: 1))
     }
 
     @ViewBuilder

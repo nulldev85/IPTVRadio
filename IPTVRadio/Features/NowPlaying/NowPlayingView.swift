@@ -4,33 +4,20 @@ import AVKit
 /// Full now-playing screen: artwork, controls, sleep timer, route picker.
 struct NowPlayingView: View {
     @EnvironmentObject private var playback: PlaybackEngine
-    @Environment(\.dismiss) private var dismiss
 
     @State private var showSleepTimerSheet = false
     /// Channel logo, used as the backdrop when there is no song artwork.
     @State private var stationLogo: UIImage?
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let station = playback.state.station {
-                    content(for: station)
-                } else {
-                    EmptyStateView(title: "Nothing playing", message: "Pick a station to start listening.")
-                }
+        Group {
+            if let station = playback.state.station {
+                content(for: station)
+            } else {
+                EmptyStateView(title: "Nothing playing", message: "Pick a station to start listening.")
             }
-            .navigationTitle("Now Playing")
-            .navigationBarTitleDisplayMode(.inline)
-            // Let the artwork run under the bar instead of being cut off by it.
-            .toolbarBackground(.hidden, for: .navigationBar)
         }
-        // The backdrop is always a dark, scrimmed image, so the chrome on top
-        // of it is styled for dark regardless of the system appearance. One
-        // line here beats hand-colouring every label, material and icon.
         .preferredColorScheme(.dark)
-        // The sheet stays swipe-to-dismissable; the drag indicator plus the
-        // always-visible in-body Close control (below) guarantee a reliable
-        // way back that does not depend on the system navigation bar.
         .presentationDragIndicator(.visible)
         .background(AetherTheme.background.ignoresSafeArea())
     }
@@ -38,58 +25,28 @@ struct NowPlayingView: View {
     private func content(for station: RadioStation) -> some View {
         GeometryReader { proxy in
             VStack(spacing: 24) {
-                // Explicit close control rendered in the view body so dismissal
-                // never depends on the system navigation bar rendering.
-                HStack {
-                    Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Label("Close", systemImage: "xmark.circle.fill")
-                            .font(.headline)
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .accessibilityIdentifier("nowplaying.close")
-                    .accessibilityLabel("Close now playing screen")
-                }
-
                 // Artwork is drawn edge to edge behind this view. Its lower
                 // edge fades into the solid area above the controls.
                 Spacer(minLength: max(160, proxy.size.height * 0.38))
 
-                VStack(spacing: 6) {
-                    if let metadata = playback.nowPlayingMetadata,
-                       metadata.title != nil || metadata.artist != nil {
-                        // Current song from the stream's metadata.
-                        VStack(spacing: 2) {
-                            if let title = metadata.title {
-                                Text(title)
-                                    .font(.title3.weight(.semibold))
-                                    .multilineTextAlignment(.center)
-                            }
-                            if let artist = metadata.artist {
-                                Text(artist)
-                                    .font(.subheadline)
-                                    .foregroundStyle(AetherTheme.secondaryText)
-                                    .multilineTextAlignment(.center)
-                            }
+                if let metadata = playback.nowPlayingMetadata,
+                   metadata.title != nil || metadata.artist != nil {
+                    VStack(spacing: 4) {
+                        if let title = metadata.title {
+                            Text(title)
+                                .font(.title2.weight(.semibold))
+                                .multilineTextAlignment(.center)
+                                .accessibilityIdentifier("nowplaying.songTitle")
                         }
-                        .accessibilityIdentifier("nowplaying.song")
+                        if let artist = metadata.artist {
+                            Text(artist)
+                                .font(.subheadline)
+                                .foregroundStyle(AetherTheme.secondaryText)
+                                .multilineTextAlignment(.center)
+                                .accessibilityIdentifier("nowplaying.artist")
+                        }
                     }
-                    Text(station.name)
-                        .font(playback.nowPlayingMetadata?.title == nil ? .title2.weight(.semibold) : .footnote)
-                        .foregroundStyle(playback.nowPlayingMetadata?.title == nil ? AetherTheme.primaryText : AetherTheme.secondaryText)
-                        .multilineTextAlignment(.center)
-                        .accessibilityIdentifier("nowplaying.title")
-                    if !station.groupTitle.isEmpty {
-                        Text(station.groupTitle)
-                            .font(.subheadline)
-                            .foregroundStyle(AetherTheme.secondaryText)
-                    }
-                    Text(stateText)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(stateColor)
-                        .accessibilityIdentifier("nowplaying.state")
+                    .accessibilityIdentifier("nowplaying.song")
                 }
 
                 Spacer()
@@ -185,25 +142,6 @@ struct NowPlayingView: View {
         }
     }
 
-    private var stateText: String {
-        switch playback.state {
-        case .playing: return "● Live"
-        case .loading: return "Connecting…"
-        case .paused: return "Paused"
-        case .stopped: return "Stopped"
-        case .failed: return "Connection failed"
-        case .idle: return ""
-        }
-    }
-
-    private var stateColor: Color {
-        switch playback.state {
-        case .playing: return .green
-        case .loading: return .orange
-        case .failed: return .red
-        default: return .secondary
-        }
-    }
 }
 
 /// Full-width artwork that gradually disappears into the dark control area.

@@ -61,7 +61,7 @@ final class IPTVRadioUITests: XCTestCase {
         let app = launch(scenario: "UITestSearch")
 
         app.buttons["Search"].tap()
-        let searchField = app.searchFields.firstMatch
+        let searchField = app.textFields["search.field"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 8))
         searchField.tap()
         searchField.typeText("Jazz")
@@ -126,10 +126,7 @@ final class IPTVRadioUITests: XCTestCase {
 
         let miniPlayer = app.buttons["miniplayer.open"].firstMatch
         miniPlayer.tap()
-        let close = app.buttons["nowplaying.close"]
-        if !close.waitForExistence(timeout: 8) {
-            XCTFail("Now playing screen did not open or close control missing. Hierarchy:\n\(app.debugDescription)")
-        }
+        XCTAssertFalse(app.buttons["nowplaying.close"].exists)
         XCTAssertTrue(app.buttons["nowplaying.toggle"].exists)
         XCTAssertFalse(app.buttons["nowplaying.stop"].exists)
         XCTAssertTrue(app.buttons["nowplaying.sleepTimer"].exists)
@@ -138,9 +135,10 @@ final class IPTVRadioUITests: XCTestCase {
         app.buttons["nowplaying.next"].tap()
         XCTAssertTrue(app.buttons["nowplaying.toggle"].waitForExistence(timeout: 8))
 
-        // Dismiss with the always-visible control; playback continues in the
-        // persistent mini player.
-        close.tap()
+        // Swipe the sheet down; playback continues in the mini player.
+        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10))
+        let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+        from.press(forDuration: 0.1, thenDragTo: to)
         XCTAssertTrue(app.buttons["miniplayer.open"].waitForExistence(timeout: 8))
 
         // Explicit Stop clears the mini player entirely so the full UI (and
