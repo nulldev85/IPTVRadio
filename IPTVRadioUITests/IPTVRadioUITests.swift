@@ -131,7 +131,7 @@ final class IPTVRadioUITests: XCTestCase {
             XCTFail("Now playing screen did not open or close control missing. Hierarchy:\n\(app.debugDescription)")
         }
         XCTAssertTrue(app.buttons["nowplaying.toggle"].exists)
-        XCTAssertTrue(app.buttons["nowplaying.stop"].exists)
+        XCTAssertFalse(app.buttons["nowplaying.stop"].exists)
         XCTAssertTrue(app.buttons["nowplaying.sleepTimer"].exists)
 
         // Switching stations repeatedly works without leaving the player.

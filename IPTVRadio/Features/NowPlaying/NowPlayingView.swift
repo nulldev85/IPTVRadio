@@ -10,12 +10,6 @@ struct NowPlayingView: View {
     /// Channel logo, used as the backdrop when there is no song artwork.
     @State private var stationLogo: UIImage?
 
-    /// What fills the screen behind the player: the current song's artwork when
-    /// the stream provides it, otherwise the channel logo.
-    private var backdropImage: UIImage? {
-        playback.nowPlayingMetadata?.artworkImage ?? stationLogo
-    }
-
     var body: some View {
         NavigationStack {
             Group {
@@ -43,14 +37,6 @@ struct NowPlayingView: View {
 
     private func content(for station: RadioStation) -> some View {
         GeometryReader { proxy in
-            // The artwork grows with the sheet but is capped against height as
-            // well as width, so the controls are never squeezed off the bottom
-            // of a small screen.
-            // Clamped at the bottom: a GeometryReader can report a zero size on
-            // an initial or transition pass, and `width - 48` would then be
-            // negative — an invalid frame and an out-of-range font size.
-            let artworkSize = max(120, min(proxy.size.width - 48, max(160, proxy.size.height * 0.40)))
-
             VStack(spacing: 24) {
                 // Explicit close control rendered in the view body so dismissal
                 // never depends on the system navigation bar rendering.
@@ -67,14 +53,9 @@ struct NowPlayingView: View {
                     .accessibilityLabel("Close now playing screen")
                 }
 
-                PlaybackArtwork(
-                    station: station,
-                    songArtwork: playback.nowPlayingMetadata?.artworkImage,
-                    size: artworkSize
-                )
-                // Lifts the sharp artwork off the blurred backdrop behind it.
-                .shadow(color: .black.opacity(0.5), radius: 24, y: 12)
-                .padding(.top, 12)
+                // Artwork is drawn edge to edge behind this view. Its lower
+                // edge fades into the solid area above the controls.
+                Spacer(minLength: max(160, proxy.size.height * 0.38))
 
                 VStack(spacing: 6) {
                     if let metadata = playback.nowPlayingMetadata,
@@ -115,10 +96,6 @@ struct NowPlayingView: View {
 
                 controlRow
 
-                if let diagnostics = playback.streamDiagnostics {
-                    StreamDiagnosticsSummaryCard(diagnostics: diagnostics)
-                }
-
                 HStack(spacing: 28) {
                     SleepTimerButton(showSheet: $showSleepTimerSheet)
                     RoutePickerButton()
@@ -135,7 +112,10 @@ struct NowPlayingView: View {
             }
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(NowPlayingBackdrop(image: backdropImage))
+            .background(NowPlayingBackdrop(
+                artwork: playback.nowPlayingMetadata?.artworkImage,
+                logo: stationLogo
+            ))
         }
         .sheet(isPresented: $showSleepTimerSheet) {
             SleepTimerSheet()
@@ -150,12 +130,13 @@ struct NowPlayingView: View {
     }
 
     private var controlRow: some View {
-        HStack(spacing: 40) {
+        HStack(spacing: 28) {
             Button {
                 playback.previousStation()
             } label: {
                 Image(systemName: "backward.end.fill")
                     .font(.title2)
+                    .frame(width: 56, height: 88)
             }
             .accessibilityLabel("Previous station")
             .accessibilityIdentifier("nowplaying.previous")
@@ -177,19 +158,12 @@ struct NowPlayingView: View {
             } label: {
                 Image(systemName: "forward.end.fill")
                     .font(.title2)
+                    .frame(width: 56, height: 88)
             }
             .accessibilityLabel("Next station")
             .accessibilityIdentifier("nowplaying.next")
-
-            Button {
-                playback.stop()
-            } label: {
-                Image(systemName: "stop.fill")
-                    .font(.title2)
-            }
-            .accessibilityLabel("Stop")
-            .accessibilityIdentifier("nowplaying.stop")
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var mainButtonIcon: String {
@@ -232,62 +206,51 @@ struct NowPlayingView: View {
     }
 }
 
-/// Full-bleed artwork behind the now playing screen.
-///
-/// The image is scaled to fill, blurred hard, and covered with a scrim. At that
-/// blur radius it reads as colour and light rather than as a picture, which is
-/// the point: the song title, controls and state text all sit on top of it and
-/// have to stay legible against whatever a provider happens to serve — a dark
-/// album cover one minute, a white station logo the next.
-///
-/// With no artwork at all it is a gradient in the app's accent, so the screen
-/// looks deliberate rather than broken.
+/// Full-width artwork that gradually disappears into the dark control area.
+/// The fallback is the same blue-to-black gradient as the rest of Aether.
 private struct NowPlayingBackdrop: View {
-    let image: UIImage?
+    let artwork: UIImage?
+    let logo: UIImage?
 
     var body: some View {
-        ZStack {
-            // Also the fallback when there is nothing to show.
-            LinearGradient(
-                colors: [
-                    Color.accentColor.opacity(0.5),
-                    Color.black.opacity(0.85),
-                    Color.black
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+        GeometryReader { proxy in
+            ZStack(alignment: .top) {
+                AetherTheme.background
 
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // Clip before blurring: a scaled-to-fill image overflows on
-                    // one axis, and an unclipped blur bleeds past the screen.
-                    .clipped()
-                    .blur(radius: 60)
-                    // A blur samples beyond its layer as transparent, so the
-                    // edges fade and leave a rim. Overscaling pushes that fade
-                    // off screen. (`opaque: true` would also fix it, but it
-                    // renders transparent pixels black, and keyed channel logos
-                    // are mostly transparent.)
-                    .scaleEffect(1.15)
-                    // Keyed logos being transparent means the base gradient
-                    // shows through as a tint rather than a hard edge.
-                    .opacity(0.9)
+                if let artwork {
+                    Image(uiImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height * 0.78)
+                        .clipped()
+                        .overlay {
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .black.opacity(0.40), location: 0),
+                                    .init(color: .clear, location: 0.20),
+                                    .init(color: .clear, location: 0.42),
+                                    .init(color: .black.opacity(0.65), location: 0.72),
+                                    .init(color: .black, location: 1)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                } else if let logo {
+                    // Wordmark logos are often transparent and much wider than
+                    // a square album cover. Use them as soft color rather than
+                    // enlarging and cropping the mark behind the controls.
+                    Image(uiImage: logo)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: proxy.size.width, height: proxy.size.height * 0.65)
+                        .blur(radius: 55)
+                        .scaleEffect(1.2)
+                        .opacity(0.55)
+                }
             }
-
-            // Darkest top and bottom, where the title and the controls sit.
-            LinearGradient(
-                colors: [
-                    Color.black.opacity(0.55),
-                    Color.black.opacity(0.15),
-                    Color.black.opacity(0.7)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
         }
         .ignoresSafeArea()
     }

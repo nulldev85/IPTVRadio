@@ -246,38 +246,3 @@ struct StreamDiagnosticsView: View {
         return String(format: "%.0f kbps", value / 1000)
     }
 }
-
-/// Compact live diagnostics line shown on the now playing screen.
-struct StreamDiagnosticsSummaryCard: View {
-    let diagnostics: StreamDiagnostics
-
-    var body: some View {
-        VStack(spacing: 3) {
-            Text(formatLine)
-                .font(.caption2.weight(.medium))
-            Text(bitrateLine)
-                .font(.caption2)
-                .foregroundStyle(AetherTheme.secondaryText)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("nowplaying.diagnostics")
-    }
-
-    private var formatLine: String {
-        let name: String
-        switch diagnostics.streamType.lowercased() {
-        case "ts": name = "MPEG-TS"
-        case "m3u8": name = "HLS"
-        case "": name = "stream"
-        default: name = diagnostics.streamType.uppercased()
-        }
-        return "\(name) · option \(diagnostics.formatIndex) of \(diagnostics.formatCount)"
-    }
-
-    private var bitrateLine: String {
-        guard let bitrate = diagnostics.primaryBitrate else {
-            return "Bitrate not reported by the stream"
-        }
-        return String(format: "%.0f kbps", bitrate / 1000)
-    }
-}
