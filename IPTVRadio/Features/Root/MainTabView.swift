@@ -4,18 +4,19 @@ import SwiftUI
 /// Radio only — there is no TV/video browsing anywhere in the app.
 ///
 /// The system mode attaches the mini player to each tab's content. The flat
-/// mode places both player and navigation in a fixed stack below the tabs.
+/// mode overlays both player and navigation on the tab content.
 /// The full player is presented once, here.
 struct MainTabView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var library: LibraryViewModel
     @EnvironmentObject private var settings: SettingsStore
+    @EnvironmentObject private var playback: PlaybackEngine
 
     @State private var showNowPlaying = false
     @State private var selectedTab: AetherTab = .radio
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
                 tabContent { ManualRadioView() }
                     .tabItem { Label("Radio", systemImage: "music.note.list") }
@@ -40,8 +41,10 @@ struct MainTabView: View {
             .tint(AetherTheme.mutedIcon)
 
             if !settings.liquidGlassEnabled {
-                MiniPlayerView(onOpen: { showNowPlaying = true })
-                FlatTabBar(selection: $selectedTab)
+                VStack(spacing: 0) {
+                    MiniPlayerView(onOpen: { showNowPlaying = true })
+                    FlatTabBar(selection: $selectedTab)
+                }
             }
         }
         .background(AetherTheme.background.ignoresSafeArea())
@@ -58,8 +61,15 @@ struct MainTabView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if settings.liquidGlassEnabled {
                     MiniPlayerView(onOpen: { showNowPlaying = true })
+                } else {
+                    // Let the final row scroll above the overlaid controls.
+                    Color.clear.frame(height: flatControlsHeight)
                 }
             }
+    }
+
+    private var flatControlsHeight: CGFloat {
+        61 + (playback.state.station == nil ? 0 : 60)
     }
 }
 
@@ -101,8 +111,7 @@ private struct FlatTabBar: View {
                 } label: {
                     VStack(spacing: 5) {
                         Capsule()
-                            .fill(LinearGradient(colors: [AetherTheme.coral, .cyan],
-                                                 startPoint: .leading, endPoint: .trailing))
+                            .fill(AetherTheme.secondaryText)
                             .frame(width: 27, height: 3)
                             .opacity(selection == tab ? 1 : 0)
                         Image(systemName: tab.symbol)
@@ -124,7 +133,7 @@ private struct FlatTabBar: View {
         }
         .padding(.horizontal, 8)
         .padding(.top, 5)
-        .background(AetherTheme.tabBar.ignoresSafeArea(edges: .bottom))
+        .background(AetherTheme.tabBar.opacity(0.68).ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) {
             AetherTheme.border.opacity(0.5).frame(height: 1)
         }
