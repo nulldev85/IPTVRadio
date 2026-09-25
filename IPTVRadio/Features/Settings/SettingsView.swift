@@ -15,6 +15,7 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 accountSection
+                appearanceSection
                 playbackSection
                 filteringSection
                 cacheSection
@@ -34,6 +35,18 @@ struct SettingsView: View {
                 Text("Credentials are removed from the Keychain and cached data is cleared.")
             }
             .background(AetherTheme.background.ignoresSafeArea())
+        }
+    }
+
+    private var appearanceSection: some View {
+        Section {
+            Toggle("Liquid Glass navigation", isOn: $settings.liquidGlassEnabled)
+                .accessibilityIdentifier("settings.liquidGlass")
+                .aetherSettingsRow()
+        } header: {
+            Text("Appearance")
+        } footer: {
+            Text("Turn off for a flat, full-width tab bar. The change takes effect immediately.")
         }
     }
 

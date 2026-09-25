@@ -166,4 +166,25 @@ final class IPTVRadioUITests: XCTestCase {
                       "Stopping must clear the mini player")
         XCTAssertTrue(app.buttons["Radio"].waitForExistence(timeout: 8))
     }
+
+    func testLiquidGlassSettingKeepsNavigationAndMiniPlayer() throws {
+        let app = launch(scenario: "UITestNowPlaying")
+        app.buttons["Settings"].tap()
+
+        let liquidGlassSwitch = app.buttons["settings.liquidGlass"]
+        XCTAssertTrue(liquidGlassSwitch.waitForExistence(timeout: 8))
+        if !app.buttons["tab.favorites"].exists {
+            liquidGlassSwitch.tap()
+        }
+
+        XCTAssertTrue(app.buttons["tab.favorites"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["miniplayer.open"].exists)
+        app.buttons["tab.favorites"].tap()
+        XCTAssertTrue(app.navigationBars["Favorites"].waitForExistence(timeout: 8))
+        app.buttons["tab.settings"].tap()
+        liquidGlassSwitch.tap()
+
+        XCTAssertTrue(app.buttons["SXM"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["miniplayer.open"].exists)
+    }
 }

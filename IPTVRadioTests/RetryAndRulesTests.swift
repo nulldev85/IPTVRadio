@@ -55,4 +55,13 @@ final class DetectionRulesCodableTests: XCTestCase {
         let reloaded = SettingsStore(defaults: defaults)
         XCTAssertEqual(reloaded.detectionRules.minimumRadioScore, 5)
     }
+
+    @MainActor
+    func testLiquidGlassPreferenceDefaultsOnAndPersists() {
+        let defaults = makeIsolatedDefaults()
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertTrue(store.liquidGlassEnabled)
+        store.liquidGlassEnabled = false
+        XCTAssertFalse(SettingsStore(defaults: defaults).liquidGlassEnabled)
+    }
 }

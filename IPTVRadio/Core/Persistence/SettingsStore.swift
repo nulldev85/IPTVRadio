@@ -14,6 +14,7 @@ final class SettingsStore: ObservableObject {
         static let authMode = "settings.authMode"
         static let preferAudioOnlyRendition = "settings.preferAudioOnlyRendition"
         static let lookupSongArtwork = "settings.lookupSongArtwork"
+        static let liquidGlassEnabled = "settings.liquidGlassEnabled"
     }
 
     enum AuthMode: String, CaseIterable, Identifiable {
@@ -48,6 +49,10 @@ final class SettingsStore: ObservableObject {
     @Published var lookupSongArtwork: Bool {
         didSet { defaults.set(lookupSongArtwork, forKey: Keys.lookupSongArtwork) }
     }
+    /// Use the system tab bar, including Liquid Glass on supported iOS versions.
+    @Published var liquidGlassEnabled: Bool {
+        didSet { defaults.set(liquidGlassEnabled, forKey: Keys.liquidGlassEnabled) }
+    }
     /// Playback engine used for streams (takes effect after an app restart).
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -59,6 +64,7 @@ final class SettingsStore: ObservableObject {
         authMode = AuthMode(rawValue: defaults.string(forKey: Keys.authMode) ?? "") ?? .xtream
         preferAudioOnlyRendition = defaults.object(forKey: Keys.preferAudioOnlyRendition) as? Bool ?? true
         lookupSongArtwork = defaults.object(forKey: Keys.lookupSongArtwork) as? Bool ?? true
+        liquidGlassEnabled = defaults.object(forKey: Keys.liquidGlassEnabled) as? Bool ?? true
 
         if let data = defaults.data(forKey: Keys.detectionRules),
            let rules = try? JSONDecoder().decode(RadioDetectionRules.self, from: data) {
