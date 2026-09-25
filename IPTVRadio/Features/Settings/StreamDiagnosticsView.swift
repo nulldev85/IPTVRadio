@@ -40,7 +40,7 @@ struct StreamDiagnosticsView: View {
                                 .font(.footnote.weight(.medium))
                             Text(failure)
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(AetherTheme.secondaryText)
                         }
                         .accessibilityIdentifier("diagnostics.previousFailure")
                     }
@@ -118,23 +118,25 @@ struct StreamDiagnosticsView: View {
                 Section {
                     Text("Updated \(diagnostics.updatedAt.formatted(date: .omitted, time: .standard))")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AetherTheme.secondaryText)
                 }
             } else {
                 Section("Active stream") {
                     Text("No active stream. Play a station to collect diagnostics.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AetherTheme.secondaryText)
                 }
             }
 
             Section {
                 Text("This app plays your provider's stream exactly as delivered — no transcoding, EQ or volume processing.\n\n“Observed bitrate” is the recent download rate and is highest right after playback starts; it does not describe audio quality. HLS streams often do not report audio bitrate figures at all.\n\nIf audio quality sounds low, switch “Stream format” in Settings ▸ Playback and compare — the format line above shows which option is playing.\n\nIf this station came from an M3U playlist link and sounds worse than another player, sign in with your provider's Xtream portal details (server URL, username, password) instead — that plays the provider's original stream rather than a re-packaged copy.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AetherTheme.secondaryText)
             } header: {
                 Text("How to read this")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(AetherTheme.background.ignoresSafeArea())
         .navigationTitle("Stream diagnostics")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -255,7 +257,7 @@ struct StreamDiagnosticsSummaryCard: View {
                 .font(.caption2.weight(.medium))
             Text(bitrateLine)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AetherTheme.secondaryText)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("nowplaying.diagnostics")

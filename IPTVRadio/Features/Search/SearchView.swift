@@ -17,6 +17,7 @@ struct SearchView: View {
             }
             .navigationTitle("Search")
             .searchable(text: $library.searchQuery, prompt: "Station, genre, show or category")
+            .background(AetherTheme.background.ignoresSafeArea())
         }
     }
 
@@ -42,6 +43,7 @@ struct SearchView: View {
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
     }
 }

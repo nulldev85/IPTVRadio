@@ -47,7 +47,7 @@ struct LaunchLoadingView: View {
             ProgressView()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .background(AetherTheme.background.ignoresSafeArea())
         .accessibilityLabel(Text("Loading"))
     }
 }

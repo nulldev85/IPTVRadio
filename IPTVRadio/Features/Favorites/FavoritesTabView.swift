@@ -20,9 +20,11 @@ struct FavoritesTabView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
                 }
             }
             .navigationTitle("Favorites")
+            .background(AetherTheme.background.ignoresSafeArea())
         }
     }
 }

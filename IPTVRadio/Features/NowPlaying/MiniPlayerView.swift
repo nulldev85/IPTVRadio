@@ -28,7 +28,7 @@ struct MiniPlayerView: View {
                                     .lineLimit(1)
                                 Text(playback.nowPlayingMetadata?.artist ?? stateDescription)
                                     .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AetherTheme.secondaryText)
                                     .lineLimit(1)
                             }
 
@@ -64,7 +64,11 @@ struct MiniPlayerView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(.bar)
+                .foregroundStyle(AetherTheme.primaryText)
+                .background(AetherTheme.tabBar)
+                .overlay(alignment: .top) {
+                    AetherTheme.border.frame(height: 1)
+                }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: playback.state.station?.id)

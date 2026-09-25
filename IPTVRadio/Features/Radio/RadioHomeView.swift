@@ -17,6 +17,7 @@ struct RadioHomeView: View {
                 }
             }
             .navigationTitle("Radio")
+            .background(AetherTheme.background.ignoresSafeArea())
             .refreshable {
                 await library.refresh()
             }
@@ -61,6 +62,7 @@ struct RadioHomeView: View {
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         )
     }
 }
@@ -77,6 +79,7 @@ struct AllStationsView: View {
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
     }

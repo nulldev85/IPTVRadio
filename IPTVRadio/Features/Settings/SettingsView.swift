@@ -20,6 +20,7 @@ struct SettingsView: View {
                 cacheSection
                 privacySection
             }
+            .scrollContentBackground(.hidden)
             .navigationTitle("Settings")
             .alert("Sign out?", isPresented: $confirmSignOut) {
                 Button("Sign Out", role: .destructive) {
@@ -30,6 +31,7 @@ struct SettingsView: View {
             } message: {
                 Text("Credentials are removed from the Keychain and cached data is cleared.")
             }
+            .background(AetherTheme.background.ignoresSafeArea())
         }
     }
 
@@ -64,7 +66,7 @@ struct SettingsView: View {
                     Text("Stream timeout")
                     Spacer()
                     Text("\(Int(settings.streamTimeout)) s")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AetherTheme.secondaryText)
                 }
                 Slider(value: $settings.streamTimeout, in: 5...60, step: 1)
             }
@@ -76,7 +78,7 @@ struct SettingsView: View {
                     Text("Auto-retry attempts")
                     Spacer()
                     Text("\(settings.retryLimit)")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AetherTheme.secondaryText)
                 }
                 Slider(value: Binding(
                     get: { Double(settings.retryLimit) },
@@ -232,6 +234,8 @@ struct DetectionRulesEditorView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(AetherTheme.background.ignoresSafeArea())
         .navigationTitle("Detection rules")
         .onAppear { loadFields() }
         .onDisappear { saveFields() }
@@ -276,28 +280,29 @@ struct PrivacyNoticeView: View {
                     .font(.headline)
                 Text("You must hold valid authorization from your provider to access the streams you configure in this app. This app is a client for your own subscription only. It does not bundle, scrape, redistribute, or provide access to any channels, and it does not attempt to bypass DRM, authentication, geographic restrictions, or provider limitations.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AetherTheme.secondaryText)
 
                 Text("Your data")
                     .font(.headline)
                 Text("Credentials (server URL, username, password or playlist URL) are stored exclusively in the iOS Keychain. Station lists and preferences stay on your device. Nothing is uploaded anywhere by this app.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AetherTheme.secondaryText)
 
                 Text("No tracking")
                     .font(.headline)
                 Text("This app contains no analytics, advertising, or third-party tracking SDKs. Logs are scrubbed of usernames, passwords and credential-bearing URLs.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AetherTheme.secondaryText)
 
                 Text("Secure connections")
                     .font(.headline)
                 Text("HTTPS is preferred. If your provider only offers an unencrypted HTTP endpoint, the app clearly warns you before you continue. Because providers differ, connections to provider-supplied HTTP endpoints (including artwork servers) are allowed; the app still warns you whenever an insecure portal is detected.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AetherTheme.secondaryText)
             }
             .padding()
         }
+        .background(AetherTheme.background.ignoresSafeArea())
         .navigationTitle("Privacy")
         .navigationBarTitleDisplayMode(.inline)
     }

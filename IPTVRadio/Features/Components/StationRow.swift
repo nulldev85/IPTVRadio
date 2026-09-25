@@ -25,12 +25,12 @@ struct StationRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(station.name)
                         .font(.body.weight(isCurrent ? .semibold : .regular))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(AetherTheme.primaryText)
                         .lineLimit(2)
                     if !station.groupTitle.isEmpty {
                         Text(station.groupTitle)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AetherTheme.secondaryText)
                             .lineLimit(1)
                     }
                 }
@@ -45,7 +45,7 @@ struct StationRow: View {
                     favorites.toggle(station)
                 } label: {
                     Image(systemName: favorites.isFavorite(station) ? "star.fill" : "star")
-                        .foregroundStyle(favorites.isFavorite(station) ? Color.yellow : Color.secondary)
+                        .foregroundStyle(favorites.isFavorite(station) ? AetherTheme.coral : AetherTheme.mutedIcon)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(favorites.isFavorite(station) ? "Remove from favorites" : "Add to favorites")
@@ -54,6 +54,8 @@ struct StationRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
         .accessibilityIdentifier("station.row.\(station.name)")
         .accessibilityElement(children: .combine)
         .accessibilityHint("Plays this station")
@@ -129,10 +131,10 @@ struct StationArtwork: View {
     private var placeholder: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color(.tertiarySystemFill))
+                .fill(AetherTheme.raisedSurface)
             Image(systemName: "antenna.radiowaves.left.and.right")
                 .font(.system(size: size * 0.38))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AetherTheme.mutedIcon)
         }
     }
 }

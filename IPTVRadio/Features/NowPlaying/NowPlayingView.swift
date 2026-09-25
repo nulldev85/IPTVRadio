@@ -38,6 +38,7 @@ struct NowPlayingView: View {
         // always-visible in-body Close control (below) guarantee a reliable
         // way back that does not depend on the system navigation bar.
         .presentationDragIndicator(.visible)
+        .background(AetherTheme.background.ignoresSafeArea())
     }
 
     private func content(for station: RadioStation) -> some View {
@@ -88,7 +89,7 @@ struct NowPlayingView: View {
                             if let artist = metadata.artist {
                                 Text(artist)
                                     .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AetherTheme.secondaryText)
                                     .multilineTextAlignment(.center)
                             }
                         }
@@ -96,13 +97,13 @@ struct NowPlayingView: View {
                     }
                     Text(station.name)
                         .font(playback.nowPlayingMetadata?.title == nil ? .title2.weight(.semibold) : .footnote)
-                        .foregroundStyle(playback.nowPlayingMetadata?.title == nil ? Color.primary : Color.secondary)
+                        .foregroundStyle(playback.nowPlayingMetadata?.title == nil ? AetherTheme.primaryText : AetherTheme.secondaryText)
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("nowplaying.title")
                     if !station.groupTitle.isEmpty {
                         Text(station.groupTitle)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AetherTheme.secondaryText)
                     }
                     Text(stateText)
                         .font(.caption.weight(.medium))
@@ -165,7 +166,7 @@ struct NowPlayingView: View {
                 Image(systemName: mainButtonIcon)
                     .font(.system(size: 44))
                     .frame(width: 88, height: 88)
-                    .background(Color(.secondarySystemFill))
+                    .background(AetherTheme.raisedSurface)
                     .clipShape(Circle())
             }
             .accessibilityLabel(mainButtonLabel)

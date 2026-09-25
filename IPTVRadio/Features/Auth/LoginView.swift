@@ -55,7 +55,7 @@ struct LoginView: View {
                 }
                 .padding()
             }
-            .background(Color(.systemGroupedBackground))
+            .background(AetherTheme.background.ignoresSafeArea())
             .navigationTitle("Sign In")
             .onAppear {
                 mode = environment.settings.authMode
@@ -74,7 +74,7 @@ struct LoginView: View {
                 .multilineTextAlignment(.center)
             Text("Sign in with your own provider account. This app does not provide any channels itself.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AetherTheme.secondaryText)
                 .multilineTextAlignment(.center)
         }
         .padding(.top, 24)
@@ -116,7 +116,7 @@ struct LoginView: View {
                 .accessibilityIdentifier("login.playlistURL")
             Text("The playlist is downloaded from your own provider. URLs containing embedded credentials are stored only in the Keychain and never logged.")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AetherTheme.secondaryText)
         }
     }
 
@@ -147,11 +147,11 @@ struct LoginView: View {
                 .font(.footnote.weight(.semibold))
             Text("You must have valid authorization from your provider to access the streams you use with this app. This app is a client for your own subscription only; it does not bundle, scrape, or redistribute channels and does not bypass DRM or access restrictions.")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AetherTheme.secondaryText)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground))
+        .background(AetherTheme.raisedSurface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
