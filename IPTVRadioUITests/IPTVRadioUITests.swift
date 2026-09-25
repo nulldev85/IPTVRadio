@@ -171,7 +171,9 @@ final class IPTVRadioUITests: XCTestCase {
         let app = launch(scenario: "UITestNowPlaying")
         app.buttons["Settings"].tap()
 
-        let liquidGlassSwitch = app.buttons["settings.liquidGlass"]
+        let liquidGlassSwitch = app.descendants(matching: .any)
+            .matching(identifier: "settings.liquidGlass")
+            .firstMatch
         XCTAssertTrue(liquidGlassSwitch.waitForExistence(timeout: 8))
         if !app.buttons["tab.favorites"].exists {
             liquidGlassSwitch.tap()
