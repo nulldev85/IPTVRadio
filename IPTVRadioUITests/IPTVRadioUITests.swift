@@ -179,9 +179,12 @@ final class IPTVRadioUITests: XCTestCase {
             liquidGlassSwitch.tap()
         }
 
-        XCTAssertTrue(app.buttons["tab.favorites"].waitForExistence(timeout: 8))
+        let flatFavorites = app.buttons["tab.favorites"]
+        if !flatFavorites.waitForExistence(timeout: 8) {
+            XCTFail("Flat tab bar did not appear after switching modes. Hierarchy:\n\(app.debugDescription)")
+        }
         XCTAssertTrue(app.buttons["miniplayer.open"].exists)
-        app.buttons["tab.favorites"].tap()
+        flatFavorites.tap()
         XCTAssertTrue(app.navigationBars["Favorites"].waitForExistence(timeout: 8))
         app.buttons["tab.settings"].tap()
         liquidGlassSwitch.tap()

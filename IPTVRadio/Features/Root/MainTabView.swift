@@ -3,10 +3,9 @@ import SwiftUI
 /// Main tab layout: Radio, SXM, Favorites, Search, Settings.
 /// Radio only — there is no TV/video browsing anywhere in the app.
 ///
-/// The mini player is attached to each tab's content rather than the TabView
-/// itself, so it always sits *above* the tab bar and can never cover or replace
-/// the navigation controls. The full player is presented once, here, rather
-/// than from inside the bottom inset.
+/// The system mode attaches the mini player to each tab's content. The flat
+/// mode places both player and navigation in a fixed stack below the tabs.
+/// The full player is presented once, here.
 struct MainTabView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var library: LibraryViewModel
@@ -16,34 +15,33 @@ struct MainTabView: View {
     @State private var selectedTab: AetherTab = .radio
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            tabContent { ManualRadioView() }
-                .tabItem { Label("Radio", systemImage: "music.note.list") }
-                .tag(AetherTab.radio)
+        VStack(spacing: 0) {
+            TabView(selection: $selectedTab) {
+                tabContent { ManualRadioView() }
+                    .tabItem { Label("Radio", systemImage: "music.note.list") }
+                    .tag(AetherTab.radio)
 
-            tabContent { RadioHomeView() }
-                .tabItem { Label("SXM", systemImage: "antenna.radiowaves.left.and.right") }
-                .tag(AetherTab.sxm)
+                tabContent { RadioHomeView() }
+                    .tabItem { Label("SXM", systemImage: "antenna.radiowaves.left.and.right") }
+                    .tag(AetherTab.sxm)
 
-            tabContent { FavoritesTabView() }
-                .tabItem { Label("Favorites", systemImage: "heart") }
-                .tag(AetherTab.favorites)
+                tabContent { FavoritesTabView() }
+                    .tabItem { Label("Favorites", systemImage: "heart") }
+                    .tag(AetherTab.favorites)
 
-            tabContent { SearchView() }
-                .tabItem { Label("Search", systemImage: "magnifyingglass") }
-                .tag(AetherTab.search)
+                tabContent { SearchView() }
+                    .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                    .tag(AetherTab.search)
 
-            tabContent { SettingsView() }
-                .tabItem { Label("Settings", systemImage: "gearshape") }
-                .tag(AetherTab.settings)
-        }
-        .tint(AetherTheme.mutedIcon)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+                tabContent { SettingsView() }
+                    .tabItem { Label("Settings", systemImage: "gearshape") }
+                    .tag(AetherTab.settings)
+            }
+            .tint(AetherTheme.mutedIcon)
+
             if !settings.liquidGlassEnabled {
-                VStack(spacing: 0) {
-                    MiniPlayerView(onOpen: { showNowPlaying = true })
-                    FlatTabBar(selection: $selectedTab)
-                }
+                MiniPlayerView(onOpen: { showNowPlaying = true })
+                FlatTabBar(selection: $selectedTab)
             }
         }
         .background(AetherTheme.background.ignoresSafeArea())
@@ -130,6 +128,5 @@ private struct FlatTabBar: View {
         .overlay(alignment: .top) {
             AetherTheme.border.opacity(0.5).frame(height: 1)
         }
-        .accessibilityIdentifier("navigation.flatTabBar")
     }
 }
