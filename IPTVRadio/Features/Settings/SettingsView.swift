@@ -13,13 +13,14 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            List {
                 accountSection
                 playbackSection
                 filteringSection
                 cacheSection
                 privacySection
             }
+            .listStyle(.plain)
             .toggleStyle(AetherSettingsToggleStyle())
             .scrollContentBackground(.hidden)
             .navigationTitle("Settings")
@@ -40,21 +41,26 @@ struct SettingsView: View {
         Section("Account") {
             if let session = activeSessionDescription {
                 LabeledContent("Status", value: session.status)
+                    .aetherSettingsRow()
                 if let expiry = session.expiry {
                     LabeledContent("Subscription expires", value: expiry)
+                        .aetherSettingsRow()
                 }
             } else {
                 LabeledContent("Status", value: "Signed in")
+                    .aetherSettingsRow()
             }
             if let warning = auth.insecureEndpointWarning {
                 Label(warning, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .font(.footnote)
+                    .aetherSettingsRow()
             }
             Button("Sign Out", role: .destructive) {
                 confirmSignOut = true
             }
             .accessibilityIdentifier("settings.signOut")
+            .aetherSettingsRow()
         }
     }
 
@@ -62,6 +68,7 @@ struct SettingsView: View {
         Section {
             Toggle("Allow cellular streaming", isOn: $settings.cellularAllowed)
                 .accessibilityIdentifier("settings.cellular")
+                .aetherSettingsRow()
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Stream timeout")
@@ -74,6 +81,7 @@ struct SettingsView: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Stream timeout")
             .accessibilityValue("\(Int(settings.streamTimeout)) seconds")
+            .aetherSettingsRow()
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Auto-retry attempts")
@@ -89,15 +97,20 @@ struct SettingsView: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Auto-retry attempts")
             .accessibilityValue("\(settings.retryLimit) attempts")
+            .aetherSettingsRow()
             SleepTimerStatusRow()
+                .aetherSettingsRow()
             Toggle("Prefer audio-only stream", isOn: $settings.preferAudioOnlyRendition)
                 .accessibilityIdentifier("settings.audioOnly")
+                .aetherSettingsRow()
             Toggle("Look up song artwork online", isOn: $settings.lookupSongArtwork)
                 .accessibilityIdentifier("settings.artworkLookup")
+                .aetherSettingsRow()
             NavigationLink("Stream diagnostics") {
                 StreamDiagnosticsView()
             }
             .accessibilityIdentifier("settings.streamDiagnostics")
+            .aetherSettingsRow()
         } header: {
             Text("Playback")
         } footer: {
@@ -109,11 +122,14 @@ struct SettingsView: View {
         Section {
             Toggle("Show only SiriusXM-labelled stations", isOn: $settings.siriusOnly)
                 .accessibilityIdentifier("settings.siriusOnly")
+                .aetherSettingsRow()
             Toggle("Show all detected radio stations", isOn: $settings.showAllStations)
                 .accessibilityIdentifier("settings.showAll")
+                .aetherSettingsRow()
             NavigationLink("Detection rules") {
                 DetectionRulesEditorView()
             }
+            .aetherSettingsRow()
         } header: {
             Text("Station filtering")
         } footer: {
@@ -124,6 +140,7 @@ struct SettingsView: View {
     private var cacheSection: some View {
         Section("Data") {
             LabeledContent("Cached data size", value: ByteCountFormatter.string(fromByteCount: Int64(cacheSize), countStyle: .file))
+                .aetherSettingsRow()
             Button("Clear station cache") {
                 library.clearCacheData()
                 cacheCleared = true
@@ -133,6 +150,7 @@ struct SettingsView: View {
             } message: {
                 Text("Cached stations were removed. A refresh will re-download your lineup.")
             }
+            .aetherSettingsRow()
         }
     }
 
@@ -141,6 +159,7 @@ struct SettingsView: View {
             NavigationLink("Privacy & authorization") {
                 PrivacyNoticeView()
             }
+            .aetherSettingsRow()
         } footer: {
             Text("No analytics, no tracking. Credentials are stored only in the Keychain and never logged.")
         }
@@ -162,8 +181,15 @@ struct SettingsView: View {
     }
 }
 
-/// Aether's switches keep the same charcoal track in both states; only the
-/// light thumb changes sides, so enabled options do not turn into white bars.
+private extension View {
+    func aetherSettingsRow() -> some View {
+        listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+    }
+}
+
+/// Coral matches the Favorites stars; the thumb position and brightness show
+/// whether a setting is enabled without reverting to the system's white track.
 private struct AetherSettingsToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button {
@@ -175,11 +201,15 @@ private struct AetherSettingsToggleStyle: ToggleStyle {
                 configuration.label
                 Spacer(minLength: 8)
                 Capsule()
-                    .fill(Color(white: 0.33))
+                    .fill(AetherTheme.coral.opacity(configuration.isOn ? 0.35 : 0.17))
                     .frame(width: 54, height: 30)
+                    .overlay {
+                        Capsule()
+                            .strokeBorder(AetherTheme.coral.opacity(0.45), lineWidth: 1)
+                    }
                     .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                         Circle()
-                            .fill(Color(white: 0.96))
+                            .fill(AetherTheme.coral.opacity(configuration.isOn ? 1 : 0.72))
                             .frame(width: 26, height: 26)
                             .padding(2)
                     }
