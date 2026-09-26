@@ -53,6 +53,20 @@ final class LogoBackgroundKeyerTests: XCTestCase {
         XCTAssertGreaterThan(corner.alpha, 200, "Non-uniform artwork must be preserved")
     }
 
+    func testLargeUnkeyedLogoIsDownsampled() throws {
+        let image = makeImage(size: 600) { context in
+            UIColor.systemRed.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 300, height: 600))
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 300, y: 0, width: 300, height: 600))
+        }
+
+        let processed = LogoBackgroundKeyer.keyed(image)
+        let bitmap = try XCTUnwrap(processed.cgImage)
+        XCTAssertLessThanOrEqual(max(bitmap.width, bitmap.height), 512)
+        XCTAssertGreaterThan(try XCTUnwrap(pixel(of: processed, x: 1, y: 1)).alpha, 200)
+    }
+
     // MARK: Helpers
 
     private func makeImage(size: CGFloat, draw: (CGContext) -> Void) -> UIImage {

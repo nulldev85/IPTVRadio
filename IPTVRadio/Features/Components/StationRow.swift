@@ -217,26 +217,40 @@ struct PlaybackArtwork: View {
 /// (OLED) theme.
 actor ArtworkCache {
     static let shared = ArtworkCache()
-    private var cache: [URL: UIImage] = [:]
+    private let cache: NSCache<NSURL, UIImage> = {
+        let cache = NSCache<NSURL, UIImage>()
+        cache.countLimit = 150
+        cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
     private var failed: Set<URL> = []
+    private var inFlight: [URL: Task<UIImage?, Never>] = [:]
 
     func image(for url: URL) async -> UIImage? {
-        if let image = cache[url] { return image }
+        if let image = cache.object(forKey: url as NSURL) { return image }
         if failed.contains(url) { return nil }
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
-                  let image = UIImage(data: data) else {
-                failed.insert(url)
+        if let existing = inFlight[url] { return await existing.value }
+
+        let request = Task<UIImage?, Never> {
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode),
+                      let image = UIImage(data: data) else { return nil }
+                return LogoBackgroundKeyer.keyed(image)
+            } catch {
                 return nil
             }
-            let processed = LogoBackgroundKeyer.keyed(image)
-            cache[url] = processed
-            return processed
-        } catch {
-            failed.insert(url)
-            return nil
         }
+        inFlight[url] = request
+        let image = await request.value
+        inFlight[url] = nil
+        if let image {
+            let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+            cache.setObject(image, forKey: url as NSURL, cost: cost)
+        } else {
+            failed.insert(url)
+        }
+        return image
     }
 }

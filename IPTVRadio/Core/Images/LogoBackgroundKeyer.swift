@@ -7,7 +7,8 @@ import CoreGraphics
 /// The algorithm samples the image border, finds the dominant border color,
 /// and — only when the border is convincingly uniform — makes pixels of that
 /// color transparent with a soft edge. Images without a uniform background
-/// (photos, already-transparent logos) are returned unchanged.
+/// (photos, already-transparent logos) keep their appearance, with oversized
+/// bitmaps reduced to the same 512-pixel cap used for keyed logos.
 enum LogoBackgroundKeyer {
     static func keyed(_ image: UIImage) -> UIImage {
         guard let cgImage = image.cgImage else { return image }
@@ -31,6 +32,12 @@ enum LogoBackgroundKeyer {
             bitmapInfo: bitmapInfo
         ) else { return image }
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        // Some provider logos are full-resolution photos with no keyable
+        // background. Keep those at the same bounded size as keyed logos.
+        func unkeyedImage() -> UIImage {
+            guard scale < 1, let resized = context.makeImage() else { return image }
+            return UIImage(cgImage: resized, scale: image.scale, orientation: image.imageOrientation)
+        }
 
         // Sample border pixels (two rows, two columns, stepped).
         var samples: [(Int, Int, Int)] = []
@@ -56,7 +63,7 @@ enum LogoBackgroundKeyer {
             sample(0, y)
             sample(width - 1, y)
         }
-        guard samples.count >= 16 else { return image }
+        guard samples.count >= 16 else { return unkeyedImage() }
 
         let count = samples.count
 
@@ -85,7 +92,7 @@ enum LogoBackgroundKeyer {
                 ? lhs.value.weight > rhs.value.weight
                 : lhs.key < rhs.key
         }).first?.value else {
-            return image
+            return unkeyedImage()
         }
         let redAverage = dominant.red / dominant.weight
         let greenAverage = dominant.green / dominant.weight
@@ -99,7 +106,7 @@ enum LogoBackgroundKeyer {
         // the border has to sit close to it, or this is artwork, not a logo on
         // a plate, and it is returned untouched.
         let nearCount = samples.filter { distance($0.0, $0.1, $0.2) <= 60 }.count
-        guard Double(nearCount) / Double(count) >= 0.7 else { return image }
+        guard Double(nearCount) / Double(count) >= 0.7 else { return unkeyedImage() }
 
         let hardLimit = 45
         let softLimit = 110
@@ -125,7 +132,7 @@ enum LogoBackgroundKeyer {
             }
         }
 
-        guard let modified = context.makeImage() else { return image }
+        guard let modified = context.makeImage() else { return unkeyedImage() }
         return UIImage(cgImage: modified, scale: image.scale, orientation: image.imageOrientation)
     }
 }

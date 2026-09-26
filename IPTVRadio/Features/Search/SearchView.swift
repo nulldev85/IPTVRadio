@@ -65,30 +65,32 @@ struct SearchView: View {
     @ViewBuilder
     private var searchContent: some View {
         let query = library.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let manualResults = manualStations.entries.map(\.station).filter {
-            $0.name.lowercased().contains(query) || $0.groupTitle.lowercased().contains(query)
-        }
-        let results = (library.state == .loaded ? library.searchResults() : []) + manualResults
-        if library.searchQuery.trimmingCharacters(in: .whitespaces).count < 2 {
+        if query.count < 2 {
             EmptyStateView(
                 title: "Search your stations",
                 message: "Type at least two characters to search by station name, genre, category or show metadata.",
                 systemImage: "magnifyingglass"
             )
-        } else if results.isEmpty {
-            EmptyStateView(
-                title: "No matches",
-                message: "Nothing matched \"\(library.searchQuery)\".",
-                systemImage: "questionmark.circle"
-            )
         } else {
-            List {
-                ForEach(results) { station in
-                    StationRow(station: station)
-                }
+            let manualResults = manualStations.entries.lazy.map(\.station).filter {
+                $0.name.lowercased().contains(query) || $0.groupTitle.lowercased().contains(query)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
+            let results = (library.state == .loaded ? library.searchResults() : []) + Array(manualResults)
+            if results.isEmpty {
+                EmptyStateView(
+                    title: "No matches",
+                    message: "Nothing matched \"\(library.searchQuery)\".",
+                    systemImage: "questionmark.circle"
+                )
+            } else {
+                List {
+                    ForEach(results) { station in
+                        StationRow(station: station)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+            }
         }
     }
 }

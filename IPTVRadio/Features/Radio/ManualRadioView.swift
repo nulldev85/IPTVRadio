@@ -26,15 +26,15 @@ struct ManualRadioView: View {
                     emptyState
                 } else {
                     List {
-                        ForEach(manualStations.entries) { entry in
-                            let index = manualStations.entries.firstIndex(where: { $0.id == entry.id }) ?? 0
+                        ForEach(manualStations.entries.enumerated().map { IndexedManualStation(index: $0.offset, entry: $0.element) }) { item in
+                            let entry = item.entry
                             HStack(spacing: 4) {
                                 StationRow(station: entry.station)
                                 if isReordering {
                                     ReorderButtons(
                                         name: entry.name,
-                                        canMoveUp: index > 0,
-                                        canMoveDown: index < manualStations.entries.count - 1,
+                                        canMoveUp: item.index > 0,
+                                        canMoveDown: item.index < manualStations.entries.count - 1,
                                         moveUp: { manualStations.move(id: entry.id, by: -1) },
                                         moveDown: { manualStations.move(id: entry.id, by: 1) }
                                     )
@@ -149,6 +149,12 @@ struct ManualRadioView: View {
                 ?? "The station could not be removed. Try again."
         }
     }
+}
+
+private struct IndexedManualStation: Identifiable {
+    let index: Int
+    let entry: ManualStationEntry
+    var id: String { entry.id }
 }
 
 private struct ManualStationEditorView: View {

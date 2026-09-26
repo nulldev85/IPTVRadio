@@ -18,15 +18,15 @@ struct FavoritesTabView: View {
                     )
                 } else {
                     List {
-                        ForEach(favorites.favorites) { entry in
-                            let index = favorites.favorites.firstIndex(where: { $0.id == entry.id }) ?? 0
+                        ForEach(favorites.favorites.enumerated().map { IndexedFavorite(index: $0.offset, entry: $0.element) }) { item in
+                            let entry = item.entry
                             HStack(spacing: 4) {
                                 StationRow(station: entry.station)
                                 if isReordering {
                                     ReorderButtons(
                                         name: entry.station.name,
-                                        canMoveUp: index > 0,
-                                        canMoveDown: index < favorites.favorites.count - 1,
+                                        canMoveUp: item.index > 0,
+                                        canMoveDown: item.index < favorites.favorites.count - 1,
                                         moveUp: { favorites.move(id: entry.id, by: -1) },
                                         moveDown: { favorites.move(id: entry.id, by: 1) }
                                     )
@@ -70,4 +70,10 @@ struct FavoritesTabView: View {
             .background(AetherTheme.background.ignoresSafeArea())
         }
     }
+}
+
+private struct IndexedFavorite: Identifiable {
+    let index: Int
+    let entry: FavoritesStore.Entry
+    var id: String { entry.id }
 }
