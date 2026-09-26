@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Combine
 
 @MainActor
 final class PlaybackEngine: ObservableObject {
@@ -33,6 +34,11 @@ final class PlaybackEngine: ObservableObject {
 
     private var watchdogTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
+    private var networkCheckTask: Task<Void, Never>?
+    private var connectivitySubscription: AnyCancellable?
+    private var cellularSettingSubscription: AnyCancellable?
+    private var waitingForNetwork = false
+    private var waitingForWiFi = false
     private var retryAttempts = 0
     private var sleepTimer: Timer?
     private var notificationObservers: [NSObjectProtocol] = []
@@ -62,6 +68,7 @@ final class PlaybackEngine: ObservableObject {
     /// behaviour — the per-source backoff above — is testable without waiting.
     private let songPollInterval: TimeInterval
     private let interruptionRecoveryDelay: TimeInterval
+    private let networkRecoveryDelay: TimeInterval
     /// Online song-artwork lookup for streams with text-only metadata.
     private var artworkLookupTask: Task<Void, Never>?
     /// True once the stream itself provided song metadata (ID3).
@@ -123,7 +130,8 @@ final class PlaybackEngine: ObservableObject {
         songProviders: [any SongInfoProviding] = [],
         stallTimeout: TimeInterval = 12,
         songPollInterval: TimeInterval = 30,
-        interruptionRecoveryDelay: TimeInterval = 10
+        interruptionRecoveryDelay: TimeInterval = 10,
+        networkRecoveryDelay: TimeInterval = 3
     ) {
         self.player = player
         self.audioSession = audioSession
@@ -139,8 +147,15 @@ final class PlaybackEngine: ObservableObject {
         self.stallTimeout = stallTimeout
         self.songPollInterval = songPollInterval
         self.interruptionRecoveryDelay = interruptionRecoveryDelay
+        self.networkRecoveryDelay = networkRecoveryDelay
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
+        connectivitySubscription = connectivity.$pathRevision.dropFirst().sink { [weak self] _ in
+            Task { @MainActor [weak self] in self?.handleConnectivityChange(checkStream: true) }
+        }
+        cellularSettingSubscription = settings.$cellularAllowed.dropFirst().sink { [weak self] _ in
+            Task { @MainActor [weak self] in self?.handleConnectivityChange(checkStream: false) }
+        }
         nowPlaying.commandDelegate = self
     }
 
@@ -153,6 +168,7 @@ final class PlaybackEngine: ObservableObject {
         // running behind every single one.
         watchdogTask?.cancel()
         retryTask?.cancel()
+        networkCheckTask?.cancel()
         stallTask?.cancel()
         probeTask?.cancel()
         epgTask?.cancel()
@@ -174,6 +190,10 @@ final class PlaybackEngine: ObservableObject {
         interruptionRecoveryTask?.cancel()
         interruptionRecoveryTask = nil
         retryAttempts = 0
+        waitingForNetwork = false
+        waitingForWiFi = false
+        networkCheckTask?.cancel()
+        networkCheckTask = nil
         pendingStation = station
         streamCandidates = station.streamCandidates
         candidateIndex = 0
@@ -205,6 +225,8 @@ final class PlaybackEngine: ObservableObject {
         switch state {
         case .playing(let station):
             userPaused = true
+            networkCheckTask?.cancel()
+            networkCheckTask = nil
             interruptionRecoveryTask?.cancel()
             interruptionRecoveryTask = nil
             state = .paused(station)
@@ -225,6 +247,10 @@ final class PlaybackEngine: ObservableObject {
 
     func stop() {
         wantsPlayback = false
+        waitingForNetwork = false
+        waitingForWiFi = false
+        networkCheckTask?.cancel()
+        networkCheckTask = nil
         probeTask?.cancel()
         probeTask = nil
         cancelWatchdog()
@@ -352,8 +378,12 @@ final class PlaybackEngine: ObservableObject {
         probeTask?.cancel()
         probeTask = nil
 
+        if connectivity.status == .offline {
+            waitForNetwork(station)
+            return
+        }
         if !settings.cellularAllowed && connectivity.isCellular {
-            state = .failed("Cellular streaming is off. Enable it in Settings or connect to Wi-Fi.", station)
+            blockCellularPlayback(station)
             return
         }
 
@@ -507,6 +537,8 @@ final class PlaybackEngine: ObservableObject {
     private func handleStreamProblem(_ station: RadioStation) {
         cancelWatchdog()
         cancelStallWatchdog()
+        networkCheckTask?.cancel()
+        networkCheckTask = nil
         // A reconnect already waiting belongs to this same failure. Left alive
         // it fires alongside the one scheduled below, so two reconnects race
         // for the player and each burns a retry from the budget.
@@ -520,6 +552,10 @@ final class PlaybackEngine: ObservableObject {
         // advancing past it. `load` sets it again when a stream actually
         // reaches the player.
         activePlaybackURL = nil
+        if connectivity.status == .offline {
+            waitForNetwork(station)
+            return
+        }
         // A candidate that already played is not a failed format; it stalled.
         if !candidatePlayedSuccessfully {
             candidateOutcomes[candidateIndex] = .failed(candidateFailureReason)
@@ -539,6 +575,10 @@ final class PlaybackEngine: ObservableObject {
     private func scheduleRetry(station: RadioStation) {
         cancelWatchdog()
         cancelRetry()
+        if connectivity.status == .offline {
+            waitForNetwork(station)
+            return
+        }
         // retryLimit = number of automatic retries after the initial attempt.
         let policy = RetryPolicy(maxAttempts: settings.retryLimit)
         switch policy.nextAction(afterAttempts: retryAttempts) {
@@ -563,15 +603,124 @@ final class PlaybackEngine: ObservableObject {
 
     private func performRetry(station: RadioStation, attempt: Int) {
         guard wantsPlayback else { return }
+        if connectivity.status == .offline {
+            waitForNetwork(station)
+            return
+        }
         AppLogger.playback.info("Retrying stream (attempt \(attempt))")
         beginPlaybackInternal(station)
     }
 
     /// Reload without resetting retry bookkeeping.
     private func beginPlaybackInternal(_ station: RadioStation) {
+        if connectivity.status == .offline {
+            waitForNetwork(station)
+            return
+        }
+        if !settings.cellularAllowed && connectivity.isCellular {
+            blockCellularPlayback(station)
+            return
+        }
         state = .loading(station)
         isBuffering = true
         loadCurrentCandidate(station)
+    }
+
+    /// A missing network is not a failed stream format and must not consume
+    /// the user's finite retry budget. Resume the same station when a path
+    /// returns, unless the listener pauses or stops in the meantime.
+    private func waitForNetwork(_ station: RadioStation) {
+        guard !waitingForNetwork else { return }
+        waitingForNetwork = true
+        waitingForWiFi = false
+        cancelWatchdog()
+        cancelRetry()
+        cancelStallWatchdog()
+        probeTask?.cancel()
+        probeTask = nil
+        activePlaybackURL = nil
+        player.stop()
+        epgTask?.cancel()
+        epgTask = nil
+        state = .loading(station)
+        isBuffering = true
+        nowPlaying.update(state: state, buffering: true)
+        AppLogger.playback.info("Network unavailable; waiting to resume stream")
+    }
+
+    private func blockCellularPlayback(_ station: RadioStation) {
+        guard !waitingForWiFi else { return }
+        waitingForWiFi = true
+        waitingForNetwork = false
+        cancelWatchdog()
+        cancelRetry()
+        cancelStallWatchdog()
+        probeTask?.cancel()
+        probeTask = nil
+        networkCheckTask?.cancel()
+        networkCheckTask = nil
+        activePlaybackURL = nil
+        player.stop()
+        epgTask?.cancel()
+        epgTask = nil
+        isBuffering = false
+        state = .failed("Cellular streaming is off. Enable it in Settings or connect to Wi-Fi.", station)
+        nowPlaying.update(state: state)
+    }
+
+    private func handleConnectivityChange(checkStream: Bool) {
+        guard wantsPlayback, !userPaused, interruptedStationID == nil,
+              let station = state.station ?? pendingStation else { return }
+        if case .paused = state { return }
+        networkCheckTask?.cancel()
+        networkCheckTask = nil
+
+        // A brief loss of coverage may still leave buffered audio playing.
+        // Leave that stream alone until it actually fails or stops advancing.
+        guard connectivity.status == .online else { return }
+        if !settings.cellularAllowed && connectivity.isCellular {
+            blockCellularPlayback(station)
+            return
+        }
+        if waitingForNetwork || waitingForWiFi {
+            restartOnNewPath(station)
+            return
+        }
+        // A new usable path deserves a fresh attempt even if the old path
+        // exhausted its retry budget before NWPath reported the outage.
+        if checkStream, case .failed = state {
+            restartOnNewPath(station)
+            return
+        }
+        guard checkStream, case .playing = state, hasActiveLoad,
+              let baseline = player.playbackProgress else { return }
+        let delay = max(0.01, networkRecoveryDelay)
+        networkCheckTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let self, self.wantsPlayback, !self.userPaused,
+                  self.connectivity.status == .online,
+                  (self.settings.cellularAllowed || !self.connectivity.isCellular),
+                  case .playing = self.state, self.state.station?.id == station.id,
+                  self.hasActiveLoad,
+                  let current = self.player.playbackProgress else { return }
+            self.networkCheckTask = nil
+            if current <= baseline {
+                AppLogger.playback.info("Audio stopped advancing after network change; reconnecting")
+                self.handleStreamProblem(station)
+            }
+        }
+    }
+
+    private func restartOnNewPath(_ station: RadioStation) {
+        waitingForNetwork = false
+        waitingForWiFi = false
+        retryAttempts = 0
+        candidateIndex = 0
+        candidatePlayedSuccessfully = false
+        candidateOutcomes = [:]
+        startedAtRememberedEndpoint = false
+        playbackStartedAt = nil
+        beginPlayback(station)
     }
 
     private func configurePlayerCallbacks() {
@@ -837,10 +986,14 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private func handleReady() {
-        guard interruptedStationID == nil else { return }
+        guard interruptedStationID == nil, wantsPlayback, hasActiveLoad else { return }
         cancelWatchdog()
         cancelRetry()
         cancelStallWatchdog()
+        networkCheckTask?.cancel()
+        networkCheckTask = nil
+        waitingForNetwork = false
+        waitingForWiFi = false
         retryAttempts = 0
         isBuffering = false
         candidatePlayedSuccessfully = true
@@ -1080,6 +1233,8 @@ final class PlaybackEngine: ObservableObject {
                 interruptedWhileLoading = false
                 interruptionRecoveryTask?.cancel()
                 interruptionRecoveryTask = nil
+                networkCheckTask?.cancel()
+                networkCheckTask = nil
                 cancelStallWatchdog()
                 state = .paused(station)
                 player.pause()
@@ -1088,6 +1243,8 @@ final class PlaybackEngine: ObservableObject {
                 guard wantsPlayback, !userPaused else { return }
                 interruptedStationID = station.id
                 interruptedWhileLoading = true
+                networkCheckTask?.cancel()
+                networkCheckTask = nil
                 cancelWatchdog()
                 state = .paused(station)
                 player.pause()
@@ -1119,6 +1276,20 @@ final class PlaybackEngine: ObservableObject {
     ) {
         guard wantsPlayback, state.station?.id == station.id else { return }
         userPaused = false
+        networkCheckTask?.cancel()
+        networkCheckTask = nil
+        if connectivity.status == .offline {
+            interruptedStationID = nil
+            interruptedWhileLoading = false
+            waitForNetwork(station)
+            return
+        }
+        if !settings.cellularAllowed && connectivity.isCellular {
+            interruptedStationID = nil
+            interruptedWhileLoading = false
+            blockCellularPlayback(station)
+            return
+        }
         do {
             try audioSession.activateForPlayback()
         } catch {
@@ -1178,6 +1349,8 @@ final class PlaybackEngine: ObservableObject {
                 interruptedStationID = nil
                 interruptionRecoveryTask?.cancel()
                 interruptionRecoveryTask = nil
+                networkCheckTask?.cancel()
+                networkCheckTask = nil
                 state = .paused(station)
                 player.pause()
                 nowPlaying.update(state: state)

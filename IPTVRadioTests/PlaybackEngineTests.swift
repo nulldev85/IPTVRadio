@@ -87,7 +87,8 @@ final class PlaybackEngineTests: XCTestCase {
         stallTimeout: TimeInterval = 12,
         songPollInterval: TimeInterval = 30,
         audioSession: AudioSessionControlling? = nil,
-        interruptionRecoveryDelay: TimeInterval = 10
+        interruptionRecoveryDelay: TimeInterval = 10,
+        networkRecoveryDelay: TimeInterval = 3
     ) async -> (PlaybackEngine, StubAudioPlayer, ConnectivityMonitor, HistoryStore) {
         let settings = await SettingsStore(defaults: defaults)
         await MainActor.run {
@@ -114,7 +115,8 @@ final class PlaybackEngineTests: XCTestCase {
             songProviders: songProviders,
             stallTimeout: stallTimeout,
             songPollInterval: songPollInterval,
-            interruptionRecoveryDelay: interruptionRecoveryDelay
+            interruptionRecoveryDelay: interruptionRecoveryDelay,
+            networkRecoveryDelay: networkRecoveryDelay
         )
         return (engine, player, connectivity, history)
     }
@@ -348,6 +350,169 @@ final class PlaybackEngineTests: XCTestCase {
             XCTFail("Expected cellular failure, got \(engine.state)")
         }
         XCTAssertEqual(player.loadedURLs.count, 0)
+    }
+
+    @MainActor
+    func testOfflineStartWaitsForNetworkWithoutLoading() async {
+        let (engine, player, connectivity, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        connectivity.updatePath(status: .offline, isCellular: false)
+        let s = station("offline-start")
+        engine.play(s)
+        XCTAssertEqual(engine.state, .loading(s))
+        XCTAssertTrue(player.loadedURLs.isEmpty)
+
+        connectivity.updatePath(status: .online, isCellular: false)
+        for _ in 0..<50 where player.loadedURLs.isEmpty {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(player.loadedURLs.count, 1)
+        engine.stop()
+    }
+
+    @MainActor
+    func testStoppedStationDoesNotRestartWhenNetworkReturns() async {
+        let (engine, player, connectivity, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        connectivity.updatePath(status: .offline, isCellular: false)
+        engine.play(station("stopped-offline"))
+        engine.stop()
+
+        connectivity.updatePath(status: .online, isCellular: false)
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(player.loadedURLs.isEmpty)
+        XCTAssertNil(engine.state.station)
+    }
+
+    @MainActor
+    func testOfflineFailureDoesNotSpendRetryBudget() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), retryLimit: 0
+        )
+        let s = station("offline-failure")
+        engine.play(s)
+        connectivity.updatePath(status: .offline, isCellular: false)
+        player.simulateFailure("network lost")
+        XCTAssertEqual(engine.state, .loading(s))
+        XCTAssertEqual(player.loadedURLs.count, 1)
+
+        connectivity.updatePath(status: .online, isCellular: false)
+        let reloaded = await waitForReload(player)
+        XCTAssertTrue(reloaded)
+        player.simulateReady()
+        XCTAssertEqual(engine.state, .playing(s))
+        engine.stop()
+    }
+
+    @MainActor
+    func testNewNetworkPathRetriesAfterOldPathGaveUp() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), retryLimit: 0
+        )
+        let s = station("new-path")
+        engine.play(s)
+        player.simulateFailure("old connection failed")
+        if case .failed = engine.state {} else { XCTFail("Expected the old path to give up") }
+
+        connectivity.updatePath(status: .online, isCellular: true)
+        let reloaded = await waitForReload(player)
+        XCTAssertTrue(reloaded)
+        engine.stop()
+    }
+
+    @MainActor
+    func testDisallowedCellularHandoffWaitsForWiFi() async {
+        let (engine, player, connectivity, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        engine.settingsForTesting.cellularAllowed = false
+        let s = station("wifi-only")
+        engine.play(s)
+        player.simulateReady()
+
+        connectivity.updatePath(status: .online, isCellular: true)
+        for _ in 0..<50 where engine.state.isPlaying {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        if case .failed(let message, _) = engine.state {
+            XCTAssertTrue(message.contains("Cellular"))
+        } else {
+            XCTFail("Expected cellular restriction after Wi-Fi handoff")
+        }
+        XCTAssertEqual(player.loadedURLs.count, 1)
+
+        connectivity.updatePath(status: .online, isCellular: false)
+        let reloaded = await waitForReload(player)
+        XCTAssertTrue(reloaded)
+        engine.stop()
+    }
+
+    @MainActor
+    func testCellularToggleStopsAndRestoresActivePlayback() async {
+        let (engine, player, connectivity, _) = await makeEngine(defaults: makeIsolatedDefaults())
+        connectivity.updatePath(status: .online, isCellular: true)
+        let s = station("cellular-toggle")
+        engine.play(s)
+        player.simulateReady()
+
+        engine.settingsForTesting.cellularAllowed = false
+        for _ in 0..<50 where engine.state.isPlaying {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        if case .failed = engine.state {} else { XCTFail("Cellular must stop when disabled") }
+        XCTAssertEqual(player.loadedURLs.count, 1)
+
+        engine.settingsForTesting.cellularAllowed = true
+        let reloaded = await waitForReload(player)
+        XCTAssertTrue(reloaded)
+        engine.stop()
+    }
+
+    @MainActor
+    func testHealthyWiFiToCellularHandoffKeepsPlaying() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), networkRecoveryDelay: 0.05
+        )
+        let s = station("healthy-handoff")
+        engine.play(s)
+        player.simulateReady()
+        player.setProgress(10)
+        player.progressAdvancesPerReading = true
+
+        connectivity.updatePath(status: .online, isCellular: true)
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(player.loadedURLs.count, 1)
+        XCTAssertEqual(engine.state, .playing(s))
+        engine.stop()
+    }
+
+    @MainActor
+    func testPausedStationDoesNotRestartOnNetworkHandoff() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), networkRecoveryDelay: 0.05
+        )
+        let s = station("paused-handoff")
+        engine.play(s)
+        player.simulateReady()
+        engine.togglePlayPause()
+
+        connectivity.updatePath(status: .online, isCellular: true)
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(player.loadedURLs.count, 1)
+        XCTAssertEqual(engine.state, .paused(s))
+        engine.stop()
+    }
+
+    @MainActor
+    func testFrozenStreamReconnectsAfterNetworkHandoff() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), networkRecoveryDelay: 0.05
+        )
+        let s = station("frozen-handoff")
+        engine.play(s)
+        player.simulateReady()
+        player.setProgress(10)
+
+        connectivity.updatePath(status: .online, isCellular: true)
+        let reloaded = await waitForReload(player)
+        XCTAssertTrue(reloaded)
+        engine.stop()
     }
 
     @MainActor

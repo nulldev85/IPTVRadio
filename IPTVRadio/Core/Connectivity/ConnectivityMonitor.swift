@@ -14,6 +14,9 @@ final class ConnectivityMonitor: ObservableObject {
     // Setter is internal to allow unit tests to simulate network paths.
     @Published var isCellular = false
     @Published private(set) var isExpensive = false
+    /// Published after all path fields change, so playback sees a complete
+    /// Wi-Fi/cellular transition.
+    @Published private(set) var pathRevision = 0
 
     private let monitor = NWPathMonitor()
     private var started = false
@@ -26,10 +29,11 @@ final class ConnectivityMonitor: ObservableObject {
             let cellular = path.usesInterfaceType(.cellular)
             let expensive = path.isExpensive
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.status = isSatisfied ? .online : .offline
-                self.isCellular = cellular
-                self.isExpensive = expensive
+                self?.updatePath(
+                    status: isSatisfied ? .online : .offline,
+                    isCellular: cellular,
+                    isExpensive: expensive
+                )
             }
         }
         monitor.start(queue: DispatchQueue(label: "connectivity.monitor"))
@@ -38,5 +42,13 @@ final class ConnectivityMonitor: ObservableObject {
     func stop() {
         monitor.cancel()
         started = false
+    }
+
+    /// Also used by playback tests to simulate a complete network transition.
+    func updatePath(status: Status, isCellular: Bool, isExpensive: Bool = false) {
+        self.status = status
+        self.isCellular = isCellular
+        self.isExpensive = isExpensive
+        pathRevision &+= 1
     }
 }
