@@ -134,7 +134,7 @@ final class VinylDiscView: UIView {
         // The wider runout area and the outer lead-in distinguish a record
         // from a stack of uniformly spaced decorative rings.
         context.setStrokeColor(UIColor(white: 0.36, alpha: 0.42).cgColor)
-        for fraction in [CGFloat(0.32), 0.35, 0.38, 0.42, 0.96, 0.98] {
+        for fraction in [CGFloat(0.39), 0.42, 0.96, 0.98] {
             let ringRadius = radius * fraction
             context.strokeEllipse(in: CGRect(
                 x: center.x - ringRadius, y: center.y - ringRadius,
@@ -155,7 +155,7 @@ final class VinylDiscView: UIView {
         context.strokeEllipse(in: disc.insetBy(dx: 2, dy: 2))
         context.restoreGState()
 
-        let labelRadius = radius * 0.235
+        let labelRadius = radius * 0.35
         let label = CGRect(x: center.x - labelRadius, y: center.y - labelRadius,
                            width: labelRadius * 2, height: labelRadius * 2)
         context.setFillColor(UIColor(white: 0.025, alpha: 1).cgColor)
