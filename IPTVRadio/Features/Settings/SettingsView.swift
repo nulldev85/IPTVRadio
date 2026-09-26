@@ -1,5 +1,14 @@
 import SwiftUI
 
+private enum SettingsCategory: String, CaseIterable, Identifiable {
+    case account = "Account"
+    case stations = "Stations"
+    case playback = "Playback"
+    case app = "App"
+
+    var id: String { rawValue }
+}
+
 /// Settings: account, playback options, filtering rules, cache and privacy.
 struct SettingsView: View {
     @EnvironmentObject private var environment: AppEnvironment
@@ -10,28 +19,48 @@ struct SettingsView: View {
 
     @State private var confirmSignOut = false
     @State private var cacheCleared = false
+    @State private var selectedCategory: SettingsCategory = .account
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                AetherTheme.background.ignoresSafeArea()
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Settings")
+                        .font(.largeTitle.weight(.bold))
+                        .foregroundStyle(AetherTheme.primaryText)
+                        .padding(.horizontal, 20)
+                    categoryBar
+                }
+                .padding(.top, 12)
+
+                AetherTheme.border.opacity(0.65)
+                    .frame(height: 1)
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        accountSection
-                        appearanceSection
-                        playbackSection
-                        filteringSection
-                        cacheSection
-                        privacySection
+                    VStack(alignment: .leading, spacing: 16) {
+                        switch selectedCategory {
+                        case .account:
+                            accountSection
+                        case .stations:
+                            filteringSection
+                        case .playback:
+                            playbackSection
+                        case .app:
+                            appearanceSection
+                            cacheSection
+                            privacySection
+                        }
                     }
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 32)
+                    .padding(.top, 22)
+                    .padding(.bottom, 32 + flatControlsClearance)
                 }
+                .scrollIndicators(.hidden)
+                .id(selectedCategory)
             }
+            .background(AetherTheme.background.ignoresSafeArea())
             .toggleStyle(AetherSettingsToggleStyle())
-            .navigationTitle("Settings")
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .alert("Sign out?", isPresented: $confirmSignOut) {
                 Button("Sign Out", role: .destructive) {
                     playback.stop()
@@ -44,9 +73,42 @@ struct SettingsView: View {
         }
     }
 
+    private var categoryBar: some View {
+        HStack(spacing: 0) {
+            ForEach(SettingsCategory.allCases) { category in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedCategory = category
+                    }
+                } label: {
+                    VStack(spacing: 10) {
+                        Text(category.rawValue)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(selectedCategory == category
+                                ? AetherTheme.primaryText : AetherTheme.mutedIcon)
+                        Capsule()
+                            .fill(selectedCategory == category ? AetherTheme.coral : .clear)
+                            .frame(height: 3)
+                            .padding(.horizontal, 8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings.category.\(category.rawValue.lowercased())")
+                .accessibilityValue(selectedCategory == category ? "Selected" : "")
+            }
+        }
+        .padding(.horizontal, 12)
+    }
+
+    private var flatControlsClearance: CGFloat {
+        guard !settings.liquidGlassEnabled else { return 0 }
+        return 61 + (playback.state.station == nil ? 0 : 60)
+    }
+
     private var appearanceSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            settingsHeader("Appearance")
+        settingsCard("Appearance", systemImage: "paintbrush.pointed") {
             Toggle("Liquid Glass navigation", isOn: $settings.liquidGlassEnabled)
                 .accessibilityIdentifier("settings.liquidGlass")
                 .aetherSettingsRow()
@@ -55,12 +117,12 @@ struct SettingsView: View {
     }
 
     private var accountSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            settingsHeader("Account")
+        settingsCard("Account", systemImage: "person.crop.circle") {
             if let session = activeSessionDescription {
                 LabeledContent("Status", value: session.status)
                     .aetherSettingsRow()
                 if let expiry = session.expiry {
+                    settingsDivider
                     LabeledContent("Subscription expires", value: expiry)
                         .aetherSettingsRow()
                 }
@@ -74,92 +136,109 @@ struct SettingsView: View {
                     .font(.footnote)
                     .aetherSettingsRow()
             }
+            settingsDivider
             Button("Sign Out", role: .destructive) {
                 confirmSignOut = true
             }
+            .foregroundStyle(AetherTheme.coral)
             .accessibilityIdentifier("settings.signOut")
             .aetherSettingsRow()
         }
     }
 
     private var playbackSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            settingsHeader("Playback")
-            Toggle("Allow cellular streaming", isOn: $settings.cellularAllowed)
-                .accessibilityIdentifier("settings.cellular")
-                .aetherSettingsRow()
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Stream timeout")
-                    Spacer()
-                    Text("\(Int(settings.streamTimeout)) s")
-                        .foregroundStyle(AetherTheme.secondaryText)
+        VStack(spacing: 16) {
+            settingsCard("Streaming", systemImage: "antenna.radiowaves.left.and.right") {
+                Toggle("Allow cellular streaming", isOn: $settings.cellularAllowed)
+                    .accessibilityIdentifier("settings.cellular")
+                    .aetherSettingsRow()
+                settingsDivider
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Stream timeout")
+                        Spacer()
+                        Text("\(Int(settings.streamTimeout)) s")
+                            .foregroundStyle(AetherTheme.secondaryText)
+                    }
+                    Slider(value: $settings.streamTimeout, in: 5...60, step: 1)
                 }
-                Slider(value: $settings.streamTimeout, in: 5...60, step: 1)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Stream timeout")
-            .accessibilityValue("\(Int(settings.streamTimeout)) seconds")
-            .aetherSettingsRow()
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Auto-retry attempts")
-                    Spacer()
-                    Text("\(settings.retryLimit)")
-                        .foregroundStyle(AetherTheme.secondaryText)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Stream timeout")
+                .accessibilityValue("\(Int(settings.streamTimeout)) seconds")
+                .aetherSettingsRow()
+                settingsDivider
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Auto-retry attempts")
+                        Spacer()
+                        Text("\(settings.retryLimit)")
+                            .foregroundStyle(AetherTheme.secondaryText)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(settings.retryLimit) },
+                        set: { settings.retryLimit = Int($0) }
+                    ), in: 0...5, step: 1)
                 }
-                Slider(value: Binding(
-                    get: { Double(settings.retryLimit) },
-                    set: { settings.retryLimit = Int($0) }
-                ), in: 0...5, step: 1)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Auto-retry attempts")
+                .accessibilityValue("\(settings.retryLimit) attempts")
+                .aetherSettingsRow()
+                settingsDivider
+                SleepTimerStatusRow()
+                    .aetherSettingsRow()
+                settingsDivider
+                Toggle("Prefer audio-only stream", isOn: $settings.preferAudioOnlyRendition)
+                    .accessibilityIdentifier("settings.audioOnly")
+                    .aetherSettingsRow()
+                settingsFooter("Uses a dedicated audio track when an HLS stream offers one.")
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Auto-retry attempts")
-            .accessibilityValue("\(settings.retryLimit) attempts")
-            .aetherSettingsRow()
-            SleepTimerStatusRow()
+            settingsCard("Song information", systemImage: "music.note") {
+                Toggle("Look up song artwork online", isOn: $settings.lookupSongArtwork)
+                    .accessibilityIdentifier("settings.artworkLookup")
+                    .aetherSettingsRow()
+                settingsDivider
+                NavigationLink {
+                    StreamDiagnosticsView()
+                        .toolbar(.visible, for: .navigationBar)
+                } label: {
+                    settingsNavigationLabel("Stream diagnostics")
+                }
+                .accessibilityIdentifier("settings.streamDiagnostics")
                 .aetherSettingsRow()
-            Toggle("Prefer audio-only stream", isOn: $settings.preferAudioOnlyRendition)
-                .accessibilityIdentifier("settings.audioOnly")
-                .aetherSettingsRow()
-            Toggle("Look up song artwork online", isOn: $settings.lookupSongArtwork)
-                .accessibilityIdentifier("settings.artworkLookup")
-                .aetherSettingsRow()
-            NavigationLink {
-                StreamDiagnosticsView()
-            } label: {
-                settingsNavigationLabel("Stream diagnostics")
+                settingsFooter("When the stream has no artwork, Aether can look up the current song in Apple's public catalog. No account or tracking is involved; turn this off for fully offline metadata.")
             }
-            .accessibilityIdentifier("settings.streamDiagnostics")
-            .aetherSettingsRow()
-            settingsFooter("“Prefer audio-only stream” plays a channel's dedicated audio track when its HLS manifest offers one — better quality for radio and much less data than downloading its video variant.\n\n“Look up song artwork online” sends the current song's artist and title to Apple's public catalog to fetch album art when the stream itself carries none. No account or tracking is involved; disable it for fully offline metadata.")
         }
     }
 
     private var filteringSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            settingsHeader("Station filtering")
-            Toggle("Show only SiriusXM-labelled stations", isOn: $settings.siriusOnly)
-                .accessibilityIdentifier("settings.siriusOnly")
-                .aetherSettingsRow()
-            Toggle("Show all detected radio stations", isOn: $settings.showAllStations)
-                .accessibilityIdentifier("settings.showAll")
-                .aetherSettingsRow()
-            NavigationLink {
-                DetectionRulesEditorView()
-            } label: {
-                settingsNavigationLabel("Detection rules")
+        VStack(spacing: 16) {
+            settingsCard("Station filtering", systemImage: "line.3.horizontal.decrease") {
+                Toggle("Show only SiriusXM-labelled stations", isOn: $settings.siriusOnly)
+                    .accessibilityIdentifier("settings.siriusOnly")
+                    .aetherSettingsRow()
+                settingsDivider
+                Toggle("Show all detected radio stations", isOn: $settings.showAllStations)
+                    .accessibilityIdentifier("settings.showAll")
+                    .aetherSettingsRow()
             }
-            .aetherSettingsRow()
-            settingsFooter("Providers label channels differently. Tune the keyword rules if stations are missing or misclassified.")
+            settingsCard("Detection rules", systemImage: "slider.horizontal.3") {
+                NavigationLink {
+                    DetectionRulesEditorView()
+                        .toolbar(.visible, for: .navigationBar)
+                } label: {
+                    settingsNavigationLabel("Edit detection rules")
+                }
+                .aetherSettingsRow()
+                settingsFooter("Tune the keyword rules if a provider misclassifies a station.")
+            }
         }
     }
 
     private var cacheSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            settingsHeader("Data")
+        settingsCard("Data", systemImage: "externaldrive") {
             LabeledContent("Cached data size", value: ByteCountFormatter.string(fromByteCount: Int64(cacheSize), countStyle: .file))
                 .aetherSettingsRow()
+            settingsDivider
             Button("Clear station cache") {
                 library.clearCacheData()
                 cacheCleared = true
@@ -174,10 +253,10 @@ struct SettingsView: View {
     }
 
     private var privacySection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            settingsHeader("Privacy")
+        settingsCard("Privacy", systemImage: "lock.shield") {
             NavigationLink {
                 PrivacyNoticeView()
+                    .toolbar(.visible, for: .navigationBar)
             } label: {
                 settingsNavigationLabel("Privacy & authorization")
             }
@@ -186,12 +265,43 @@ struct SettingsView: View {
         }
     }
 
-    private func settingsHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.headline)
-            .foregroundStyle(AetherTheme.secondaryText)
-            .padding(.top, 24)
-            .padding(.bottom, 8)
+    private func settingsCard<Content: View>(
+        _ title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(AetherTheme.coral)
+                    .frame(width: 38, height: 38)
+                    .background(AetherTheme.coral.opacity(0.14), in: RoundedRectangle(cornerRadius: 11))
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(AetherTheme.primaryText)
+            }
+            .padding(.bottom, 10)
+
+            content()
+        }
+        .foregroundStyle(AetherTheme.secondaryText)
+        .tint(AetherTheme.coral)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AetherTheme.raisedSurface.opacity(0.48))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 20)
+                .strokeBorder(AetherTheme.border.opacity(0.65), lineWidth: 1)
+        }
+    }
+
+    private var settingsDivider: some View {
+        AetherTheme.border.opacity(0.55)
+            .frame(height: 1)
     }
 
     private func settingsFooter(_ message: String) -> some View {

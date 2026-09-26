@@ -138,7 +138,7 @@ final class IPTVRadioUITests: XCTestCase {
 
         // Tab navigation must remain usable while a station is playing.
         app.buttons["Settings"].tap()
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 8),
+        XCTAssertTrue(app.buttons["settings.category.account"].waitForExistence(timeout: 8),
                       "Tab bar must remain reachable during playback")
         app.buttons["SXM"].tap()
         XCTAssertTrue(app.buttons["miniplayer.open"].waitForExistence(timeout: 8))
@@ -172,6 +172,7 @@ final class IPTVRadioUITests: XCTestCase {
     func testLiquidGlassSettingKeepsNavigationAndMiniPlayer() throws {
         let app = launch(scenario: "UITestNowPlaying")
         app.buttons["Settings"].tap()
+        app.buttons["settings.category.app"].tap()
 
         let liquidGlassSwitch = app.descendants(matching: .any)
             .matching(identifier: "settings.liquidGlass")
@@ -189,9 +190,26 @@ final class IPTVRadioUITests: XCTestCase {
         flatFavorites.tap()
         XCTAssertTrue(app.navigationBars["Favorites"].waitForExistence(timeout: 8))
         app.buttons["tab.settings"].tap()
+        app.buttons["settings.category.app"].tap()
         liquidGlassSwitch.tap()
 
         XCTAssertTrue(app.buttons["SXM"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["miniplayer.open"].exists)
+    }
+
+    func testSettingsCategoriesExposeExistingControls() throws {
+        let app = launch(scenario: "UITestBrowse")
+        app.buttons["Settings"].tap()
+
+        XCTAssertTrue(app.buttons["settings.signOut"].waitForExistence(timeout: 8))
+        app.buttons["settings.category.stations"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "settings.siriusOnly").firstMatch.waitForExistence(timeout: 8))
+        app.buttons["settings.category.playback"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "settings.cellular").firstMatch.waitForExistence(timeout: 8))
+        app.buttons["settings.category.app"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "settings.liquidGlass").firstMatch.waitForExistence(timeout: 8))
     }
 }
