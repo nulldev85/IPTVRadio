@@ -119,14 +119,16 @@ final class VinylDiscView: UIView {
             )
         }
 
-        // Thin, slightly varied grooves form the satin black playing surface.
+        // Fine grooves fade into the label and lead-in instead of ending in a
+        // visible circular seam.
         context.setLineWidth(0.34)
-        for index in 0..<166 {
-            let ringRadius = radius * (0.45 + CGFloat(index) * 0.00305)
+        for index in 0..<150 {
+            let ringRadius = radius * (0.54 + CGFloat(index) * 0.00275)
             let variation = CGFloat((index * 37) % 13) / 100
             let tone: CGFloat = index.isMultiple(of: 23) ? 0.30 : 0.16 + variation
             let opacity: CGFloat = index.isMultiple(of: 23) ? 0.37 : 0.25
-            context.setStrokeColor(UIColor(white: tone, alpha: opacity).cgColor)
+            let edgeFade = min(1, min(CGFloat(index) / 14, CGFloat(149 - index) / 14))
+            context.setStrokeColor(UIColor(white: tone, alpha: opacity * edgeFade).cgColor)
             context.strokeEllipse(in: CGRect(
                 x: center.x - ringRadius, y: center.y - ringRadius,
                 width: ringRadius * 2, height: ringRadius * 2
@@ -136,28 +138,29 @@ final class VinylDiscView: UIView {
         // A quieter runout and closely spaced lead-in frame the music grooves.
         context.setStrokeColor(UIColor(white: 0.32, alpha: 0.30).cgColor)
         context.setLineWidth(0.65)
-        for fraction in [CGFloat(0.39), 0.42, 0.96, 0.98] {
+        for fraction in [CGFloat(0.52), 0.53, 0.965, 0.98] {
             let ringRadius = radius * fraction
             context.strokeEllipse(in: CGRect(
                 x: center.x - ringRadius, y: center.y - ringRadius,
                 width: ringRadius * 2, height: ringRadius * 2
             ))
         }
-        // Real grooves reflect light in curved bands. Many faint arcs read as
-        // a soft moving highlight instead of a few painted-on white stripes.
-        context.setLineWidth(0.75)
-        for index in 0..<48 {
-            let progress = CGFloat(index) / 47
-            let band = CGFloat(sin(Double(progress) * .pi))
-            let ringRadius = radius * (0.49 + progress * 0.42)
-            context.setStrokeColor(UIColor(
-                red: 0.76, green: 0.81, blue: 0.87,
-                alpha: 0.015 + 0.13 * band
-            ).cgColor)
-            context.addArc(center: center, radius: ringRadius,
-                           startAngle: -.pi * 0.79, endAngle: -.pi * 0.33,
-                           clockwise: false)
-            context.strokePath()
+        // A broad off-centre reflection has no angular endpoints, so it
+        // blends naturally across every groove as the record turns.
+        let softLight = [
+            UIColor(red: 0.70, green: 0.76, blue: 0.84, alpha: 0.09).cgColor,
+            UIColor(red: 0.70, green: 0.76, blue: 0.84, alpha: 0.025).cgColor,
+            UIColor.clear.cgColor
+        ] as CFArray
+        if let glow = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                 colors: softLight, locations: [0, 0.45, 1]) {
+            let lightCenter = CGPoint(x: center.x - radius * 0.45,
+                                      y: center.y - radius * 0.52)
+            context.drawRadialGradient(
+                glow, startCenter: lightCenter, startRadius: 0,
+                endCenter: lightCenter, endRadius: radius * 1.65,
+                options: []
+            )
         }
 
         context.setStrokeColor(UIColor(white: 0.42, alpha: 0.28).cgColor)
@@ -168,7 +171,7 @@ final class VinylDiscView: UIView {
         context.strokeEllipse(in: disc.insetBy(dx: 3.5, dy: 3.5))
         context.restoreGState()
 
-        let labelRadius = radius * 0.35
+        let labelRadius = radius * 0.48
         let label = CGRect(x: center.x - labelRadius, y: center.y - labelRadius,
                            width: labelRadius * 2, height: labelRadius * 2)
         context.setFillColor(UIColor(white: 0.025, alpha: 1).cgColor)
