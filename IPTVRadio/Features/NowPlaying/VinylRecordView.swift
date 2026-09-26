@@ -50,7 +50,7 @@ final class VinylDiscView: UIView {
             let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
             rotation.fromValue = 0
             rotation.toValue = 2 * Double.pi
-            rotation.duration = 1.8 // 33⅓ RPM
+            rotation.duration = 2.7
             rotation.repeatCount = .infinity
             rotation.isRemovedOnCompletion = false
             layer.add(rotation, forKey: "vinylRotation")
@@ -86,11 +86,11 @@ final class VinylDiscView: UIView {
         context.clip()
 
         let colors = [
-            UIColor(white: 0.035, alpha: 1).cgColor,
-            UIColor(white: 0.17, alpha: 1).cgColor,
-            UIColor(white: 0.065, alpha: 1).cgColor,
-            UIColor(white: 0.22, alpha: 1).cgColor,
-            UIColor(white: 0.025, alpha: 1).cgColor
+            UIColor(white: 0.018, alpha: 1).cgColor,
+            UIColor(white: 0.105, alpha: 1).cgColor,
+            UIColor(white: 0.045, alpha: 1).cgColor,
+            UIColor(white: 0.135, alpha: 1).cgColor,
+            UIColor(white: 0.018, alpha: 1).cgColor
         ] as CFArray
         if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                                      colors: colors, locations: [0, 0.29, 0.55, 0.79, 1]) {
@@ -104,9 +104,9 @@ final class VinylDiscView: UIView {
         // without turning the record into a bright graphic.
         let reflectedLight = [
             UIColor.clear.cgColor,
-            UIColor(white: 1, alpha: 0.075).cgColor,
+            UIColor(red: 0.67, green: 0.75, blue: 0.83, alpha: 0.11).cgColor,
             UIColor.clear.cgColor,
-            UIColor(white: 1, alpha: 0.035).cgColor,
+            UIColor(white: 1, alpha: 0.045).cgColor,
             UIColor.clear.cgColor
         ] as CFArray
         if let sheen = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
@@ -119,21 +119,23 @@ final class VinylDiscView: UIView {
             )
         }
 
-        // Fine concentric grooves catch just enough light to read as vinyl.
-        context.setLineWidth(0.45)
-        for index in 0..<108 {
-            let ringRadius = radius * (0.45 + CGFloat(index) * 0.0049)
-            let lightness: CGFloat = index.isMultiple(of: 8) ? 0.34 : 0.19
-            context.setStrokeColor(UIColor(white: lightness, alpha: 0.48).cgColor)
+        // Thin, slightly varied grooves form the satin black playing surface.
+        context.setLineWidth(0.34)
+        for index in 0..<166 {
+            let ringRadius = radius * (0.45 + CGFloat(index) * 0.00305)
+            let variation = CGFloat((index * 37) % 13) / 100
+            let tone: CGFloat = index.isMultiple(of: 23) ? 0.30 : 0.16 + variation
+            let opacity: CGFloat = index.isMultiple(of: 23) ? 0.37 : 0.25
+            context.setStrokeColor(UIColor(white: tone, alpha: opacity).cgColor)
             context.strokeEllipse(in: CGRect(
                 x: center.x - ringRadius, y: center.y - ringRadius,
                 width: ringRadius * 2, height: ringRadius * 2
             ))
         }
 
-        // The wider runout area and the outer lead-in distinguish a record
-        // from a stack of uniformly spaced decorative rings.
-        context.setStrokeColor(UIColor(white: 0.36, alpha: 0.42).cgColor)
+        // A quieter runout and closely spaced lead-in frame the music grooves.
+        context.setStrokeColor(UIColor(white: 0.32, alpha: 0.30).cgColor)
+        context.setLineWidth(0.65)
         for fraction in [CGFloat(0.39), 0.42, 0.96, 0.98] {
             let ringRadius = radius * fraction
             context.strokeEllipse(in: CGRect(
@@ -141,18 +143,29 @@ final class VinylDiscView: UIView {
                 width: ringRadius * 2, height: ringRadius * 2
             ))
         }
-        context.setStrokeColor(UIColor(white: 0.86, alpha: 0.20).cgColor)
-        context.setLineWidth(1.2)
-        for fraction in [CGFloat(0.62), 0.74, 0.87] {
-            context.addArc(center: center, radius: radius * fraction,
-                           startAngle: -.pi * 0.72, endAngle: -.pi * 0.18,
+        // Real grooves reflect light in curved bands. Many faint arcs read as
+        // a soft moving highlight instead of a few painted-on white stripes.
+        context.setLineWidth(0.75)
+        for index in 0..<48 {
+            let progress = CGFloat(index) / 47
+            let band = CGFloat(sin(Double(progress) * .pi))
+            let ringRadius = radius * (0.49 + progress * 0.42)
+            context.setStrokeColor(UIColor(
+                red: 0.76, green: 0.81, blue: 0.87,
+                alpha: 0.015 + 0.13 * band
+            ).cgColor)
+            context.addArc(center: center, radius: ringRadius,
+                           startAngle: -.pi * 0.79, endAngle: -.pi * 0.33,
                            clockwise: false)
             context.strokePath()
         }
 
-        context.setStrokeColor(UIColor(white: 0.72, alpha: 0.35).cgColor)
-        context.setLineWidth(1.5)
-        context.strokeEllipse(in: disc.insetBy(dx: 2, dy: 2))
+        context.setStrokeColor(UIColor(white: 0.42, alpha: 0.28).cgColor)
+        context.setLineWidth(1)
+        context.strokeEllipse(in: disc.insetBy(dx: 1.5, dy: 1.5))
+        context.setStrokeColor(UIColor(white: 0, alpha: 0.72).cgColor)
+        context.setLineWidth(2.2)
+        context.strokeEllipse(in: disc.insetBy(dx: 3.5, dy: 3.5))
         context.restoreGState()
 
         let labelRadius = radius * 0.35
@@ -177,14 +190,39 @@ final class VinylDiscView: UIView {
             context.setFillColor(UIColor(AetherTheme.topBlue).cgColor)
             context.fill(label)
         }
+        let labelShading = [
+            UIColor(white: 1, alpha: 0.075).cgColor,
+            UIColor.clear.cgColor,
+            UIColor(white: 0, alpha: 0.19).cgColor
+        ] as CFArray
+        if let shade = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                  colors: labelShading, locations: [0, 0.42, 1]) {
+            context.drawLinearGradient(
+                shade,
+                start: CGPoint(x: label.midX, y: label.minY),
+                end: CGPoint(x: label.midX, y: label.maxY),
+                options: []
+            )
+        }
         context.restoreGState()
 
-        context.setStrokeColor(UIColor(white: 0.92, alpha: 0.68).cgColor)
-        context.setLineWidth(2)
+        context.setStrokeColor(UIColor(white: 0, alpha: 0.8).cgColor)
+        context.setLineWidth(3)
+        context.strokeEllipse(in: label.insetBy(dx: -2, dy: -2))
+        context.setStrokeColor(UIColor(white: 0.78, alpha: 0.42).cgColor)
+        context.setLineWidth(1)
         context.strokeEllipse(in: label)
-        context.setFillColor(UIColor(white: 0.83, alpha: 1).cgColor)
-        let holeRadius = max(3, side * 0.013)
-        context.fillEllipse(in: CGRect(x: center.x - holeRadius, y: center.y - holeRadius,
-                                       width: holeRadius * 2, height: holeRadius * 2))
+
+        let holeRadius = max(3, side * 0.010)
+        let hole = CGRect(x: center.x - holeRadius, y: center.y - holeRadius,
+                          width: holeRadius * 2, height: holeRadius * 2)
+        context.setFillColor(UIColor(white: 0.015, alpha: 1).cgColor)
+        context.fillEllipse(in: hole)
+        context.setStrokeColor(UIColor(white: 0.88, alpha: 0.74).cgColor)
+        context.setLineWidth(1.4)
+        context.strokeEllipse(in: hole)
+        context.setFillColor(UIColor(white: 1, alpha: 0.52).cgColor)
+        context.fillEllipse(in: CGRect(x: hole.minX + 1.5, y: hole.minY + 1.5,
+                                       width: 1.5, height: 1.5))
     }
 }
