@@ -15,6 +15,8 @@ final class SettingsStore: ObservableObject {
         static let preferAudioOnlyRendition = "settings.preferAudioOnlyRendition"
         static let lookupSongArtwork = "settings.lookupSongArtwork"
         static let liquidGlassEnabled = "settings.liquidGlassEnabled"
+        static let sonosOutputControl = "settings.sonosOutputControl"
+        static let bluetoothOutputControl = "settings.bluetoothOutputControl"
     }
 
     enum AuthMode: String, CaseIterable, Identifiable {
@@ -53,6 +55,14 @@ final class SettingsStore: ObservableObject {
     @Published var liquidGlassEnabled: Bool {
         didSet { defaults.set(liquidGlassEnabled, forKey: Keys.liquidGlassEnabled) }
     }
+    /// Whether the Now Playing wireless output shortcut is shown for AirPlay speakers.
+    @Published var sonosOutputControl: Bool {
+        didSet { defaults.set(sonosOutputControl, forKey: Keys.sonosOutputControl) }
+    }
+    /// Whether the same system output shortcut is shown for Bluetooth audio devices.
+    @Published var bluetoothOutputControl: Bool {
+        didSet { defaults.set(bluetoothOutputControl, forKey: Keys.bluetoothOutputControl) }
+    }
     /// Playback engine used for streams (takes effect after an app restart).
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -65,6 +75,8 @@ final class SettingsStore: ObservableObject {
         preferAudioOnlyRendition = defaults.object(forKey: Keys.preferAudioOnlyRendition) as? Bool ?? true
         lookupSongArtwork = defaults.object(forKey: Keys.lookupSongArtwork) as? Bool ?? true
         liquidGlassEnabled = defaults.object(forKey: Keys.liquidGlassEnabled) as? Bool ?? true
+        sonosOutputControl = defaults.object(forKey: Keys.sonosOutputControl) as? Bool ?? true
+        bluetoothOutputControl = defaults.object(forKey: Keys.bluetoothOutputControl) as? Bool ?? true
 
         if let data = defaults.data(forKey: Keys.detectionRules),
            let rules = try? JSONDecoder().decode(RadioDetectionRules.self, from: data) {

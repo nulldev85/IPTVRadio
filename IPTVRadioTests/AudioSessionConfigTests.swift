@@ -14,6 +14,7 @@ final class AudioSessionConfigTests: XCTestCase {
         let session = AVAudioSession.sharedInstance()
         XCTAssertEqual(session.category, .playback, "Category must be .playback for full-quality A2DP/Bluetooth output")
         XCTAssertEqual(session.mode, .default, "Mode must stay .default; voice-chat modes force telephone-quality audio")
+        XCTAssertEqual(session.routeSharingPolicy, .longFormAudio, "AirPlay 2 speakers need the long-form audio route policy")
         XCTAssertTrue(session.categoryOptions.isEmpty, "No special options (ducking/measure/voice-processing) should be set")
         XCTAssertNotEqual(session.mode, .voiceChat)
     }

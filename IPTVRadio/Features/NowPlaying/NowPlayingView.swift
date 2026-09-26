@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import MediaPlayer
 
 /// Full now-playing screen: artwork, controls, sleep timer, route picker.
 struct NowPlayingView: View {
@@ -7,6 +8,7 @@ struct NowPlayingView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var playback: PlaybackEngine
+    @EnvironmentObject private var settings: SettingsStore
 
     @State private var showSleepTimerSheet = false
     /// Channel logo, used as the backdrop when there is no song artwork.
@@ -65,7 +67,12 @@ struct NowPlayingView: View {
 
                 HStack(spacing: 28) {
                     SleepTimerButton(showSheet: $showSleepTimerSheet)
-                    RoutePickerButton()
+                    if settings.sonosOutputControl {
+                        RoutePickerButton()
+                    }
+                    if settings.bluetoothOutputControl {
+                        BluetoothRoutePickerButton()
+                    }
                     Button {
                         playback.retry()
                     } label: {
@@ -219,13 +226,34 @@ struct SleepTimerButton: View {
     }
 }
 
-/// System AirPlay/Bluetooth route picker.
+/// System AirPlay route picker for compatible Sonos and other speakers.
 struct RoutePickerButton: View {
     var body: some View {
         AVRoutePickerViewRepresentable()
             .frame(width: 28, height: 28)
             .accessibilityLabel("Audio output route")
     }
+}
+
+/// System audio-output selector includes paired Bluetooth receivers. This
+/// changes only the output route; it never restarts or replaces the stream.
+struct BluetoothRoutePickerButton: View {
+    var body: some View {
+        BluetoothRoutePickerViewRepresentable()
+            .frame(width: 28, height: 28)
+            .accessibilityLabel("Bluetooth audio output")
+    }
+}
+
+private struct BluetoothRoutePickerViewRepresentable: UIViewRepresentable {
+    func makeUIView(context: Context) -> MPVolumeView {
+        let view = MPVolumeView()
+        view.showsVolumeSlider = false
+        view.tintColor = UIColor(AetherTheme.mutedIcon)
+        return view
+    }
+
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
 }
 
 struct AVRoutePickerViewRepresentable: UIViewRepresentable {

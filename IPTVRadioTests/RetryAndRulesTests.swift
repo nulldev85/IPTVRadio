@@ -64,4 +64,17 @@ final class DetectionRulesCodableTests: XCTestCase {
         store.liquidGlassEnabled = false
         XCTAssertFalse(SettingsStore(defaults: defaults).liquidGlassEnabled)
     }
+
+    @MainActor
+    func testWirelessOutputControlsPersist() {
+        let defaults = makeIsolatedDefaults()
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertTrue(store.sonosOutputControl)
+        XCTAssertTrue(store.bluetoothOutputControl)
+        store.sonosOutputControl = false
+        store.bluetoothOutputControl = false
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertFalse(reloaded.sonosOutputControl)
+        XCTAssertFalse(reloaded.bluetoothOutputControl)
+    }
 }

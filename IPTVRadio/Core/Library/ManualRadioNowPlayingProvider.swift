@@ -24,16 +24,28 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
 
     func currentSong(for station: RadioStation) async -> SongLookup {
         guard station.source == .manual else { return .empty("not a manual station") }
-        let streams: [URL]
-        do {
-            streams = try await ManualPlaylistResolver(httpClient: http).resolve(station.streamURL)
-        } catch {
-            return .empty("station playlist unavailable")
+        // The listener's original URL can identify an iHeart station even
+        // when its resolved CDN URL no longer contains the station ID. Ask
+        // the published track history directly instead of fetching a media
+        // playlist on every metadata refresh.
+        if let id = station.streamCandidates.compactMap(KnownManualStation.iHeartID(for:)).first {
+            let result = await iHeartSong(id: id)
+            if result.hasTitle { return result }
         }
 
+        var streams: [URL] = []
+        for candidate in station.streamCandidates.prefix(3) {
+            guard let resolved = try? await ManualPlaylistResolver(httpClient: http).resolve(candidate) else {
+                continue
+            }
+            streams.append(contentsOf: resolved)
+        }
+        var programme: StreamMetadataUpdate?
         for stream in streams.prefix(3) {
             if let id = KnownManualStation.iHeartID(for: stream) {
-                return await iHeartSong(id: id)
+                let result = await iHeartSong(id: id)
+                if result.hasTitle { return result }
+                continue
             }
             // HLS and MPEG-TS carry timed metadata in their media. VLC reads
             // that directly; opening a second audio stream cannot add ICY to
@@ -43,9 +55,11 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
                 let update = StreamMetadataParser.splittingCombinedTitle(
                     StreamMetadataUpdate(title: title, artist: nil, artworkData: nil)
                 )
-                return .found(update)
+                if update.artist != nil { return .found(update) }
+                if programme == nil { programme = update }
             }
         }
+        if let programme { return .found(programme) }
         return .empty("stream has no current song metadata")
     }
 
@@ -122,7 +136,7 @@ struct ICYMetadataReader: Sendable {
     func currentTitle(from url: URL) async -> String? {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 8
-        configuration.timeoutIntervalForResource = 10
+        configuration.timeoutIntervalForResource = 16
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
 
@@ -138,7 +152,7 @@ struct ICYMetadataReader: Sendable {
 
         var iterator = bytes.makeAsyncIterator()
         do {
-            for _ in 0..<3 {
+            for _ in 0..<5 {
                 for _ in 0..<interval {
                     guard try await iterator.next() != nil else { return nil }
                 }

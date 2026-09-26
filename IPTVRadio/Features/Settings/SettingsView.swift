@@ -207,6 +207,16 @@ struct SettingsView: View {
                 .aetherSettingsRow()
                 settingsFooter("When the stream has no artwork, Aether can look up the current song in Apple's public catalog. No account or tracking is involved; turn this off for fully offline metadata.")
             }
+            settingsGroup("Audio output", systemImage: "hifispeaker") {
+                Toggle("Show Sonos / AirPlay output", isOn: $settings.sonosOutputControl)
+                    .accessibilityIdentifier("settings.sonosOutput")
+                    .aetherSettingsRow()
+                settingsDivider
+                Toggle("Show Bluetooth output", isOn: $settings.bluetoothOutputControl)
+                    .accessibilityIdentifier("settings.bluetoothOutput")
+                    .aetherSettingsRow()
+                settingsFooter("These switches show output controls in Now Playing. Sonos speakers need AirPlay support and the same Wi-Fi network. Bluetooth output needs a paired audio receiver; a Surface Pro needs a Windows Bluetooth audio-receiver app to play sound from an iPhone.")
+            }
         }
     }
 

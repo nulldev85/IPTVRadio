@@ -100,4 +100,43 @@ final class ManualRadioNowPlayingProviderTests: XCTestCase {
         XCTAssertEqual(result.update?.artist, "Test Artist")
         XCTAssertEqual(result.update?.artworkData, imageData)
     }
+
+    func testIHeartCandidateBypassesUnavailablePlaylist() async {
+        let now = Int(Date().timeIntervalSince1970)
+        let response = """
+        {"data":[{"title":"Fresh Track","artist":"Test Artist",\
+        "imagePath":null,"startTime":\(now - 30),"endTime":\(now + 120)}]}
+        """
+        let http = MockHTTP.client { request in
+            if request.url?.path.contains("trackHistory") == true {
+                return (200, Data(response.utf8))
+            }
+            return (404, Data())
+        }
+        let station = RadioStation(
+            name: "B95",
+            streamURL: URL(string: "https://radio.example.org/listen.m3u")!,
+            source: .manual,
+            alternativeStreamURLs: [URL(string: "https://stream.revma.ihrhls.com/zc141/hls.m3u8")!]
+        )
+        let result = await ManualRadioNowPlayingProvider(http: http).currentSong(for: station)
+        XCTAssertEqual(result.update?.title, "Fresh Track")
+        XCTAssertEqual(result.update?.artist, "Test Artist")
+    }
+
+    func testTriesAlternativeStreamWhenFirstHasNoICYMetadata() async {
+        let http = MockHTTP.client { _ in (404, Data()) }
+        let station = RadioStation(
+            name: "Local radio",
+            streamURL: URL(string: "https://radio.example.org/primary.aac")!,
+            source: .manual,
+            alternativeStreamURLs: [URL(string: "https://radio.example.org/backup.aac")!]
+        )
+        let provider = ManualRadioNowPlayingProvider(http: http) { url in
+            url.path == "/backup.aac" ? "Artist - Song" : nil
+        }
+        let result = await provider.currentSong(for: station)
+        XCTAssertEqual(result.update?.artist, "Artist")
+        XCTAssertEqual(result.update?.title, "Song")
+    }
 }
