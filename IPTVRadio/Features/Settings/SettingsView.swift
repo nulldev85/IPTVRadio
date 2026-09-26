@@ -37,7 +37,7 @@ struct SettingsView: View {
                     .frame(height: 1)
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 24) {
                         switch selectedCategory {
                         case .account:
                             accountSection
@@ -108,7 +108,7 @@ struct SettingsView: View {
     }
 
     private var appearanceSection: some View {
-        settingsCard("Appearance", systemImage: "paintbrush.pointed") {
+        settingsGroup("Appearance", systemImage: "paintbrush.pointed") {
             Toggle("Liquid Glass navigation", isOn: $settings.liquidGlassEnabled)
                 .accessibilityIdentifier("settings.liquidGlass")
                 .aetherSettingsRow()
@@ -117,7 +117,7 @@ struct SettingsView: View {
     }
 
     private var accountSection: some View {
-        settingsCard("Account", systemImage: "person.crop.circle") {
+        settingsGroup("Account", systemImage: "person.crop.circle") {
             if let session = activeSessionDescription {
                 LabeledContent("Status", value: session.status)
                     .aetherSettingsRow()
@@ -147,8 +147,8 @@ struct SettingsView: View {
     }
 
     private var playbackSection: some View {
-        VStack(spacing: 16) {
-            settingsCard("Streaming", systemImage: "antenna.radiowaves.left.and.right") {
+        VStack(spacing: 24) {
+            settingsGroup("Streaming", systemImage: "antenna.radiowaves.left.and.right") {
                 Toggle("Allow cellular streaming", isOn: $settings.cellularAllowed)
                     .accessibilityIdentifier("settings.cellular")
                     .aetherSettingsRow()
@@ -192,7 +192,7 @@ struct SettingsView: View {
                     .aetherSettingsRow()
                 settingsFooter("Uses a dedicated audio track when an HLS stream offers one.")
             }
-            settingsCard("Song information", systemImage: "music.note") {
+            settingsGroup("Song information", systemImage: "music.note") {
                 Toggle("Look up song artwork online", isOn: $settings.lookupSongArtwork)
                     .accessibilityIdentifier("settings.artworkLookup")
                     .aetherSettingsRow()
@@ -211,8 +211,8 @@ struct SettingsView: View {
     }
 
     private var filteringSection: some View {
-        VStack(spacing: 16) {
-            settingsCard("Station filtering", systemImage: "line.3.horizontal.decrease") {
+        VStack(spacing: 24) {
+            settingsGroup("Station filtering", systemImage: "line.3.horizontal.decrease") {
                 Toggle("Show only SiriusXM-labelled stations", isOn: $settings.siriusOnly)
                     .accessibilityIdentifier("settings.siriusOnly")
                     .aetherSettingsRow()
@@ -221,7 +221,7 @@ struct SettingsView: View {
                     .accessibilityIdentifier("settings.showAll")
                     .aetherSettingsRow()
             }
-            settingsCard("Detection rules", systemImage: "slider.horizontal.3") {
+            settingsGroup("Detection rules", systemImage: "slider.horizontal.3") {
                 NavigationLink {
                     DetectionRulesEditorView()
                         .toolbar(.visible, for: .navigationBar)
@@ -235,7 +235,7 @@ struct SettingsView: View {
     }
 
     private var cacheSection: some View {
-        settingsCard("Data", systemImage: "externaldrive") {
+        settingsGroup("Data", systemImage: "externaldrive") {
             LabeledContent("Cached data size", value: ByteCountFormatter.string(fromByteCount: Int64(cacheSize), countStyle: .file))
                 .aetherSettingsRow()
             settingsDivider
@@ -253,7 +253,7 @@ struct SettingsView: View {
     }
 
     private var privacySection: some View {
-        settingsCard("Privacy", systemImage: "lock.shield") {
+        settingsGroup("Privacy", systemImage: "lock.shield") {
             NavigationLink {
                 PrivacyNoticeView()
                     .toolbar(.visible, for: .navigationBar)
@@ -265,7 +265,7 @@ struct SettingsView: View {
         }
     }
 
-    private func settingsCard<Content: View>(
+    private func settingsGroup<Content: View>(
         _ title: String,
         systemImage: String,
         @ViewBuilder content: () -> Content
@@ -275,8 +275,7 @@ struct SettingsView: View {
                 Image(systemName: systemImage)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(AetherTheme.coral)
-                    .frame(width: 38, height: 38)
-                    .background(AetherTheme.coral.opacity(0.14), in: RoundedRectangle(cornerRadius: 11))
+                    .frame(width: 28, height: 28)
                 Text(title)
                     .font(.headline)
                     .foregroundStyle(AetherTheme.primaryText)
@@ -287,16 +286,7 @@ struct SettingsView: View {
         }
         .foregroundStyle(AetherTheme.secondaryText)
         .tint(AetherTheme.coral)
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 20)
-                .fill(AetherTheme.raisedSurface.opacity(0.48))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 20)
-                .strokeBorder(AetherTheme.border.opacity(0.65), lineWidth: 1)
-        }
     }
 
     private var settingsDivider: some View {
