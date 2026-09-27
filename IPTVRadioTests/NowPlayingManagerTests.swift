@@ -87,11 +87,8 @@ final class NowPlayingManagerTests: XCTestCase {
         let station = makeStation("a", withLogo: true)
 
         manager.update(state: .playing(station))
-        manager.loadArtwork(for: station)
-
-        for _ in 0..<100 where manager.lastArtworkOutcome == .none {
-            try await Task.sleep(nanoseconds: 100_000_000)
-        }
+        let artworkTask = manager.loadArtwork(for: station)
+        await artworkTask?.value
 
         XCTAssertEqual(manager.lastArtworkOutcome, .applied)
         XCTAssertEqual(manager.lastAppliedArtworkStationID, station.id)
