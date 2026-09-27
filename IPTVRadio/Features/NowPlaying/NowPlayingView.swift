@@ -67,21 +67,25 @@ struct NowPlayingView: View {
 
                 HStack(spacing: 28) {
                     SleepTimerButton(showSheet: $showSleepTimerSheet)
+                        .frame(width: 44, height: 44)
                     if settings.sonosOutputControl {
                         RoutePickerButton()
-                    }
-                    if settings.bluetoothOutputControl {
+                            .frame(width: 44, height: 44)
+                    } else if settings.bluetoothOutputControl {
                         BluetoothRoutePickerButton()
+                            .frame(width: 44, height: 44)
                     }
                     Button {
                         playback.retry()
                     } label: {
                         Image(systemName: "arrow.clockwise")
                             .font(.title3)
+                            .frame(width: 44, height: 44)
                     }
                     .accessibilityLabel("Retry connection")
                     .accessibilityIdentifier("nowplaying.retry")
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.top, 20)
                 .padding(.bottom, 24)
             }

@@ -24,6 +24,7 @@ struct MiniPlayerView: View {
                                 isSpinning: playback.state.isPlaying && scenePhase == .active && !reduceMotion
                             )
                             .frame(width: 44, height: 44)
+                            .clipShape(Circle())
                             .accessibilityHidden(true)
 
                             VStack(alignment: .leading, spacing: 2) {

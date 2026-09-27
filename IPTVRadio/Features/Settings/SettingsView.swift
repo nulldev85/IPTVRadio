@@ -215,7 +215,7 @@ struct SettingsView: View {
                 Toggle("Show Bluetooth output", isOn: $settings.bluetoothOutputControl)
                     .accessibilityIdentifier("settings.bluetoothOutput")
                     .aetherSettingsRow()
-                settingsFooter("These switches show output controls in Now Playing. Sonos speakers need AirPlay support and the same Wi-Fi network. Bluetooth output needs a paired audio receiver; a Surface Pro needs a Windows Bluetooth audio-receiver app to play sound from an iPhone.")
+                settingsFooter("Now Playing shows one output button. With both switches on, it shows AirPlay; paired Bluetooth audio is also available through iOS audio output controls. Sonos speakers need AirPlay support and the same Wi-Fi network.")
             }
         }
     }

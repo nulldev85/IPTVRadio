@@ -35,6 +35,8 @@ final class VinylDiscView: UIView {
         isOpaque = false
         backgroundColor = .clear
         contentMode = .redraw
+        layer.masksToBounds = true
+        layer.allowsEdgeAntialiasing = true
         isAccessibilityElement = true
         accessibilityLabel = "Vinyl record"
         accessibilityIdentifier = "nowplaying.vinyl"
@@ -42,6 +44,13 @@ final class VinylDiscView: UIView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // UIKit can resample a rotating bitmap just outside its transparent
+        // edge. Clip the layer itself to a circle at both player sizes.
+        layer.cornerRadius = min(bounds.width, bounds.height) / 2
     }
 
     func setSpinning(_ shouldSpin: Bool) {
@@ -259,15 +268,38 @@ final class VinylDiscView: UIView {
         context.setFillColor(UIColor(white: 0, alpha: 0.07).cgColor)
         context.fill(disc)
 
-        context.setLineWidth(0.35)
+        context.setLineWidth(max(0.25, radius * 0.0011))
         for index in 0..<155 {
-            let ringRadius = radius * (0.19 + CGFloat(index) * 0.0051)
-            let opacity: CGFloat = index.isMultiple(of: 19) ? 0.15 : 0.07
-            context.setStrokeColor(UIColor(white: 0, alpha: opacity).cgColor)
+            let ringRadius = radius * (0.22 + CGFloat(index) * 0.005)
+            let accent = index.isMultiple(of: 17)
+            let opacity: CGFloat = accent ? 0.12 : 0.055
+            context.setStrokeColor(UIColor(
+                white: accent ? 1 : 0, alpha: opacity
+            ).cgColor)
             context.strokeEllipse(in: CGRect(
                 x: center.x - ringRadius, y: center.y - ringRadius,
                 width: ringRadius * 2, height: ringRadius * 2
             ))
+        }
+
+        // A low-contrast specular band gives the rotating grooves a satin
+        // finish while the original artwork remains readable underneath.
+        let reflectionColors = [
+            UIColor.clear.cgColor,
+            UIColor(white: 1, alpha: 0.025).cgColor,
+            UIColor(white: 1, alpha: 0.085).cgColor,
+            UIColor(white: 1, alpha: 0.018).cgColor,
+            UIColor.clear.cgColor
+        ] as CFArray
+        if let reflection = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                       colors: reflectionColors,
+                                       locations: [0, 0.24, 0.40, 0.58, 1]) {
+            context.drawLinearGradient(
+                reflection,
+                start: CGPoint(x: disc.minX, y: disc.maxY),
+                end: CGPoint(x: disc.maxX, y: disc.minY),
+                options: []
+            )
         }
 
         let edgeColors = [
@@ -288,19 +320,19 @@ final class VinylDiscView: UIView {
     }
 
     private func drawCenterHub(at center: CGPoint, radius: CGFloat, context: CGContext) {
-        let hubRadius = radius * 0.28
+        let hubRadius = radius * 0.20
         let hub = CGRect(x: center.x - hubRadius, y: center.y - hubRadius,
                          width: hubRadius * 2, height: hubRadius * 2)
         context.setFillColor(UIColor(white: 0.035, alpha: 1).cgColor)
         context.fillEllipse(in: hub)
         context.setStrokeColor(UIColor(white: 0.65, alpha: 0.78).cgColor)
-        context.setLineWidth(max(2, radius * 0.009))
-        context.strokeEllipse(in: hub.insetBy(dx: radius * 0.026, dy: radius * 0.026))
+        context.setLineWidth(max(0.6, radius * 0.009))
+        context.strokeEllipse(in: hub.insetBy(dx: radius * 0.022, dy: radius * 0.022))
         context.setStrokeColor(UIColor(white: 0.96, alpha: 0.72).cgColor)
-        context.setLineWidth(max(1, radius * 0.004))
-        context.strokeEllipse(in: hub.insetBy(dx: radius * 0.045, dy: radius * 0.045))
+        context.setLineWidth(max(0.4, radius * 0.004))
+        context.strokeEllipse(in: hub.insetBy(dx: radius * 0.036, dy: radius * 0.036))
 
-        let spindleRadius = max(3, radius * 0.028)
+        let spindleRadius = max(1, radius * 0.028)
         context.setFillColor(UIColor(white: 0.72, alpha: 1).cgColor)
         context.fillEllipse(in: CGRect(x: center.x - spindleRadius, y: center.y - spindleRadius,
                                        width: spindleRadius * 2, height: spindleRadius * 2))
