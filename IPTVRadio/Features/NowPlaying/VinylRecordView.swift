@@ -59,7 +59,7 @@ final class VinylDiscView: UIView {
             let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
             rotation.fromValue = 0
             rotation.toValue = 2 * Double.pi
-            rotation.duration = 2.7
+            rotation.duration = 5.4
             rotation.repeatCount = .infinity
             rotation.isRemovedOnCompletion = false
             layer.add(rotation, forKey: "vinylRotation")
