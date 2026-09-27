@@ -85,6 +85,13 @@ final class VinylDiscView: UIView {
         context.addEllipse(in: disc)
         context.clip()
 
+        if let artwork {
+            drawArtworkDisc(artwork, in: disc, center: center, radius: radius, context: context)
+            context.restoreGState()
+            drawCenterHub(at: center, radius: radius, context: context)
+            return
+        }
+
         let colors = [
             UIColor(white: 0.018, alpha: 1).cgColor,
             UIColor(white: 0.105, alpha: 1).cgColor,
@@ -227,5 +234,75 @@ final class VinylDiscView: UIView {
         context.setFillColor(UIColor(white: 1, alpha: 0.52).cgColor)
         context.fillEllipse(in: CGRect(x: hole.minX + 1.5, y: hole.minY + 1.5,
                                        width: 1.5, height: 1.5))
+    }
+
+    /// Covers the whole record with the cover image, then adds transparent
+    /// grooves and edge shading so the artwork still reads as a vinyl disc.
+    private func drawArtworkDisc(
+        _ artwork: UIImage,
+        in disc: CGRect,
+        center: CGPoint,
+        radius: CGFloat,
+        context: CGContext
+    ) {
+        let scale = max(disc.width / max(artwork.size.width, 1),
+                        disc.height / max(artwork.size.height, 1))
+        let imageSize = CGSize(width: artwork.size.width * scale,
+                               height: artwork.size.height * scale)
+        artwork.draw(in: CGRect(
+            x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2,
+            width: imageSize.width, height: imageSize.height
+        ))
+
+        // A light tint preserves legibility of bright artwork without hiding
+        // the cover's colors, text, or detail.
+        context.setFillColor(UIColor(white: 0, alpha: 0.07).cgColor)
+        context.fill(disc)
+
+        context.setLineWidth(0.35)
+        for index in 0..<155 {
+            let ringRadius = radius * (0.19 + CGFloat(index) * 0.0051)
+            let opacity: CGFloat = index.isMultiple(of: 19) ? 0.15 : 0.07
+            context.setStrokeColor(UIColor(white: 0, alpha: opacity).cgColor)
+            context.strokeEllipse(in: CGRect(
+                x: center.x - ringRadius, y: center.y - ringRadius,
+                width: ringRadius * 2, height: ringRadius * 2
+            ))
+        }
+
+        let edgeColors = [
+            UIColor.clear.cgColor,
+            UIColor(white: 0, alpha: 0.02).cgColor,
+            UIColor(white: 0, alpha: 0.25).cgColor
+        ] as CFArray
+        if let edgeShade = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                      colors: edgeColors, locations: [0, 0.77, 1]) {
+            context.drawRadialGradient(edgeShade, startCenter: center, startRadius: 0,
+                                       endCenter: center, endRadius: radius, options: [])
+        }
+        context.setStrokeColor(UIColor(white: 0.9, alpha: 0.32).cgColor)
+        context.setLineWidth(1)
+        context.strokeEllipse(in: disc.insetBy(dx: 1.5, dy: 1.5))
+        context.setStrokeColor(UIColor(white: 0, alpha: 0.5).cgColor)
+        context.strokeEllipse(in: disc.insetBy(dx: 3, dy: 3))
+    }
+
+    private func drawCenterHub(at center: CGPoint, radius: CGFloat, context: CGContext) {
+        let hubRadius = radius * 0.28
+        let hub = CGRect(x: center.x - hubRadius, y: center.y - hubRadius,
+                         width: hubRadius * 2, height: hubRadius * 2)
+        context.setFillColor(UIColor(white: 0.035, alpha: 1).cgColor)
+        context.fillEllipse(in: hub)
+        context.setStrokeColor(UIColor(white: 0.65, alpha: 0.78).cgColor)
+        context.setLineWidth(max(2, radius * 0.009))
+        context.strokeEllipse(in: hub.insetBy(dx: radius * 0.026, dy: radius * 0.026))
+        context.setStrokeColor(UIColor(white: 0.96, alpha: 0.72).cgColor)
+        context.setLineWidth(max(1, radius * 0.004))
+        context.strokeEllipse(in: hub.insetBy(dx: radius * 0.045, dy: radius * 0.045))
+
+        let spindleRadius = max(3, radius * 0.028)
+        context.setFillColor(UIColor(white: 0.72, alpha: 1).cgColor)
+        context.fillEllipse(in: CGRect(x: center.x - spindleRadius, y: center.y - spindleRadius,
+                                       width: spindleRadius * 2, height: spindleRadius * 2))
     }
 }

@@ -4,7 +4,10 @@ import AVKit
 /// Compact mini player shown above the tab bar while a station is loaded.
 /// Owns no presentation state: opening the full player is delegated upward.
 struct MiniPlayerView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var playback: PlaybackEngine
+    @State private var stationLogo: UIImage?
 
     let onOpen: () -> Void
 
@@ -16,11 +19,12 @@ struct MiniPlayerView: View {
                         onOpen()
                     } label: {
                         HStack(spacing: 12) {
-                            PlaybackArtwork(
-                                station: station,
-                                songArtwork: playback.nowPlayingMetadata?.artworkImage,
-                                size: 44
+                            VinylRecordView(
+                                artwork: playback.nowPlayingMetadata?.artworkImage ?? stationLogo,
+                                isSpinning: playback.state.isPlaying && scenePhase == .active && !reduceMotion
                             )
+                            .frame(width: 44, height: 44)
+                            .accessibilityHidden(true)
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(playback.nowPlayingMetadata?.title ?? station.name)
@@ -70,6 +74,11 @@ struct MiniPlayerView: View {
                 .background(AetherTheme.tabBar.opacity(0.68))
                 .overlay(alignment: .top) {
                     AetherTheme.border.frame(height: 1)
+                }
+                .task(id: station.id) {
+                    stationLogo = nil
+                    guard let url = station.logoURL else { return }
+                    stationLogo = await ArtworkCache.shared.image(for: url)
                 }
             }
         }

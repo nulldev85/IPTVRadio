@@ -105,7 +105,7 @@ struct NowPlayingView: View {
     }
 
     private func recordSize(in size: CGSize) -> CGFloat {
-        min(size.width - 48, size.height * 0.49)
+        min(size.width - 80, size.height * 0.44)
     }
 
     private var controlRow: some View {
