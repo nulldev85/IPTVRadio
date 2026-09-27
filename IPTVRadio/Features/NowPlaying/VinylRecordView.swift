@@ -320,19 +320,19 @@ final class VinylDiscView: UIView {
     }
 
     private func drawCenterHub(at center: CGPoint, radius: CGFloat, context: CGContext) {
-        let hubRadius = radius * 0.20
+        let hubRadius = radius * 0.10
         let hub = CGRect(x: center.x - hubRadius, y: center.y - hubRadius,
                          width: hubRadius * 2, height: hubRadius * 2)
         context.setFillColor(UIColor(white: 0.035, alpha: 1).cgColor)
         context.fillEllipse(in: hub)
         context.setStrokeColor(UIColor(white: 0.65, alpha: 0.78).cgColor)
-        context.setLineWidth(max(0.6, radius * 0.009))
-        context.strokeEllipse(in: hub.insetBy(dx: radius * 0.022, dy: radius * 0.022))
+        context.setLineWidth(max(0.3, radius * 0.0045))
+        context.strokeEllipse(in: hub.insetBy(dx: radius * 0.011, dy: radius * 0.011))
         context.setStrokeColor(UIColor(white: 0.96, alpha: 0.72).cgColor)
-        context.setLineWidth(max(0.4, radius * 0.004))
-        context.strokeEllipse(in: hub.insetBy(dx: radius * 0.036, dy: radius * 0.036))
+        context.setLineWidth(max(0.2, radius * 0.002))
+        context.strokeEllipse(in: hub.insetBy(dx: radius * 0.018, dy: radius * 0.018))
 
-        let spindleRadius = max(1, radius * 0.028)
+        let spindleRadius = max(0.5, radius * 0.014)
         context.setFillColor(UIColor(white: 0.72, alpha: 1).cgColor)
         context.fillEllipse(in: CGRect(x: center.x - spindleRadius, y: center.y - spindleRadius,
                                        width: spindleRadius * 2, height: spindleRadius * 2))
