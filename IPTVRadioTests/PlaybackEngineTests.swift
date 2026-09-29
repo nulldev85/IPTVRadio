@@ -21,6 +21,8 @@ final class StubAudioPlayer: AudioPlayerControlling {
     var onPlaybackResumed: (() -> Void)?
 
     private(set) var loadedURLs: [URL] = []
+    /// The buffer requested with each load, in seconds.
+    private(set) var loadedBuffers: [TimeInterval] = []
     /// Simulated playback progress; nil models an engine that cannot report it.
     private(set) var progressReading: Double?
     /// When set, every reading advances — an engine whose audio keeps flowing
@@ -30,8 +32,9 @@ final class StubAudioPlayer: AudioPlayerControlling {
     private(set) var pauseCount = 0
     private(set) var stopCount = 0
 
-    func load(url: URL) {
+    func load(url: URL, bufferDuration: TimeInterval) {
         loadedURLs.append(url)
+        loadedBuffers.append(bufferDuration)
     }
 
     var playbackProgress: Double? {
@@ -88,12 +91,15 @@ final class PlaybackEngineTests: XCTestCase {
         songPollInterval: TimeInterval = 30,
         audioSession: AudioSessionControlling? = nil,
         interruptionRecoveryDelay: TimeInterval = 10,
-        networkRecoveryDelay: TimeInterval = 3
+        networkRecoveryDelay: TimeInterval = 3,
+        cellularBuffer: TimeInterval = StreamBuffer.standardDuration,
+        bufferChangeDelay: TimeInterval = 1.5
     ) async -> (PlaybackEngine, StubAudioPlayer, ConnectivityMonitor, HistoryStore) {
         let settings = await SettingsStore(defaults: defaults)
         await MainActor.run {
             settings.retryLimit = retryLimit
             settings.streamTimeout = timeout
+            settings.cellularBuffer = cellularBuffer
             // Deterministic tests: the manifest probe and online artwork
             // lookup are opt-in per test.
             settings.preferAudioOnlyRendition = audioOnlyProbe
@@ -116,7 +122,8 @@ final class PlaybackEngineTests: XCTestCase {
             stallTimeout: stallTimeout,
             songPollInterval: songPollInterval,
             interruptionRecoveryDelay: interruptionRecoveryDelay,
-            networkRecoveryDelay: networkRecoveryDelay
+            networkRecoveryDelay: networkRecoveryDelay,
+            bufferChangeDelay: bufferChangeDelay
         )
         return (engine, player, connectivity, history)
     }
@@ -1558,6 +1565,211 @@ final class PlaybackEngineTests: XCTestCase {
         }
         XCTAssertGreaterThanOrEqual(provider.askCount, 4)
         XCTAssertEqual(engine.nowPlayingMetadata?.title, "Current Song")
+        engine.stop()
+    }
+
+    // MARK: Stream buffer
+
+    @MainActor
+    func testWiFiStreamLoadsWithTheStandardBuffer() async {
+        let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults(), cellularBuffer: 12)
+        engine.play(station("wifi-buffer"))
+        XCTAssertEqual(player.loadedBuffers, [StreamBuffer.standardDuration])
+        engine.stop()
+    }
+
+    @MainActor
+    func testCellularStreamLoadsWithTheCellularBuffer() async {
+        let (engine, player, connectivity, _) = await makeEngine(defaults: makeIsolatedDefaults(), cellularBuffer: 12)
+        connectivity.updatePath(status: .online, isCellular: true, isExpensive: true)
+        engine.play(station("cellular-buffer"))
+        XCTAssertEqual(player.loadedBuffers, [12])
+        engine.stop()
+    }
+
+    @MainActor
+    func testPersonalHotspotLoadsWithTheCellularBuffer() async {
+        let (engine, player, connectivity, _) = await makeEngine(defaults: makeIsolatedDefaults(), cellularBuffer: 9)
+        // A hotspot reaches the device as Wi-Fi, flagged expensive.
+        connectivity.updatePath(status: .online, isCellular: false, isExpensive: true)
+        engine.play(station("hotspot-buffer"))
+        XCTAssertEqual(player.loadedBuffers, [9])
+        engine.stop()
+    }
+
+    @MainActor
+    func testMovingOntoCellularReloadsWithTheCellularBuffer() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), networkRecoveryDelay: 0.05, cellularBuffer: 12
+        )
+        let s = station("onto-cellular")
+        engine.play(s)
+        player.simulateReady()
+        // Audio keeps flowing, so the buffer is the only reason to reconnect.
+        player.setProgress(10)
+        player.progressAdvancesPerReading = true
+
+        connectivity.updatePath(status: .online, isCellular: true, isExpensive: true)
+        let reloaded = await waitForReload(player)
+
+        XCTAssertTrue(reloaded, "A stream opened on Wi-Fi must pick up the cellular buffer")
+        XCTAssertEqual(player.loadedBuffers, [StreamBuffer.standardDuration, 12])
+        XCTAssertEqual(player.loadedURLs, [s.streamURL, s.streamURL], "The same format is reloaded")
+        XCTAssertEqual(engine.state, .loading(s))
+        player.simulateReady()
+        XCTAssertEqual(engine.state, .playing(s))
+        engine.stop()
+    }
+
+    @MainActor
+    func testMovingOffCellularKeepsTheLargerBuffer() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), networkRecoveryDelay: 0.05, cellularBuffer: 12
+        )
+        connectivity.updatePath(status: .online, isCellular: true, isExpensive: true)
+        let s = station("off-cellular")
+        engine.play(s)
+        player.simulateReady()
+        player.setProgress(10)
+        player.progressAdvancesPerReading = true
+
+        connectivity.updatePath(status: .online, isCellular: false)
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(player.loadedBuffers, [12], "A healthy stream is not interrupted to shed buffer")
+        XCTAssertEqual(engine.state, .playing(s))
+        engine.stop()
+    }
+
+    @MainActor
+    func testChangingTheCellularBufferReconnectsAStationPlayingOnCellular() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), bufferChangeDelay: 0.05
+        )
+        connectivity.updatePath(status: .online, isCellular: true, isExpensive: true)
+        let s = station("buffer-setting")
+        engine.play(s)
+        player.simulateReady()
+        player.onMetadata?(StreamMetadataUpdate(title: "Song A", artist: "Artist A", artworkData: nil))
+
+        // A slider reports every step it passes; only where it stops counts.
+        for seconds in [6.0, 8.0, 10.0] {
+            engine.settingsForTesting.cellularBuffer = seconds
+        }
+        let reloaded = await waitForReload(player)
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertTrue(reloaded, "A new cellular buffer is applied to the station playing on cellular")
+        XCTAssertEqual(player.loadedBuffers, [StreamBuffer.standardDuration, 10],
+                       "One reconnect, with the value the slider settled on")
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Song A", "A reconnect is not a station change")
+        engine.stop()
+    }
+
+    @MainActor
+    func testChangingTheCellularBufferLeavesAWiFiStationAlone() async {
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), bufferChangeDelay: 0.05
+        )
+        let s = station("buffer-setting-wifi")
+        engine.play(s)
+        player.simulateReady()
+
+        engine.settingsForTesting.cellularBuffer = 20
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(player.loadedURLs.count, 1, "Wi-Fi streams do not use the cellular buffer")
+        XCTAssertEqual(engine.state, .playing(s))
+        engine.stop()
+    }
+
+    @MainActor
+    func testABufferChangeDoesNotResumeAPausedStation() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), bufferChangeDelay: 0.05
+        )
+        connectivity.updatePath(status: .online, isCellular: true, isExpensive: true)
+        let s = station("paused-buffer")
+        engine.play(s)
+        player.simulateReady()
+        engine.togglePlayPause()
+
+        engine.settingsForTesting.cellularBuffer = 15
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(player.loadedURLs.count, 1)
+        XCTAssertEqual(engine.state, .paused(s))
+        engine.stop()
+    }
+
+    @MainActor
+    func testALargerBufferIsGivenLongerToRefillBeforeAReconnect() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 1,
+            stallTimeout: 0.2,
+            cellularBuffer: StreamBuffer.standardDuration + 1
+        )
+        connectivity.updatePath(status: .online, isCellular: true, isExpensive: true)
+        let s = station("refill")
+        engine.play(s)
+        player.simulateReady()
+
+        // Silent while a buffer one second over the standard refills. By the
+        // check the plain stall timeout is long over; the extra second the
+        // larger buffer takes to fill is not.
+        player.setProgress(3)
+        player.onStalled?()
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        XCTAssertEqual(engine.state, .playing(s), "Refilling a larger buffer is not a stall")
+
+        let reloaded = await waitForReload(player)
+        XCTAssertTrue(reloaded, "Still silent once the longer allowance is over: reconnect")
+        engine.stop()
+    }
+
+    @MainActor
+    func testALargerBufferIsGivenLongerToStartBeforeTheNextFormat() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            retryLimit: 0,
+            timeout: 3,
+            cellularBuffer: StreamBuffer.standardDuration + 2
+        )
+        connectivity.updatePath(status: .online, isCellular: true, isExpensive: true)
+        let primary = URL(string: "https://edge.example.net/live/slow.ts")!
+        let fallback = URL(string: "https://edge.example.net/live/slow.m3u8")!
+        let s = RadioStation(
+            name: "Slow Start",
+            streamURL: primary,
+            groupTitle: "Music",
+            source: .xtream,
+            alternativeStreamURLs: [fallback]
+        )
+
+        engine.play(s)
+        // The plain allowance to start (3 s here) is over by the check; the
+        // two seconds the larger buffer takes to fill are not.
+        try? await Task.sleep(nanoseconds: 3_600_000_000)
+        XCTAssertEqual(player.loadedURLs, [primary], "A buffer still filling is not a failed format")
+
+        for _ in 0..<60 where player.loadedURLs.count < 2 {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(player.loadedURLs, [primary, fallback])
+        engine.stop()
+    }
+
+    @MainActor
+    func testDiagnosticsShowTheBufferTheStreamWasOpenedWith() async {
+        let (engine, player, connectivity, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(), cellularBuffer: 15
+        )
+        connectivity.updatePath(status: .online, isCellular: true, isExpensive: true)
+        engine.play(station("buffer-diagnostics"))
+        player.simulateReady()
+
+        XCTAssertEqual(engine.streamDiagnostics?.buffer, StreamBuffer(duration: 15, isCellular: true))
         engine.stop()
     }
 }

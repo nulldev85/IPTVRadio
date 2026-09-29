@@ -154,6 +154,10 @@ struct StreamDiagnostics: Equatable {
     /// preferred one. Fast, but it means an early failure can keep a station on
     /// a fallback format indefinitely, so it is surfaced rather than silent.
     var startedAtRememberedEndpoint: Bool = false
+    /// The audio reserve the stream was loaded with. A buffer only takes
+    /// effect when a stream loads, so this is how a listener sees whether the
+    /// cellular setting is the one in use.
+    var buffer: StreamBuffer? = nil
 
     /// Best available single bitrate figure for compact display. Observed
     /// bitrate is intentionally excluded: it reflects the recent download

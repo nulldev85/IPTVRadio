@@ -19,6 +19,8 @@ protocol AudioPlayerControlling: AnyObject {
     var onPlaybackResumed: (() -> Void)? { get set }
     /// Extra time this engine needs before the stream can be considered
     /// failed to start (deep-buffering engines need more than the default).
+    /// Sized for the standard buffer: the engine adds the extra fill time of
+    /// a larger one itself.
     var startupGracePeriod: TimeInterval { get }
     /// An increasing measure of real playback progress, or nil when this engine
     /// cannot report one. Only successive readings are compared, so the unit
@@ -27,7 +29,9 @@ protocol AudioPlayerControlling: AnyObject {
     /// buffering notification — live engines emit those routinely while
     /// perfectly healthy, and acting on one tears down a working stream.
     var playbackProgress: Double? { get }
-    func load(url: URL)
+    /// Prepares and starts the stream, holding `bufferDuration` seconds of
+    /// audio in reserve ahead of playback (see `StreamBuffer`).
+    func load(url: URL, bufferDuration: TimeInterval)
     func play()
     func pause()
     func stop()

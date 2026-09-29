@@ -6,6 +6,7 @@ import Foundation
 final class SettingsStore: ObservableObject {
     enum Keys {
         static let cellularAllowed = "settings.cellularAllowed"
+        static let cellularBuffer = "settings.cellularBuffer"
         static let streamTimeout = "settings.streamTimeout"
         static let retryLimit = "settings.retryLimit"
         static let showAllStations = "settings.showAllStations"
@@ -28,6 +29,12 @@ final class SettingsStore: ObservableObject {
     private let defaults: UserDefaults
 
     @Published var cellularAllowed: Bool { didSet { defaults.set(cellularAllowed, forKey: Keys.cellularAllowed) } }
+    /// Seconds of audio held in reserve on cellular data and Personal Hotspot
+    /// connections (`StreamBuffer.cellularRange`). Wi-Fi always uses the
+    /// standard buffer.
+    @Published var cellularBuffer: TimeInterval {
+        didSet { defaults.set(cellularBuffer, forKey: Keys.cellularBuffer) }
+    }
     /// Stream readiness timeout in seconds (5...60).
     @Published var streamTimeout: Double { didSet { defaults.set(streamTimeout, forKey: Keys.streamTimeout) } }
     /// Automatic retry attempts before surfacing failure (0...5).
@@ -67,6 +74,9 @@ final class SettingsStore: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         cellularAllowed = defaults.object(forKey: Keys.cellularAllowed) as? Bool ?? true
+        cellularBuffer = StreamBuffer.clampedCellularDuration(
+            defaults.object(forKey: Keys.cellularBuffer) as? Double ?? StreamBuffer.standardDuration
+        )
         streamTimeout = defaults.object(forKey: Keys.streamTimeout) as? Double ?? 15
         retryLimit = defaults.object(forKey: Keys.retryLimit) as? Int ?? 2
         showAllStations = defaults.object(forKey: Keys.showAllStations) as? Bool ?? true
