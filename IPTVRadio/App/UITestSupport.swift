@@ -55,7 +55,7 @@ final class MockAudioPlayer: AudioPlayerControlling {
     var onStalled: (() -> Void)?
     var onPlaybackResumed: (() -> Void)?
 
-    func load(url: URL) {
+    func load(url: URL, bufferDuration: TimeInterval) {
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             self?.onReady?()

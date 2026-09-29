@@ -32,6 +32,8 @@ authorization from their provider for every stream they configure.
 - Headphone/Bluetooth/AirPlay route changes, call/Siri interruption handling
 - Automatic reconnection with exponential backoff; configurable stream timeout
 - Cellular-streaming opt-in setting; pull-to-refresh and manual refresh
+- Adjustable cellular buffer (4–30 s) so brief signal drops don't pause the station; Wi-Fi keeps
+  the standard 4 s buffer for quick starts
 - Loading / empty / offline / expired-session / malformed-playlist states
 - Dark Mode, Dynamic Type, VoiceOver labels, iPhone and iPad layouts
 - Account management, filter-rule editor, cache clearing, and logout in Settings

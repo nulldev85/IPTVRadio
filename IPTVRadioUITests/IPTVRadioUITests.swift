@@ -208,6 +208,8 @@ final class IPTVRadioUITests: XCTestCase {
         app.buttons["settings.category.playback"].tap()
         XCTAssertTrue(app.descendants(matching: .any)
             .matching(identifier: "settings.cellular").firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "settings.cellularBuffer").firstMatch.waitForExistence(timeout: 8))
         app.buttons["settings.category.app"].tap()
         XCTAssertTrue(app.descendants(matching: .any)
             .matching(identifier: "settings.liquidGlass").firstMatch.waitForExistence(timeout: 8))

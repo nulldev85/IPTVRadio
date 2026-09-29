@@ -21,6 +21,9 @@ struct StreamDiagnosticsView: View {
                         "Format",
                         value: "\(formatName(diagnostics.streamType)), option \(diagnostics.formatIndex) of \(diagnostics.formatCount)"
                     )
+                    if let buffer = diagnostics.buffer {
+                        LabeledContent("Network buffer", value: bufferValue(buffer))
+                    }
                     LabeledContent("Indicated bitrate", value: bitrate(diagnostics.indicatedBitrate))
                     LabeledContent("Observed bitrate (download rate)", value: bitrate(diagnostics.observedBitrate))
                     LabeledContent("Average audio bitrate", value: bitrate(diagnostics.averageAudioBitrate))
@@ -128,7 +131,7 @@ struct StreamDiagnosticsView: View {
             }
 
             Section {
-                Text("This app plays your provider's stream exactly as delivered — no transcoding, EQ or volume processing.\n\n“Observed bitrate” is the recent download rate and is highest right after playback starts; it does not describe audio quality. HLS streams often do not report audio bitrate figures at all.\n\nIf audio quality sounds low, switch “Stream format” in Settings ▸ Playback and compare — the format line above shows which option is playing.\n\nIf this station came from an M3U playlist link and sounds worse than another player, sign in with your provider's Xtream portal details (server URL, username, password) instead — that plays the provider's original stream rather than a re-packaged copy.")
+                Text("This app plays your provider's stream exactly as delivered — no transcoding, EQ or volume processing.\n\n“Observed bitrate” is the recent download rate and is highest right after playback starts; it does not describe audio quality. HLS streams often do not report audio bitrate figures at all.\n\nIf a station keeps pausing for a moment on cellular, raise “Cellular buffer” in Settings ▸ Playback. “Network buffer” above shows the reserve this stream was opened with.\n\nIf audio quality sounds low, switch “Stream format” in Settings ▸ Playback and compare — the format line above shows which option is playing.\n\nIf this station came from an M3U playlist link and sounds worse than another player, sign in with your provider's Xtream portal details (server URL, username, password) instead — that plays the provider's original stream rather than a re-packaged copy.")
                     .font(.footnote)
                     .foregroundStyle(AetherTheme.secondaryText)
             } header: {
@@ -239,6 +242,11 @@ struct StreamDiagnosticsView: View {
         case .failed: return .orange
         case .notTried, .skipped: return .secondary
         }
+    }
+
+    private func bufferValue(_ buffer: StreamBuffer) -> String {
+        let seconds = "\(Int(buffer.duration.rounded())) s"
+        return buffer.isCellular ? "\(seconds), cellular setting" : "\(seconds), standard"
     }
 
     private func bitrate(_ value: Double?) -> String {

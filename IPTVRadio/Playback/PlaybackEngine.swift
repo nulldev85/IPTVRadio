@@ -37,6 +37,10 @@ final class PlaybackEngine: ObservableObject {
     private var networkCheckTask: Task<Void, Never>?
     private var connectivitySubscription: AnyCancellable?
     private var cellularSettingSubscription: AnyCancellable?
+    private var cellularBufferSubscription: AnyCancellable?
+    /// Applies a changed cellular buffer once the listener stops adjusting it.
+    private var bufferChangeTask: Task<Void, Never>?
+    private let bufferChangeDelay: TimeInterval
     private var waitingForNetwork = false
     private var waitingForWiFi = false
     private var retryAttempts = 0
@@ -53,6 +57,10 @@ final class PlaybackEngine: ObservableObject {
     private var probeTask: Task<Void, Never>?
     private var probeResultForActiveStation: HLSProbeResult?
     private var activePlaybackURL: URL?
+    /// The buffer the stream in the player was loaded with. A buffer only
+    /// takes effect when a stream loads, so this is what tells the engine a
+    /// playing stream no longer holds what its connection calls for.
+    private var activeBuffer: StreamBuffer?
     /// Why the previously tried format failed (sanitized; no URLs).
     private var lastFormatFailure: String?
     /// Why *this* candidate failed. `lastFormatFailure` outlives a candidate by
@@ -131,7 +139,8 @@ final class PlaybackEngine: ObservableObject {
         stallTimeout: TimeInterval = 12,
         songPollInterval: TimeInterval = 30,
         interruptionRecoveryDelay: TimeInterval = 10,
-        networkRecoveryDelay: TimeInterval = 3
+        networkRecoveryDelay: TimeInterval = 3,
+        bufferChangeDelay: TimeInterval = 1.5
     ) {
         self.player = player
         self.audioSession = audioSession
@@ -148,6 +157,7 @@ final class PlaybackEngine: ObservableObject {
         self.songPollInterval = songPollInterval
         self.interruptionRecoveryDelay = interruptionRecoveryDelay
         self.networkRecoveryDelay = networkRecoveryDelay
+        self.bufferChangeDelay = bufferChangeDelay
         configurePlayerCallbacks()
         registerForAudioSessionNotifications()
         connectivitySubscription = connectivity.$pathRevision.dropFirst().sink { [weak self] _ in
@@ -155,6 +165,9 @@ final class PlaybackEngine: ObservableObject {
         }
         cellularSettingSubscription = settings.$cellularAllowed.dropFirst().sink { [weak self] _ in
             Task { @MainActor [weak self] in self?.handleConnectivityChange(checkStream: false) }
+        }
+        cellularBufferSubscription = settings.$cellularBuffer.dropFirst().sink { [weak self] _ in
+            Task { @MainActor [weak self] in self?.scheduleBufferChange() }
         }
         nowPlaying.commandDelegate = self
     }
@@ -174,6 +187,7 @@ final class PlaybackEngine: ObservableObject {
         epgTask?.cancel()
         artworkLookupTask?.cancel()
         interruptionRecoveryTask?.cancel()
+        bufferChangeTask?.cancel()
     }
 
     // MARK: Public controls
@@ -204,6 +218,7 @@ final class PlaybackEngine: ObservableObject {
         nowPlayingMetadata = nil
         probeResultForActiveStation = nil
         activePlaybackURL = nil
+        activeBuffer = nil
         lastFormatFailure = nil
         playbackStartedAt = nil
         receivedSongInfoFromStream = false
@@ -274,6 +289,9 @@ final class PlaybackEngine: ObservableObject {
         nowPlayingMetadata = nil
         probeResultForActiveStation = nil
         activePlaybackURL = nil
+        activeBuffer = nil
+        bufferChangeTask?.cancel()
+        bufferChangeTask = nil
         lastFormatFailure = nil
         playbackStartedAt = nil
         receivedSongInfoFromStream = false
@@ -477,8 +495,20 @@ final class PlaybackEngine: ObservableObject {
         candidateFailureReason = nil
         probeResultForActiveStation = probe
         activePlaybackURL = candidate
-        player.load(url: candidate)
+        let buffer = bufferForCurrentConnection
+        activeBuffer = buffer
+        player.load(url: candidate, bufferDuration: buffer.duration)
         startWatchdog(station: station)
+    }
+
+    /// The buffer a stream opened now should hold: the standard one, or the
+    /// listener's cellular buffer on cellular data or a Personal Hotspot.
+    private var bufferForCurrentConnection: StreamBuffer {
+        StreamBuffer.forConnection(
+            isCellular: connectivity.isCellular,
+            isExpensive: connectivity.isExpensive,
+            cellularSetting: settings.cellularBuffer
+        )
     }
 
     private func currentCandidateURL(for station: RadioStation) -> URL {
@@ -497,9 +527,10 @@ final class PlaybackEngine: ObservableObject {
         let base = max(3, settings.streamTimeout)
         // Probe alternative formats quickly; use the full timeout on the last
         // one. Deep-buffering engines (compatibility/VLC) get extra startup
-        // time so healthy streams are never killed mid-connect.
+        // time so healthy streams are never killed mid-connect, and a buffer
+        // larger than the standard one gets the extra time it takes to fill.
         let probe = hasFurtherCandidates ? min(base, 8) : base
-        let timeout = probe + player.startupGracePeriod
+        let timeout = probe + player.startupGracePeriod + bufferForCurrentConnection.extraFillTime
         watchdogTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             guard !Task.isCancelled else { return }
@@ -692,8 +723,8 @@ final class PlaybackEngine: ObservableObject {
             restartOnNewPath(station)
             return
         }
-        guard checkStream, case .playing = state, hasActiveLoad,
-              let baseline = player.playbackProgress else { return }
+        guard checkStream, case .playing = state, hasActiveLoad else { return }
+        let baseline = player.playbackProgress
         let delay = max(0.01, networkRecoveryDelay)
         networkCheckTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -701,9 +732,12 @@ final class PlaybackEngine: ObservableObject {
                   self.connectivity.status == .online,
                   (self.settings.cellularAllowed || !self.connectivity.isCellular),
                   case .playing = self.state, self.state.station?.id == station.id,
-                  self.hasActiveLoad,
-                  let current = self.player.playbackProgress else { return }
+                  self.hasActiveLoad else { return }
             self.networkCheckTask = nil
+            // Checked while the path is settled, the same as the frozen-audio
+            // check below: a handoff can report several paths in a row.
+            if self.reloadIfBufferDoesNotSuitConnection() { return }
+            guard let baseline, let current = self.player.playbackProgress else { return }
             if current <= baseline {
                 AppLogger.playback.info("Audio stopped advancing after network change; reconnecting")
                 self.handleStreamProblem(station)
@@ -721,6 +755,64 @@ final class PlaybackEngine: ObservableObject {
         startedAtRememberedEndpoint = false
         playbackStartedAt = nil
         beginPlayback(station)
+    }
+
+    // MARK: Stream buffer
+
+    /// The listener changed the cellular buffer. Applied once they stop
+    /// adjusting it, so dragging the slider reconnects the station once
+    /// rather than at every step.
+    private func scheduleBufferChange() {
+        bufferChangeTask?.cancel()
+        let delay = max(0.01, bufferChangeDelay)
+        bufferChangeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            self.bufferChangeTask = nil
+            self.reloadIfBufferDoesNotSuitConnection()
+        }
+    }
+
+    /// Reloads a station playing on cellular whose stream holds a different
+    /// buffer from the listener's cellular buffer. Returns true if it did.
+    ///
+    /// A buffer is fixed when a stream loads. Without this, a station opened
+    /// on Wi-Fi would keep the standard reserve for a whole drive — the handoff
+    /// seldom forces a reload of its own, because the player reconnects by
+    /// itself — and a changed setting would not be heard until the next
+    /// station. Only cellular is checked: moving back onto Wi-Fi leaves a
+    /// larger buffer in place, since keeping it costs nothing and shedding it
+    /// would interrupt a healthy stream.
+    @discardableResult
+    private func reloadIfBufferDoesNotSuitConnection() -> Bool {
+        guard wantsPlayback, !userPaused, interruptedStationID == nil,
+              case .playing(let station) = state, hasActiveLoad,
+              connectivity.status == .online,
+              (settings.cellularAllowed || !connectivity.isCellular),
+              let active = activeBuffer else { return false }
+        let wanted = bufferForCurrentConnection
+        guard wanted.isCellular, wanted.duration != active.duration else { return false }
+        AppLogger.playback.info("Reconnecting to hold a \(Int(wanted.duration))s cellular buffer")
+        reloadCurrentStream(station)
+        return true
+    }
+
+    /// Loads the playing format again without treating it as a failure: it
+    /// stays the format known to work, and the song info and retry budget are
+    /// kept.
+    private func reloadCurrentStream(_ station: RadioStation) {
+        cancelStallWatchdog()
+        networkCheckTask?.cancel()
+        networkCheckTask = nil
+        interruptionRecoveryTask?.cancel()
+        interruptionRecoveryTask = nil
+        // Late callbacks from the stream being replaced must not count against
+        // its replacement. `load` sets this again once that reaches the player.
+        activePlaybackURL = nil
+        state = .loading(station)
+        isBuffering = true
+        nowPlaying.update(state: state, buffering: true)
+        loadCurrentCandidate(station)
     }
 
     private func configurePlayerCallbacks() {
@@ -832,10 +924,13 @@ final class PlaybackEngine: ObservableObject {
     /// Polls until either playback demonstrably advances (the buffering report
     /// was routine) or the stall timeout passes with no progress at all.
     private func monitorStall(station: RadioStation, baseline: Double?) async {
-        let step = max(0.1, min(1, stallTimeout / 4))
+        // After a gap the player refills its whole buffer before audio
+        // returns, so a larger buffer is allowed the extra time that takes.
+        let timeout = stallTimeout + (activeBuffer?.extraFillTime ?? 0)
+        let step = max(0.1, min(1, timeout / 4))
         var waited: TimeInterval = 0
         var reference = baseline
-        while waited < stallTimeout {
+        while waited < timeout {
             try? await Task.sleep(nanoseconds: UInt64(step * 1_000_000_000))
             if Task.isCancelled { return }
             guard wantsPlayback, case .playing = state,
@@ -911,7 +1006,8 @@ final class PlaybackEngine: ObservableObject {
             songInfoIsProgrammeOnly: songInfoIsProgrammeOnly,
             songSources: songSourceReports,
             candidates: candidateReports(),
-            startedAtRememberedEndpoint: startedAtRememberedEndpoint
+            startedAtRememberedEndpoint: startedAtRememberedEndpoint,
+            buffer: activeBuffer
         )
     }
 
@@ -1010,7 +1106,7 @@ final class PlaybackEngine: ObservableObject {
             if candidateIndex < streamCandidates.count, let primary = streamCandidates.first {
                 candidateCache.record(streamCandidates[candidateIndex], for: primary)
             }
-            AppLogger.playback.info("Stream ready (format \(self.candidateIndex + 1) of \(max(self.streamCandidates.count, 1)))")
+            AppLogger.playback.info("Stream ready (format \(self.candidateIndex + 1) of \(max(self.streamCandidates.count, 1)), \(Int(self.activeBuffer?.duration ?? 0))s buffer)")
             state = .playing(station)
             nowPlaying.update(state: state, buffering: false)
             nowPlaying.loadArtwork(for: station)

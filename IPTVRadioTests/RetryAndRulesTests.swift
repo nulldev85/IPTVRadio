@@ -77,4 +77,21 @@ final class DetectionRulesCodableTests: XCTestCase {
         XCTAssertFalse(reloaded.sonosOutputControl)
         XCTAssertFalse(reloaded.bluetoothOutputControl)
     }
+
+    @MainActor
+    func testCellularBufferDefaultsToTheStandardBufferAndPersists() {
+        let defaults = makeIsolatedDefaults()
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertEqual(store.cellularBuffer, StreamBuffer.standardDuration,
+                       "Nothing changes for a listener who never touches the setting")
+        store.cellularBuffer = 12
+        XCTAssertEqual(SettingsStore(defaults: defaults).cellularBuffer, 12)
+    }
+
+    @MainActor
+    func testStoredCellularBufferOutsideTheRangeIsBroughtBackIntoIt() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(500.0, forKey: SettingsStore.Keys.cellularBuffer)
+        XCTAssertEqual(SettingsStore(defaults: defaults).cellularBuffer, StreamBuffer.cellularRange.upperBound)
+    }
 }

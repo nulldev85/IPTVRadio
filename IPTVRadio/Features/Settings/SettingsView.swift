@@ -155,6 +155,23 @@ struct SettingsView: View {
                 settingsDivider
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
+                        Text("Cellular buffer")
+                        Spacer()
+                        Text("\(Int(settings.cellularBuffer)) s")
+                            .foregroundStyle(AetherTheme.secondaryText)
+                    }
+                    Slider(value: $settings.cellularBuffer, in: StreamBuffer.cellularRange, step: 1)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Cellular buffer")
+                .accessibilityValue("\(Int(settings.cellularBuffer)) seconds")
+                .accessibilityIdentifier("settings.cellularBuffer")
+                .aetherSettingsRow()
+                settingsFooter("Audio kept in reserve on cellular data and Personal Hotspot, so brief signal drops don't pause the station. Raise it if playback keeps pausing: a larger buffer covers longer drops but takes longer to fill when a station starts. Changes reconnect a station playing on cellular. Wi-Fi uses \(Int(StreamBuffer.standardDuration)) s.")
+                    .padding(.bottom, 12)
+                settingsDivider
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
                         Text("Stream timeout")
                         Spacer()
                         Text("\(Int(settings.streamTimeout)) s")

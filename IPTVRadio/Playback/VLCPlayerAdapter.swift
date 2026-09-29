@@ -57,13 +57,14 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
     }
 
     /// Deep-buffering engine: give it extra startup time before the engine's
-    /// watchdog considers a stream failed.
+    /// watchdog considers a stream failed. Covers the standard buffer; the
+    /// engine adds the time a larger one takes to fill.
     var startupGracePeriod: TimeInterval { 8 }
 
     var playbackProgress: Double? { progressTicks }
 
 
-    func load(url: URL) {
+    func load(url: URL, bufferDuration: TimeInterval) {
         hasReportedReady = false
         hasReportedFailure = false
         lastEmittedMetadata = nil
@@ -96,11 +97,14 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
         //   is what lets a real jitter buffer be used instead of a tiny one.
         //   (If stuttering ever persists, `:clock-synchro=0` is the next knob;
         //   it is left at VLC's automatic default here.)
-        // - `network-caching` is the jitter buffer itself, in milliseconds.
+        // - `network-caching` is the jitter buffer itself, in milliseconds:
+        //   the audio held in reserve to play through a gap in delivery. The
+        //   engine picks it per connection (`StreamBuffer`) — the standard
+        //   4 s on Wi-Fi, the listener's setting on cellular.
         // - `http-reconnect` lets VLC recover a dropped connection by itself.
         media.addOption(":no-video")
         media.addOption(":clock-jitter=0")
-        media.addOption(":network-caching=4000")
+        media.addOption(":network-caching=\(Int((bufferDuration * 1000).rounded()))")
         media.addOption(":http-reconnect")
         // Song info: libVLC reports the stream's ICY/Shoutcast title through
         // the media's metadata, updating it whenever the song changes.
