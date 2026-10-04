@@ -2,6 +2,81 @@ import XCTest
 @testable import IPTVRadio
 
 final class ManualRadioNowPlayingProviderTests: XCTestCase {
+    func testHLSPlaylistUsesTheAudioSegmentSongAndArtwork() {
+        let playlist = #"""
+        #EXTM3U
+        #EXTINF:10,title="Umbrella",artist="RIHANNA / JAY-Z",url="amgArtworkURL=\"http://image.example.org/cover.jpg\""
+        first.aac
+        #EXTINF:10,title="Next Song",artist="Next Artist"
+        second.aac
+        """#
+        let track = HLSPlaylistTrack.firstOnAirTrack(in: playlist)
+
+        XCTAssertEqual(track?.title, "Umbrella")
+        XCTAssertEqual(track?.artist, "RIHANNA / JAY-Z")
+        XCTAssertEqual(track?.artworkURL?.absoluteString, "http://image.example.org/cover.jpg")
+    }
+
+    func testHLSPlaylistDoesNotReportUpcomingSongDuringPromo() {
+        let playlist = #"""
+        #EXTM3U
+        #EXTINF:10,title="Station Promo",artist=" ",url="song_spot=\"T\""
+        promo.aac
+        #EXTINF:10,title="Upcoming Song",artist="Next Artist",url="song_spot=\"M\""
+        next.aac
+        """#
+
+        XCTAssertNil(HLSPlaylistTrack.firstOnAirTrack(in: playlist))
+    }
+
+    func testIHeartHLSSegmentMetadataPrecedesScheduledSong() async {
+        let master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=24000\nmedia/playlist.m3u8\n"
+        let media = "#EXTM3U\n#EXTINF:10,title=\"Song On Air\",artist=\"Real Artist\"\nsegment.aac\n"
+        let http = MockHTTP.client { request in
+            switch request.url?.lastPathComponent {
+            case "hls.m3u8": return (200, Data(master.utf8))
+            case "playlist.m3u8": return (200, Data(media.utf8))
+            default:
+                XCTFail("The HLS audio segment should answer before iHeart's schedule")
+                return (404, Data())
+            }
+        }
+        let station = RadioStation(
+            name: "The Beat",
+            streamURL: URL(string: "https://stream.revma.ihrhls.com/zc149/hls.m3u8")!,
+            source: .manual
+        )
+
+        let result = await ManualRadioNowPlayingProvider(http: http).currentSong(for: station)
+
+        XCTAssertEqual(result.update?.title, "Song On Air")
+        XCTAssertEqual(result.update?.artist, "Real Artist")
+        XCTAssertEqual(result.note, "HLS audio segment metadata")
+    }
+
+    func testBeatKeepsLastSongWhenSegmentTagsAreTemporarilyMissing() async {
+        let http = MockHTTP.client { request in
+            if request.url?.lastPathComponent == "hls.m3u8" {
+                return (200, Data("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=24000\nmedia/playlist.m3u8\n".utf8))
+            }
+            if request.url?.lastPathComponent == "playlist.m3u8" {
+                return (200, Data("#EXTM3U\n#EXTINF:10,title=\"Station Promo\",artist=\" \"\npromo.aac\n".utf8))
+            }
+            XCTFail("The Beat must not fall back to iHeart's early song schedule")
+            return (404, Data())
+        }
+        let station = RadioStation(
+            name: "The Beat",
+            streamURL: URL(string: "https://stream.revma.ihrhls.com/zc149/hls.m3u8")!,
+            source: .manual
+        )
+
+        let result = await ManualRadioNowPlayingProvider(http: http).currentSong(for: station)
+
+        XCTAssertNil(result.update)
+        XCTAssertEqual(result.note, "The Beat HLS song tags temporarily unavailable")
+    }
+
     func testSelectsOnlyCurrentTrack() {
         let now = Date(timeIntervalSince1970: 2_000)
         let past = ManualRadioNowPlayingProvider.Track(

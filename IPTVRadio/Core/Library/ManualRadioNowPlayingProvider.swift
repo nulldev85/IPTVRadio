@@ -24,6 +24,23 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
 
     func currentSong(for station: RadioStation) async -> SongLookup {
         guard station.source == .manual else { return .empty("not a manual station") }
+        // Some HLS stations put the actual on-air title, artist and cover URL
+        // on each audio segment. That is closer to what VLC is playing than a
+        // broadcaster API whose schedule can run ahead of the audio stream.
+        var triedHLSURLs = Set<URL>()
+        for candidate in station.streamCandidates.prefix(3)
+        where candidate.pathExtension.lowercased() == "m3u8" {
+            triedHLSURLs.insert(candidate)
+            if let song = await hlsSong(from: candidate) { return song }
+        }
+        // The Beat's iHeart schedule is ahead of its HLS audio. If its
+        // segment tags are briefly unavailable, keeping the last known song
+        // is more accurate than displaying the scheduled next song early.
+        if station.streamCandidates.contains(where: {
+            $0.pathExtension.lowercased() == "m3u8" && KnownManualStation.iHeartID(for: $0) == 149
+        }) {
+            return .empty("The Beat HLS song tags temporarily unavailable")
+        }
         // The listener's original URL can identify an iHeart station even
         // when its resolved CDN URL no longer contains the station ID. Ask
         // its published song feed directly instead of fetching a media
@@ -54,9 +71,14 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
                     continue
                 }
                 // HLS and MPEG-TS carry timed metadata in their media. VLC
-                // reads that directly; opening another audio stream cannot
-                // add ICY to a manifest or transport stream.
-                if ["m3u8", "ts"].contains(stream.pathExtension.lowercased()) { continue }
+                // does not always surface it, so inspect the small HLS
+                // playlist without opening another audio stream.
+                if stream.pathExtension.lowercased() == "m3u8" {
+                    if triedHLSURLs.insert(stream).inserted,
+                       let song = await hlsSong(from: stream) { return song }
+                    continue
+                }
+                if stream.pathExtension.lowercased() == "ts" { continue }
                 if let title = await icyTitleReader(stream) {
                     let update = StreamMetadataParser.splittingCombinedTitle(
                         StreamMetadataUpdate(title: title, artist: nil, artworkData: nil)
@@ -69,6 +91,35 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
         }
         if let programme { return .found(programme) }
         return .empty("stream has no current song metadata")
+    }
+
+    private func hlsSong(from url: URL) async -> SongLookup? {
+        guard let first = await playlist(at: url) else { return nil }
+        let media: String
+        if let variant = HLSPlaylistTrack.firstVariant(in: first.text, base: first.url),
+           let resolved = await playlist(at: variant) {
+            media = resolved.text
+        } else {
+            media = first.text
+        }
+        guard let track = HLSPlaylistTrack.firstOnAirTrack(in: media) else { return nil }
+        return await songLookup(
+            title: track.title,
+            artist: track.artist,
+            imagePath: track.artworkURL?.absoluteString,
+            note: "HLS audio segment metadata"
+        )
+    }
+
+    private func playlist(at url: URL) async -> (text: String, url: URL)? {
+        var request = RequestBuilder.get(url, timeout: 6, userAgent: RequestBuilder.browserUserAgent)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/vnd.apple.mpegurl, application/x-mpegURL, */*", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await http.data(for: request),
+              (200..<300).contains(response.statusCode), data.count < 200_000,
+              let text = String(data: data, encoding: .utf8),
+              text.hasPrefix("#EXTM3U") else { return nil }
+        return (text, response.url ?? url)
     }
 
     private func iHeartSong(id: Int) async -> SongLookup {
@@ -101,8 +152,12 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
     }
 
     private func songLookup(for track: Track, note: String) async -> SongLookup {
+        await songLookup(title: track.title, artist: track.artist, imagePath: track.imagePath, note: note)
+    }
+
+    private func songLookup(title: String, artist: String, imagePath: String?, note: String) async -> SongLookup {
         var artwork: Data?
-        if let image = track.imagePath,
+        if let image = imagePath,
            var components = URLComponents(string: image) {
             components.scheme = "https"
             if let imageURL = components.url {
@@ -115,7 +170,7 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
             }
         }
         return .found(
-            StreamMetadataUpdate(title: track.title, artist: track.artist, artworkData: artwork),
+            StreamMetadataUpdate(title: title, artist: artist, artworkData: artwork),
             note: note
         )
     }
@@ -155,6 +210,69 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
 
         var startTimestamp: TimeInterval { Self.seconds(startTime) }
         var endTimestamp: TimeInterval { Self.seconds(endTime) }
+    }
+}
+
+/// Song tags attached to audio segments in a live HLS media playlist.
+/// Only playlist text is read; media segments are left to VLC.
+struct HLSPlaylistTrack: Equatable {
+    let title: String
+    let artist: String
+    let artworkURL: URL?
+
+    static func firstVariant(in text: String, base: URL) -> URL? {
+        let lines = text.components(separatedBy: .newlines)
+        for index in lines.indices where lines[index].hasPrefix("#EXT-X-STREAM-INF:") {
+            guard index + 1 < lines.count else { continue }
+            let raw = lines[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty, !raw.hasPrefix("#"),
+                  let url = URL(string: raw, relativeTo: base)?.absoluteURL,
+                  ManualPlaylistResolver.validHTTPURL(url.absoluteString) != nil else { continue }
+            return url
+        }
+        return nil
+    }
+
+    static func firstOnAirTrack(in text: String) -> HLSPlaylistTrack? {
+        // A live playlist lists the oldest segment first. VLC may start there
+        // when tuning, so using the last segment's tag can show the next song
+        // while the listener still hears the previous one.
+        guard let segment = text.components(separatedBy: .newlines)
+            .first(where: { $0.hasPrefix("#EXTINF:") }),
+              let title = quotedValue("title", in: segment),
+              let artist = quotedValue("artist", in: segment) else { return nil }
+        // Do not skip a promo at the playback end of the window to report
+        // the song in a later segment before it is audible.
+        if let spot = quotedValue("song_spot", in: segment), spot != "M" { return nil }
+        let art = quotedValue("amgArtworkURL", in: segment)
+            .flatMap(ManualPlaylistResolver.validHTTPURL)
+        return HLSPlaylistTrack(title: title, artist: artist, artworkURL: art)
+    }
+
+    private static func quotedValue(_ name: String, in line: String) -> String? {
+        guard let key = line.range(of: "\(name)=", options: .caseInsensitive) else { return nil }
+        var remainder = line[key.upperBound...]
+        let escapedDelimiter = remainder.hasPrefix("\\\"")
+        if escapedDelimiter { remainder = remainder.dropFirst() }
+        guard remainder.first == "\"" else { return nil }
+        remainder = remainder.dropFirst()
+        var value = ""
+        var escaped = false
+        for character in remainder {
+            if escaped {
+                if escapedDelimiter && character == "\"" { break }
+                value.append(character)
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "\"" {
+                break
+            } else {
+                value.append(character)
+            }
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
