@@ -31,6 +31,20 @@ final class ManualRadioNowPlayingProviderTests: XCTestCase {
         ))
     }
 
+    func testNewestOverlappingIHeartTrackWins() {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let older = ManualRadioNowPlayingProvider.Track(
+            title: "Old", artist: "Artist", imagePath: nil, startTime: 1_800, endTime: 2_100
+        )
+        let newer = ManualRadioNowPlayingProvider.Track(
+            title: "New", artist: "Artist", imagePath: nil, startTime: 1_990, endTime: 2_200
+        )
+        XCTAssertEqual(
+            ManualRadioNowPlayingProvider.currentTrack(in: [older, newer], now: now)?.title,
+            "New"
+        )
+    }
+
     func testParsesICYTitleWithoutPadding() {
         let block = Data("StreamTitle='Tame Impala - The Less I Know The Better  ';\0\0".utf8)
         XCTAssertEqual(
@@ -73,20 +87,26 @@ final class ManualRadioNowPlayingProviderTests: XCTestCase {
         )
     }
 
-    func testIHeartProviderReturnsCurrentSongAndArtwork() async {
+    func testIHeartProviderReturnsSongBeforeArtworkDownloadFinishes() async {
         let now = Int(Date().timeIntervalSince1970)
         let imageData = Data(base64Encoded:
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         )!
         let response = """
-        {"data":[{"title":"Current Song","artist":"Test Artist",\
+        {"title":"Current Song","artist":"Test Artist",\
         "imagePath":"http://images.example.org/cover.jpg",\
-        "startTime":\(now - 30),"endTime":\(now + 120)}]}
+        "startTime":\((now - 30) * 1000),"endTime":\((now + 120) * 1000)}
         """
         let http = MockHTTP.client { request in
-            if request.url?.path.contains("trackHistory") == true {
+            if request.url?.path.contains("currentTrackMeta") == true {
+                XCTAssertEqual(request.cachePolicy, .reloadIgnoringLocalCacheData)
                 return (200, Data(response.utf8))
             }
+            if request.url?.path.contains("trackHistory") == true {
+                XCTFail("A current song must not wait for track history")
+                return (404, Data())
+            }
+            Thread.sleep(forTimeInterval: 0.25)
             return (200, imageData)
         }
         let provider = ManualRadioNowPlayingProvider(http: http)
@@ -95,10 +115,18 @@ final class ManualRadioNowPlayingProviderTests: XCTestCase {
             streamURL: URL(string: "https://stream.revma.ihrhls.com/zc141/hls.m3u8")!,
             source: .manual
         )
-        let result = await provider.currentSong(for: station)
-        XCTAssertEqual(result.update?.title, "Current Song")
-        XCTAssertEqual(result.update?.artist, "Test Artist")
-        XCTAssertEqual(result.update?.artworkData, imageData)
+        let first = await provider.currentSong(for: station)
+        XCTAssertEqual(first.update?.title, "Current Song")
+        XCTAssertEqual(first.update?.artist, "Test Artist")
+        XCTAssertEqual(first.note, "iHeart current track")
+        XCTAssertNil(first.update?.artworkData, "The image request must not hold up the song")
+
+        var withArtwork = first
+        for _ in 0..<30 where withArtwork.update?.artworkData == nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            withArtwork = await provider.currentSong(for: station)
+        }
+        XCTAssertEqual(withArtwork.update?.artworkData, imageData)
     }
 
     func testIHeartCandidateBypassesUnavailablePlaylist() async {
@@ -122,6 +150,7 @@ final class ManualRadioNowPlayingProviderTests: XCTestCase {
         let result = await ManualRadioNowPlayingProvider(http: http).currentSong(for: station)
         XCTAssertEqual(result.update?.title, "Fresh Track")
         XCTAssertEqual(result.update?.artist, "Test Artist")
+        XCTAssertEqual(result.note, "iHeart track history")
     }
 
     func testTriesAlternativeStreamWhenFirstHasNoICYMetadata() async {
@@ -137,6 +166,28 @@ final class ManualRadioNowPlayingProviderTests: XCTestCase {
         }
         let result = await provider.currentSong(for: station)
         XCTAssertEqual(result.update?.artist, "Artist")
+        XCTAssertEqual(result.update?.title, "Song")
+    }
+
+    func testWorkingPrimaryDoesNotWaitForBackupPlaylist() async {
+        let http = MockHTTP.client { request in
+            if request.url?.path == "/backup.m3u" {
+                XCTFail("A working primary must return before the backup playlist is fetched")
+            }
+            return (404, Data())
+        }
+        let station = RadioStation(
+            name: "Local radio",
+            streamURL: URL(string: "https://radio.example.org/primary.aac")!,
+            source: .manual,
+            alternativeStreamURLs: [URL(string: "https://radio.example.org/backup.m3u")!]
+        )
+        let provider = ManualRadioNowPlayingProvider(http: http) { url in
+            url.path == "/primary.aac" ? "Artist - Song" : nil
+        }
+
+        let result = await provider.currentSong(for: station)
+
         XCTAssertEqual(result.update?.title, "Song")
     }
 }

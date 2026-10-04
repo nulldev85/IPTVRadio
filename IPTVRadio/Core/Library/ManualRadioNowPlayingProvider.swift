@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 /// Independent song lookup for manually added radio streams. iHeart publishes
-/// track history; ordinary HTTP audio streams may publish ICY titles. This
+/// current tracks and history; ordinary HTTP audio streams may publish ICY titles. This
 /// sidecar never changes or restarts the audio being played by VLC.
 struct ManualRadioNowPlayingProvider: SongInfoProviding {
     let http: HTTPClient
@@ -26,83 +26,114 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
         guard station.source == .manual else { return .empty("not a manual station") }
         // The listener's original URL can identify an iHeart station even
         // when its resolved CDN URL no longer contains the station ID. Ask
-        // the published track history directly instead of fetching a media
+        // its published song feed directly instead of fetching a media
         // playlist on every metadata refresh.
+        var triedIHeartIDs = Set<Int>()
         if let id = station.streamCandidates.compactMap(KnownManualStation.iHeartID(for:)).first {
+            triedIHeartIDs.insert(id)
             let result = await iHeartSong(id: id)
             if result.hasTitle { return result }
         }
 
-        var streams: [URL] = []
+        // Check each candidate as soon as it resolves. Resolving every backup
+        // playlist first can delay a working primary stream's song by tens of
+        // seconds on cellular, even though VLC is already playing it.
+        var streamsChecked = 0
+        var programme: StreamMetadataUpdate?
         for candidate in station.streamCandidates.prefix(3) {
             guard let resolved = try? await ManualPlaylistResolver(httpClient: http).resolve(candidate) else {
                 continue
             }
-            streams.append(contentsOf: resolved)
-        }
-        var programme: StreamMetadataUpdate?
-        for stream in streams.prefix(3) {
-            if let id = KnownManualStation.iHeartID(for: stream) {
-                let result = await iHeartSong(id: id)
-                if result.hasTitle { return result }
-                continue
+            for stream in resolved {
+                guard streamsChecked < 3 else { break }
+                streamsChecked += 1
+                if let id = KnownManualStation.iHeartID(for: stream) {
+                    guard triedIHeartIDs.insert(id).inserted else { continue }
+                    let result = await iHeartSong(id: id)
+                    if result.hasTitle { return result }
+                    continue
+                }
+                // HLS and MPEG-TS carry timed metadata in their media. VLC
+                // reads that directly; opening another audio stream cannot
+                // add ICY to a manifest or transport stream.
+                if ["m3u8", "ts"].contains(stream.pathExtension.lowercased()) { continue }
+                if let title = await icyTitleReader(stream) {
+                    let update = StreamMetadataParser.splittingCombinedTitle(
+                        StreamMetadataUpdate(title: title, artist: nil, artworkData: nil)
+                    )
+                    if update.artist != nil { return .found(update) }
+                    if programme == nil { programme = update }
+                }
             }
-            // HLS and MPEG-TS carry timed metadata in their media. VLC reads
-            // that directly; opening a second audio stream cannot add ICY to
-            // a manifest or a transport stream.
-            if ["m3u8", "ts"].contains(stream.pathExtension.lowercased()) { continue }
-            if let title = await icyTitleReader(stream) {
-                let update = StreamMetadataParser.splittingCombinedTitle(
-                    StreamMetadataUpdate(title: title, artist: nil, artworkData: nil)
-                )
-                if update.artist != nil { return .found(update) }
-                if programme == nil { programme = update }
-            }
+            if streamsChecked >= 3 { break }
         }
         if let programme { return .found(programme) }
         return .empty("stream has no current song metadata")
     }
 
     private func iHeartSong(id: Int) async -> SongLookup {
+        // iHeart's current-track response can be ahead of trackHistory during
+        // a song transition. The history response sometimes has only the song
+        // that just ended, leaving a gap even while the new track is on air.
+        let currentURL = URL(string: "https://us.api.iheart.com/api/v3/live-meta/stream/\(id)/currentTrackMeta?defaultMetadata=true")!
+        if let (data, response) = try? await http.data(for: Self.iHeartRequest(currentURL)),
+           (200..<300).contains(response.statusCode),
+           let track = try? JSONDecoder().decode(Track.self, from: data),
+           Self.currentTrack(in: [track], now: Date(), allowRecent: false) != nil {
+            return await songLookup(for: track, note: "iHeart current track")
+        }
+
         let url = URL(string: "https://us.api.iheart.com/api/v3/live-meta/stream/\(id)/trackHistory")!
-        guard let (data, response) = try? await http.data(for: RequestBuilder.get(url, timeout: 8)),
+        guard let (data, response) = try? await http.data(for: Self.iHeartRequest(url)),
               (200..<300).contains(response.statusCode),
               let history = try? JSONDecoder().decode(TrackHistory.self, from: data),
               let track = Self.currentTrack(in: history.data, now: Date()) else {
             return .empty("no current track in iHeart history")
         }
 
+        return await songLookup(for: track, note: "iHeart track history")
+    }
+
+    private static func iHeartRequest(_ url: URL) -> URLRequest {
+        var request = RequestBuilder.get(url, timeout: 8)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        return request
+    }
+
+    private func songLookup(for track: Track, note: String) async -> SongLookup {
         var artwork: Data?
         if let image = track.imagePath,
            var components = URLComponents(string: image) {
             components.scheme = "https"
             if let imageURL = components.url {
                 artwork = await artworkCache.image(for: imageURL.absoluteString)
-                if artwork == nil,
-                   let (data, response) = try? await http.data(for: RequestBuilder.get(imageURL, timeout: 8)),
-                   (200..<300).contains(response.statusCode),
-                   !data.isEmpty, data.count < 5_000_000,
-                   UIImage(data: data) != nil {
-                    artwork = data
-                    await artworkCache.store(data, for: imageURL.absoluteString)
+                if artwork == nil {
+                    // Return the song immediately. The cover is fetched in the
+                    // background and supplied on the next metadata check.
+                    await artworkCache.prefetch(imageURL, using: http)
                 }
             }
         }
-        return .found(StreamMetadataUpdate(title: track.title, artist: track.artist, artworkData: artwork))
+        return .found(
+            StreamMetadataUpdate(title: track.title, artist: track.artist, artworkData: artwork),
+            note: note
+        )
     }
 
-    static func currentTrack(in tracks: [Track], now: Date) -> Track? {
+    static func currentTrack(in tracks: [Track], now: Date, allowRecent: Bool = true) -> Track? {
         let timestamp = now.timeIntervalSince1970
         let valid = tracks.filter {
             !$0.title.isEmpty && !$0.artist.isEmpty &&
-            Double($0.startTime) <= timestamp + 30
+            $0.startTimestamp <= timestamp + 30
         }
         // The station history can lag the actual broadcast by a minute or
         // two. Prefer a current entry, then the newest recent entry so an
         // otherwise valid title and artwork do not disappear during that lag.
-        return valid.first(where: { Double($0.endTime) >= timestamp - 15 })
-            ?? valid.filter { Double($0.endTime) >= timestamp - 180 }
-                .max(by: { $0.startTime < $1.startTime })
+        let current = valid.filter { $0.endTimestamp >= timestamp - 15 }
+            .max(by: { $0.startTimestamp < $1.startTimestamp })
+        guard allowRecent, current == nil else { return current }
+        return valid.filter { $0.endTimestamp >= timestamp - 180 }
+            .max(by: { $0.startTimestamp < $1.startTimestamp })
     }
 
     struct TrackHistory: Decodable {
@@ -115,17 +146,36 @@ struct ManualRadioNowPlayingProvider: SongInfoProviding {
         let imagePath: String?
         let startTime: Int
         let endTime: Int
+
+        // currentTrackMeta uses milliseconds; trackHistory uses seconds.
+        private static func seconds(_ value: Int) -> TimeInterval {
+            let timestamp = TimeInterval(value)
+            return timestamp > 10_000_000_000 ? timestamp / 1_000 : timestamp
+        }
+
+        var startTimestamp: TimeInterval { Self.seconds(startTime) }
+        var endTimestamp: TimeInterval { Self.seconds(endTime) }
     }
 }
 
 private actor ManualTrackArtworkCache {
     private var images: [String: Data] = [:]
+    private var inFlight = Set<String>()
 
     func image(for key: String) -> Data? { images[key] }
 
-    func store(_ image: Data, for key: String) {
-        if images.count >= 30 { images.removeAll() }
-        images[key] = image
+    func prefetch(_ url: URL, using http: HTTPClient) {
+        let key = url.absoluteString
+        guard images[key] == nil, inFlight.insert(key).inserted else { return }
+        Task {
+            defer { self.inFlight.remove(key) }
+            guard let (data, response) = try? await http.data(for: RequestBuilder.get(url, timeout: 8)),
+                  (200..<300).contains(response.statusCode),
+                  !data.isEmpty, data.count < 5_000_000,
+                  UIImage(data: data) != nil else { return }
+            if self.images.count >= 30 { self.images.removeAll() }
+            self.images[key] = data
+        }
     }
 }
 
@@ -152,7 +202,7 @@ struct ICYMetadataReader: Sendable {
 
         var iterator = bytes.makeAsyncIterator()
         do {
-            for _ in 0..<5 {
+            for _ in 0..<2 {
                 for _ in 0..<interval {
                     guard try await iterator.next() != nil else { return nil }
                 }
