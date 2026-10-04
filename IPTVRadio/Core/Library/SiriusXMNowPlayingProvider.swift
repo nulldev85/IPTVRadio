@@ -3,12 +3,11 @@ import Foundation
 /// Current-song lookup for SiriusXM channels, from SiriusXM's own published
 /// channel metadata.
 ///
-/// This exists because for an IPTV panel relaying SiriusXM audio there is no
-/// other source. The stream carries no ICY title, the panel's EPG lists shows
-/// at best, and the audio cannot be fingerprinted on device: ShazamKit has no
-/// supported way to read a live stream (Apple's own answer), works only from
-/// files or the microphone, and needs an entitlement a re-signed build cannot
-/// carry. What is left is the broadcaster, which publishes what is playing.
+/// IPTV relays often carry no ICY title, and the panel's EPG may list shows
+/// rather than songs. ShazamKit can match decoded audio samples, but the VLC
+/// playback path does not expose a passive PCM tap. Capturing audio for it
+/// would require a separate pipeline, so this source consults the broadcaster
+/// without changing playback.
 ///
 /// SECURITY: talks only to SiriusXM's host and sends only the station's public
 /// name. Provider credentials and stream URLs are never involved, and nothing

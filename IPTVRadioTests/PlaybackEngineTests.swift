@@ -89,6 +89,8 @@ final class PlaybackEngineTests: XCTestCase {
         songProviders: [any SongInfoProviding] = [],
         stallTimeout: TimeInterval = 12,
         songPollInterval: TimeInterval = 30,
+        songSourceRetryCooldown: TimeInterval = 180,
+        streamTrackFreshness: TimeInterval = 90,
         audioSession: AudioSessionControlling? = nil,
         interruptionRecoveryDelay: TimeInterval = 10,
         networkRecoveryDelay: TimeInterval = 3,
@@ -121,6 +123,8 @@ final class PlaybackEngineTests: XCTestCase {
             songProviders: songProviders,
             stallTimeout: stallTimeout,
             songPollInterval: songPollInterval,
+            songSourceRetryCooldown: songSourceRetryCooldown,
+            streamTrackFreshness: streamTrackFreshness,
             interruptionRecoveryDelay: interruptionRecoveryDelay,
             networkRecoveryDelay: networkRecoveryDelay,
             bufferChangeDelay: bufferChangeDelay
@@ -943,9 +947,8 @@ final class PlaybackEngineTests: XCTestCase {
 
     @MainActor
     func testOnlyARealTitleCountsAsStreamSuppliedSongInfo() async {
-        // receivedSongInfoFromStream switches off the provider's EPG, which for
-        // streams carrying no metadata is the only source of the current song.
-        // Artwork alone must not set it; a real title must.
+        // Artwork alone is not a stream track. A title from the stream is
+        // recorded, so it can take priority while fresh.
         let (engine, player, _, _) = await makeEngine(defaults: makeIsolatedDefaults())
         let s = station("song-info-flag")
         engine.play(s)
@@ -1134,11 +1137,11 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testASourceThatKeepsComingBackEmptyIsLeftAlone() async {
+    func testAnEmptySourceIsTemporarilyPaused() async {
         // On device the broadcaster's endpoint refused every channel key with
         // 403. At four keys a poll that is eight pointless requests a minute for
         // as long as the station plays, so a source that cannot answer is
-        // stopped — but still reported, with the reason it gave.
+        // paused — but still reported, with the reason it gave.
         let dead = StubSongProvider(
             sourceName: "SiriusXM channel metadata",
             update: nil,
@@ -1164,13 +1167,90 @@ final class PlaybackEngineTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
 
-        XCTAssertEqual(dead.askCount, 3, "Three empty answers is enough to stop asking")
+        XCTAssertEqual(dead.askCount, 3, "Three empty answers should trigger a cooldown")
         let report = engine.streamDiagnostics?.songSources.first
         XCTAssertEqual(report?.outcome, .nothing)
         XCTAssertEqual(
-            report?.detail, "no longer asked — theheat: HTTP 403",
+            report?.detail, "temporarily paused — theheat: HTTP 403",
             "A source being skipped must still show why, or it looks like it is simply quiet"
         )
+    }
+
+    @MainActor
+    func testAnEmptySongSourceRecoversAfterCooldown() async {
+        let recovering = StubSongProvider(sourceName: "SiriusXM channel metadata")
+        recovering.answer = { call in
+            call <= 3
+                ? .empty("HTTP 503")
+                : .found(StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil))
+        }
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [recovering],
+            songPollInterval: 0.02,
+            songSourceRetryCooldown: 0.12
+        )
+
+        engine.play(station("recovering-source"))
+        player.simulateReady()
+        for _ in 0..<100 where engine.nowPlayingMetadata?.title != "Nokia" {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertGreaterThanOrEqual(recovering.askCount, 4)
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Nokia")
+        XCTAssertEqual(engine.nowPlayingMetadata?.artist, "Drake")
+    }
+
+    @MainActor
+    func testStaleStreamTrackAllowsNewFallbackSong() async {
+        let broadcaster = StubSongProvider(
+            sourceName: "SiriusXM channel metadata",
+            update: StreamMetadataUpdate(title: "New Song", artist: "New Artist", artworkData: nil)
+        )
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [broadcaster],
+            songPollInterval: 0.02,
+            streamTrackFreshness: 0.12
+        )
+
+        engine.play(station("stale-stream-tag"))
+        player.onMetadata?(StreamMetadataUpdate(title: "Old Song", artist: "Old Artist", artworkData: nil))
+        player.simulateReady()
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Old Song")
+
+        for _ in 0..<100 where engine.nowPlayingMetadata?.title != "New Song" {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertGreaterThan(broadcaster.askCount, 0)
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "New Song")
+        XCTAssertEqual(engine.streamDiagnostics?.songInfoSource, "SiriusXM channel metadata")
+    }
+
+    @MainActor
+    func testTitleOnlyStreamTagDoesNotBlockSXMTrackLookup() async {
+        let broadcaster = StubSongProvider(
+            sourceName: "SiriusXM channel metadata",
+            update: StreamMetadataUpdate(title: "Nokia", artist: "Drake", artworkData: nil)
+        )
+        let (engine, player, _, _) = await makeEngine(
+            defaults: makeIsolatedDefaults(),
+            songProviders: [broadcaster],
+            songPollInterval: 0.02
+        )
+
+        engine.play(station("title-only-stream-tag"))
+        player.onMetadata?(StreamMetadataUpdate(title: "Morning show", artist: nil, artworkData: nil))
+        player.simulateReady()
+        for _ in 0..<50 where engine.nowPlayingMetadata?.title != "Nokia" {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertGreaterThan(broadcaster.askCount, 0)
+        XCTAssertEqual(engine.nowPlayingMetadata?.title, "Nokia")
+        XCTAssertEqual(engine.nowPlayingMetadata?.artist, "Drake")
     }
 
     @MainActor

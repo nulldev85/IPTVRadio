@@ -81,6 +81,11 @@ final class PlaybackEngine: ObservableObject {
     private var artworkLookupTask: Task<Void, Never>?
     /// True once the stream itself provided song metadata (ID3).
     private var receivedSongInfoFromStream = false
+    /// A stream tag can arrive once and then freeze. Its age determines when
+    /// independent song sources may check for a newer track.
+    private var lastStreamTrackTitle: String?
+    private var lastStreamTrackArtist: String?
+    private var lastStreamTrackChangedAt: Date?
     /// Which out-of-stream source supplied the current song, for diagnostics.
     private var songInfoSource: String?
     /// True when the current out-of-stream answer is a show name, not a track.
@@ -91,6 +96,7 @@ final class PlaybackEngine: ObservableObject {
     private var songSourceReports: [SongSourceReport] = []
     /// Consecutive empty answers per source for the current station.
     private var songSourceFailures: [String: Int] = [:]
+    private var songSourceRetryAfter: [String: Date] = [:]
     /// The last note each source gave, so a source that is no longer being
     /// asked still shows why it stopped.
     private var songSourceLastNote: [String: String] = [:]
@@ -104,6 +110,8 @@ final class PlaybackEngine: ObservableObject {
     /// clears it — so setting a channel key and saving, which replays the
     /// station, asks every source again.
     private static let songSourceFailureLimit = 3
+    private let songSourceRetryCooldown: TimeInterval
+    private let streamTrackFreshness: TimeInterval
     /// Last sample published, so diagnostics can be rebuilt when something
     /// other than the player changes. The engine emits a sample only once, at
     /// startup, so without this every field derived from engine state stays
@@ -138,6 +146,8 @@ final class PlaybackEngine: ObservableObject {
         songProviders: [any SongInfoProviding] = [],
         stallTimeout: TimeInterval = 12,
         songPollInterval: TimeInterval = 30,
+        songSourceRetryCooldown: TimeInterval = 180,
+        streamTrackFreshness: TimeInterval = 90,
         interruptionRecoveryDelay: TimeInterval = 10,
         networkRecoveryDelay: TimeInterval = 3,
         bufferChangeDelay: TimeInterval = 1.5
@@ -155,6 +165,8 @@ final class PlaybackEngine: ObservableObject {
         self.songProviders = songProviders
         self.stallTimeout = stallTimeout
         self.songPollInterval = songPollInterval
+        self.songSourceRetryCooldown = songSourceRetryCooldown
+        self.streamTrackFreshness = streamTrackFreshness
         self.interruptionRecoveryDelay = interruptionRecoveryDelay
         self.networkRecoveryDelay = networkRecoveryDelay
         self.bufferChangeDelay = bufferChangeDelay
@@ -222,10 +234,14 @@ final class PlaybackEngine: ObservableObject {
         lastFormatFailure = nil
         playbackStartedAt = nil
         receivedSongInfoFromStream = false
+        lastStreamTrackTitle = nil
+        lastStreamTrackArtist = nil
+        lastStreamTrackChangedAt = nil
         songInfoSource = nil
         songInfoIsProgrammeOnly = false
         songSourceReports = []
         songSourceFailures = [:]
+        songSourceRetryAfter = [:]
         songSourceLastNote = [:]
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
@@ -295,10 +311,14 @@ final class PlaybackEngine: ObservableObject {
         lastFormatFailure = nil
         playbackStartedAt = nil
         receivedSongInfoFromStream = false
+        lastStreamTrackTitle = nil
+        lastStreamTrackArtist = nil
+        lastStreamTrackChangedAt = nil
         songInfoSource = nil
         songInfoIsProgrammeOnly = false
         songSourceReports = []
         songSourceFailures = [:]
+        songSourceRetryAfter = [:]
         songSourceLastNote = [:]
         cancelStallWatchdog()
         artworkLookupTask?.cancel()
@@ -1025,14 +1045,19 @@ final class PlaybackEngine: ObservableObject {
     /// Song metadata (artist/title/artwork) arriving from the stream or EPG.
     private func handleMetadataUpdate(_ update: StreamMetadataUpdate, fromStream: Bool = true) {
         guard let station = state.station else { return }
-        // Only a real title counts. This flag switches off the provider's EPG,
-        // so anything less — artwork alone, or a title the adapter could not
-        // vouch for — must not set it, or it silences the one source that has
-        // the song for streams carrying no metadata of their own.
+        // A title from the stream takes priority while it is fresh. A title
+        // without an artist remains programme info; fallback lookups may still
+        // find a real track for streams with incomplete tags.
         if fromStream, let title = update.title, !title.isEmpty {
             receivedSongInfoFromStream = true
             songInfoSource = "stream metadata"
             songInfoIsProgrammeOnly = update.artist == nil
+            if let artist = update.artist, !artist.isEmpty,
+               (title != lastStreamTrackTitle || artist != lastStreamTrackArtist) {
+                lastStreamTrackTitle = title
+                lastStreamTrackArtist = artist
+                lastStreamTrackChangedAt = Date()
+            }
         }
         let retainedArtwork = nowPlayingMetadata?.title == update.title &&
             nowPlayingMetadata?.artist == update.artist
@@ -1124,14 +1149,13 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
-    /// Polls the out-of-stream song sources while the stream supplies none.
+    /// Polls independent song sources when stream tags are missing or stale.
     ///
     /// Sources are asked in order, most authoritative first. A real track ends
     /// the pass; a show name does not, because a panel whose EPG always names
     /// the current show would otherwise be the only source ever consulted. For a
-    /// panel relaying a broadcaster's audio this lookup is the only place the
-    /// current track exists at all — the stream carries no title and the audio
-    /// cannot be fingerprinted on device.
+    /// panel relaying a broadcaster's audio this lookup may be the only place
+    /// the current track exists at all.
     private func startSongInfoPolling(for station: RadioStation) {
         epgTask?.cancel()
         guard !songProviders.isEmpty else {
@@ -1142,11 +1166,14 @@ final class PlaybackEngine: ObservableObject {
             var loggedOutcome = false
             while !Task.isCancelled {
                 guard let self, self.wantsPlayback, self.state.station?.id == station.id else { return }
-                // A complete track from the stream is authoritative for all
-                // stations. Manual stations still need fallback polling when
-                // the stream has only a show name or no metadata at all.
-                if self.hasAuthoritativeStreamTrack ||
-                    (self.receivedSongInfoFromStream && station.source != .manual) { return }
+                // The stream takes priority while its track tag is fresh, but
+                // one tag must not disable the fallback for the entire session.
+                if self.hasFreshAuthoritativeStreamTrack {
+                    try? await Task.sleep(nanoseconds: UInt64(
+                        max(0.01, min(self.songPollInterval, 10)) * 1_000_000_000
+                    ))
+                    continue
+                }
 
                 // A title *with an artist* is a track; a title alone is
                 // programme information, such as a show name. The first
@@ -1159,19 +1186,18 @@ final class PlaybackEngine: ObservableObject {
                 var reports: [SongSourceReport] = []
                 for provider in self.songProviders {
                     let name = provider.sourceName
-                    // A source that has come back empty repeatedly for this
-                    // station is left alone rather than asked forever. Still
-                    // reported, with the reason it gave, so it is visible that
-                    // it is being skipped rather than quietly succeeding.
-                    if !provider.retriesAfterEmpty &&
-                        (self.songSourceFailures[name] ?? 0) >= Self.songSourceFailureLimit {
+                    // Back off a repeatedly empty source, then try it again.
+                    // A temporary service outage must not disable song updates
+                    // for the remainder of a listening session.
+                    if !provider.retriesAfterEmpty,
+                       let retryAt = self.songSourceRetryAfter[name], Date() < retryAt {
                         let reason = self.songSourceLastNote[name]
                         reports.append(
                             SongSourceReport(
                                 source: name,
                                 outcome: .nothing,
-                                detail: reason.map { "no longer asked — \($0)" }
-                                    ?? "no longer asked after \(Self.songSourceFailureLimit) empty lookups"
+                                detail: reason.map { "temporarily paused — \($0)" }
+                                    ?? "temporarily paused after empty lookups"
                             )
                         )
                         continue
@@ -1191,10 +1217,17 @@ final class PlaybackEngine: ObservableObject {
                     if outcome == .nothing {
                         self.songSourceFailures[name, default: 0] += 1
                         if let note = answer.note { self.songSourceLastNote[name] = note }
+                        if !provider.retriesAfterEmpty &&
+                            (self.songSourceFailures[name] ?? 0) >= Self.songSourceFailureLimit {
+                            self.songSourceRetryAfter[name] = Date().addingTimeInterval(
+                                max(0.01, self.songSourceRetryCooldown)
+                            )
+                        }
                     } else {
                         // An answer clears the count: a source that works
                         // intermittently keeps being asked.
                         self.songSourceFailures[name] = 0
+                        self.songSourceRetryAfter[name] = nil
                     }
                     reports.append(
                         SongSourceReport(
@@ -1211,10 +1244,16 @@ final class PlaybackEngine: ObservableObject {
 
                 // Re-check after the awaits: provider streams may publish a
                 // title while a slower lookup is still in flight.
-                if self.hasAuthoritativeStreamTrack ||
-                    (self.receivedSongInfoFromStream && station.source != .manual) { return }
                 self.songSourceReports = reports
-                if let best = song ?? programme {
+                if self.hasFreshAuthoritativeStreamTrack {
+                    self.refreshDiagnostics()
+                    try? await Task.sleep(nanoseconds: UInt64(
+                        max(0.01, min(self.songPollInterval, 10)) * 1_000_000_000
+                    ))
+                    continue
+                }
+                // A show name must never displace a real song already shown.
+                if let best = song ?? (self.nowPlayingMetadata?.artist == nil ? programme : nil) {
                     self.songInfoSource = best.source
                     self.songInfoIsProgrammeOnly = song == nil
                     self.handleMetadataUpdate(best.update, fromStream: false)
@@ -1256,6 +1295,12 @@ final class PlaybackEngine: ObservableObject {
     private var hasAuthoritativeStreamTrack: Bool {
         receivedSongInfoFromStream && songInfoSource == "stream metadata" &&
             !(nowPlayingMetadata?.artist?.isEmpty ?? true)
+    }
+
+    private var hasFreshAuthoritativeStreamTrack: Bool {
+        guard hasAuthoritativeStreamTrack,
+              let lastStreamTrackChangedAt else { return false }
+        return Date().timeIntervalSince(lastStreamTrackChangedAt) < streamTrackFreshness
     }
 
     private func cancelWatchdog() {

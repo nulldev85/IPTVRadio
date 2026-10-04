@@ -75,7 +75,7 @@ final class SettingsStore: ObservableObject {
         self.defaults = defaults
         cellularAllowed = defaults.object(forKey: Keys.cellularAllowed) as? Bool ?? true
         cellularBuffer = StreamBuffer.clampedCellularDuration(
-            defaults.object(forKey: Keys.cellularBuffer) as? Double ?? StreamBuffer.standardDuration
+            defaults.object(forKey: Keys.cellularBuffer) as? Double ?? StreamBuffer.defaultCellularDuration
         )
         streamTimeout = defaults.object(forKey: Keys.streamTimeout) as? Double ?? 15
         retryLimit = defaults.object(forKey: Keys.retryLimit) as? Int ?? 2

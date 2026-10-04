@@ -63,7 +63,6 @@ final class VLCPlayerAdapter: NSObject, AudioPlayerControlling {
 
     var playbackProgress: Double? { progressTicks }
 
-
     func load(url: URL, bufferDuration: TimeInterval) {
         hasReportedReady = false
         hasReportedFailure = false
@@ -177,10 +176,8 @@ fileprivate extension VLCPlayerAdapter {
         // or an MPEG-TS service name, or failing both the input's own file
         // name. None of those is a track, and all three are harmful here,
         // because any non-empty title convinces the engine that the stream
-        // supplies song info — which switches off the provider's EPG, the only
-        // source of the current track for streams carrying no metadata. A
-        // station name in the song slot is the visible half of that; losing the
-        // EPG is the expensive half.
+        // supplies song info. A station name in the song slot could then take
+        // priority over the EPG, the only track source for some relays.
         var update = StreamMetadataUpdate(
             title: trimmed(meta.nowPlaying),
             artist: trimmed(meta.artist) ?? trimmed(meta.albumArtist),

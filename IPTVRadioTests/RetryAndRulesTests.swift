@@ -79,11 +79,11 @@ final class DetectionRulesCodableTests: XCTestCase {
     }
 
     @MainActor
-    func testCellularBufferDefaultsToTheStandardBufferAndPersists() {
+    func testCellularBufferDefaultsToSixSecondsAndPersists() {
         let defaults = makeIsolatedDefaults()
         let store = SettingsStore(defaults: defaults)
-        XCTAssertEqual(store.cellularBuffer, StreamBuffer.standardDuration,
-                       "Nothing changes for a listener who never touches the setting")
+        XCTAssertEqual(store.cellularBuffer, StreamBuffer.defaultCellularDuration,
+                       "Cellular gets a slightly larger reserve until the listener adjusts it")
         store.cellularBuffer = 12
         XCTAssertEqual(SettingsStore(defaults: defaults).cellularBuffer, 12)
     }

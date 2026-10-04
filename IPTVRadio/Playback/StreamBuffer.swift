@@ -25,6 +25,8 @@ struct StreamBuffer: Equatable {
     /// The buffer every stream used before it could be adjusted. The engine's
     /// startup and stall timeouts were tuned against it.
     static let standardDuration: TimeInterval = 4
+    /// Give cellular a little more room for brief signal gaps by default.
+    static let defaultCellularDuration: TimeInterval = 6
 
     /// What the cellular buffer can be set to. It starts at the standard
     /// buffer, because the point is to hold more on cellular, never less; past
