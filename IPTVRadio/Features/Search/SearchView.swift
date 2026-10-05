@@ -13,7 +13,8 @@ struct SearchView: View {
                 VStack(spacing: 0) {
                     searchField
                         .padding(.horizontal, 20)
-                        .padding(.top, 12)
+                        .padding(.top, 16)
+                        .padding(.bottom, 12)
 
                     Group {
                         if library.state == .loaded || !manualStations.entries.isEmpty {
@@ -36,14 +37,14 @@ struct SearchView: View {
     private var searchField: some View {
         HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(AetherTheme.mutedIcon)
+                .foregroundStyle(AetherTheme.accent)
             TextField("", text: $library.searchQuery,
                       prompt: Text("Station, genre, show or category")
                         .foregroundStyle(AetherTheme.mutedIcon))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
-                .foregroundStyle(AetherTheme.secondaryText)
+                .foregroundStyle(AetherTheme.primaryText)
                 .accessibilityIdentifier("search.field")
             if !library.searchQuery.isEmpty {
                 Button {
@@ -58,8 +59,8 @@ struct SearchView: View {
         .font(.body)
         .padding(.horizontal, 16)
         .frame(height: 52)
-        .background(AetherTheme.raisedSurface, in: Capsule())
-        .overlay(Capsule().stroke(AetherTheme.border, lineWidth: 1))
+        .background(AetherTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(AetherTheme.border, lineWidth: 1))
     }
 
     @ViewBuilder

@@ -41,9 +41,9 @@ struct RootView: View {
 struct LaunchLoadingView: View {
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.system(size: 48))
-                .foregroundStyle(Color.accentColor)
+            Text("Æ")
+                .font(.system(size: 68, weight: .semibold, design: .serif))
+                .foregroundStyle(AetherTheme.accent)
             ProgressView()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

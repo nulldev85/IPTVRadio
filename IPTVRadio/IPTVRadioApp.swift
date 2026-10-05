@@ -9,10 +9,10 @@ struct IPTVRadioApp: App {
         let env = AppEnvironmentFactory.makeEnvironment(processArguments: ProcessInfo.processInfo.arguments)
         _environment = StateObject(wrappedValue: env)
         let tabAppearance = UITabBarAppearance()
-        tabAppearance.configureWithOpaqueBackground()
-        tabAppearance.backgroundColor = UIColor(red: 7.0 / 255, green: 10.0 / 255, blue: 17.0 / 255, alpha: 1)
-        let inactive = UIColor(red: 127.0 / 255, green: 139.0 / 255, blue: 166.0 / 255, alpha: 1)
-        let active = UIColor(red: 182.0 / 255, green: 189.0 / 255, blue: 205.0 / 255, alpha: 1)
+        tabAppearance.configureWithDefaultBackground()
+        tabAppearance.backgroundColor = UIColor(AetherTheme.navigationSurface).withAlphaComponent(0.94)
+        let inactive = UIColor(AetherTheme.mutedIcon)
+        let active = UIColor(AetherTheme.accent)
         for itemAppearance in [
             tabAppearance.stackedLayoutAppearance,
             tabAppearance.inlineLayoutAppearance,
@@ -20,32 +20,36 @@ struct IPTVRadioApp: App {
         ] {
             itemAppearance.normal.iconColor = inactive
             itemAppearance.normal.titleTextAttributes = [.foregroundColor: inactive]
-            itemAppearance.selected.iconColor = inactive
+            itemAppearance.selected.iconColor = active
             itemAppearance.selected.titleTextAttributes = [.foregroundColor: active]
         }
         UITabBar.appearance().standardAppearance = tabAppearance
         UITabBar.appearance().scrollEdgeAppearance = tabAppearance
-        // SwiftUI's TabView tint can override the item's selected appearance.
-        // Set the UIKit tint as well so the selected symbol stays blue-gray.
-        UITabBar.appearance().tintColor = inactive
+        // Match the system tab bar and the optional flat navigation bar.
+        UITabBar.appearance().tintColor = active
         UITabBar.appearance().unselectedItemTintColor = inactive
 
         let navigationAppearance = UINavigationBarAppearance()
         navigationAppearance.configureWithTransparentBackground()
-        navigationAppearance.titleTextAttributes = [.foregroundColor: active]
-        navigationAppearance.largeTitleTextAttributes = [.foregroundColor: active]
-        navigationAppearance.buttonAppearance.normal.titleTextAttributes = [.foregroundColor: inactive]
-        navigationAppearance.doneButtonAppearance.normal.titleTextAttributes = [.foregroundColor: inactive]
+        navigationAppearance.titleTextAttributes = [.foregroundColor: UIColor(AetherTheme.primaryText)]
+        var largeTitleAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor(AetherTheme.primaryText)]
+        let titleFont = UIFont.systemFont(ofSize: 35, weight: .semibold)
+        if let descriptor = titleFont.fontDescriptor.withDesign(.serif) {
+            largeTitleAttributes[.font] = UIFont(descriptor: descriptor, size: 35)
+        }
+        navigationAppearance.largeTitleTextAttributes = largeTitleAttributes
+        navigationAppearance.buttonAppearance.normal.titleTextAttributes = [.foregroundColor: active]
+        navigationAppearance.doneButtonAppearance.normal.titleTextAttributes = [.foregroundColor: active]
         UINavigationBar.appearance().standardAppearance = navigationAppearance
         UINavigationBar.appearance().scrollEdgeAppearance = navigationAppearance
-        UINavigationBar.appearance().tintColor = inactive
+        UINavigationBar.appearance().tintColor = active
         AppLogger.app.info("App started")
     }
 
     var body: some Scene {
         WindowGroup {
             RootView()
-                .foregroundStyle(AetherTheme.secondaryText)
+                .foregroundStyle(AetherTheme.primaryText)
                 .environmentObject(environment)
                 .environmentObject(environment.playback)
                 .environmentObject(environment.library)
@@ -55,8 +59,8 @@ struct IPTVRadioApp: App {
                 .environmentObject(environment.history)
                 .environmentObject(environment.manualStations)
                 .environmentObject(environment.connectivity)
-                .tint(AetherTheme.coral)
-                .preferredColorScheme(.dark)
+                .tint(AetherTheme.accent)
+                .preferredColorScheme(.light)
         }
     }
 }

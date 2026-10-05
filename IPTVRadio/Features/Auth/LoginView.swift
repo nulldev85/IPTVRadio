@@ -65,12 +65,12 @@ struct LoginView: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.system(size: 44))
-                .foregroundStyle(Color.accentColor)
+            Text("Æ")
+                .font(.system(size: 72, weight: .semibold, design: .serif))
+                .foregroundStyle(AetherTheme.accent)
                 .accessibilityHidden(true)
             Text("Radio for your IPTV subscription")
-                .font(.title3.weight(.semibold))
+                .font(AetherTheme.sectionFont)
                 .multilineTextAlignment(.center)
             Text("Sign in with your own provider account. This app does not provide any channels itself.")
                 .font(.subheadline)
@@ -153,6 +153,7 @@ struct LoginView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AetherTheme.raisedSurface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(AetherTheme.border, lineWidth: 1))
     }
 
     private func signIn() {

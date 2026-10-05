@@ -19,7 +19,7 @@ struct MainTabView: View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
                 tabContent { ManualRadioView() }
-                    .tabItem { Label("Radio", systemImage: "music.note.list") }
+                    .tabItem { Label("Radio", systemImage: "waveform") }
                     .tag(AetherTab.radio)
 
                 tabContent { RadioHomeView() }
@@ -38,7 +38,7 @@ struct MainTabView: View {
                     .tabItem { Label("Settings", systemImage: "gearshape") }
                     .tag(AetherTab.settings)
             }
-            .tint(AetherTheme.mutedIcon)
+            .tint(AetherTheme.accent)
 
             if !settings.liquidGlassEnabled {
                 VStack(spacing: 0) {
@@ -90,7 +90,7 @@ private enum AetherTab: Int, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .radio: "music.note.list"
+        case .radio: "waveform"
         case .sxm: "antenna.radiowaves.left.and.right"
         case .favorites: "heart"
         case .search: "magnifyingglass"
@@ -111,17 +111,18 @@ private struct FlatTabBar: View {
                 } label: {
                     VStack(spacing: 5) {
                         Capsule()
-                            .fill(AetherTheme.coral)
-                            .frame(width: 27, height: 3)
+                            .fill(AetherTheme.accent)
+                            .frame(width: 18, height: 3)
                             .opacity(selection == tab ? 1 : 0)
                         Image(systemName: tab.symbol)
-                            .font(.system(size: 23, weight: .medium))
+                            .font(.system(size: 22, weight: selection == tab ? .semibold : .regular))
                             .frame(height: 25)
                         Text(tab.title)
-                            .font(.caption2.weight(selection == tab ? .semibold : .medium))
+                            .font(.system(size: 10, weight: selection == tab ? .semibold : .medium))
+                            .tracking(0.2)
                             .lineLimit(1)
                     }
-                    .foregroundStyle(selection == tab ? AetherTheme.secondaryText : AetherTheme.mutedIcon)
+                    .foregroundStyle(selection == tab ? AetherTheme.accent : AetherTheme.mutedIcon)
                     .frame(maxWidth: .infinity, minHeight: 56)
                     .contentShape(Rectangle())
                 }
@@ -133,9 +134,9 @@ private struct FlatTabBar: View {
         }
         .padding(.horizontal, 8)
         .padding(.top, 5)
-        .background(AetherTheme.tabBar.opacity(0.68).ignoresSafeArea(edges: .bottom))
+        .background(AetherTheme.tabBar.opacity(0.96).ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) {
-            AetherTheme.border.opacity(0.5).frame(height: 1)
+            AetherTheme.border.frame(height: 1)
         }
     }
 }

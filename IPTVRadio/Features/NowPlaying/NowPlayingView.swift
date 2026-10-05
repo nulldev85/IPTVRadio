@@ -19,12 +19,21 @@ struct NowPlayingView: View {
             if let station = playback.state.station {
                 content(for: station)
             } else {
-                EmptyStateView(title: "Nothing playing", message: "Pick a station to start listening.")
+                VStack(spacing: 12) {
+                    Text("Nothing playing")
+                        .font(.headline)
+                        .foregroundStyle(AetherTheme.Player.primaryText)
+                    Text("Pick a station to start listening.")
+                        .font(.subheadline)
+                        .foregroundStyle(AetherTheme.Player.secondaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .foregroundStyle(AetherTheme.Player.secondaryText)
         .preferredColorScheme(.dark)
         .presentationDragIndicator(.visible)
-        .background(AetherTheme.background.ignoresSafeArea())
+        .background(AetherTheme.Player.background.ignoresSafeArea())
     }
 
     private func content(for station: RadioStation) -> some View {
@@ -53,7 +62,7 @@ struct NowPlayingView: View {
                         if let artist = metadata.artist {
                             Text(artist)
                                 .font(.subheadline)
-                                .foregroundStyle(AetherTheme.secondaryText)
+                                .foregroundStyle(AetherTheme.Player.secondaryText)
                                 .multilineTextAlignment(.center)
                                 .accessibilityIdentifier("nowplaying.artist")
                         }
@@ -187,7 +196,7 @@ private struct NowPlayingBackdrop: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                AetherTheme.background
+                AetherTheme.Player.background
 
                 if let image = artwork ?? logo {
                     Image(uiImage: image)
@@ -253,7 +262,7 @@ private struct BluetoothRoutePickerViewRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView()
         view.showsVolumeSlider = false
-        view.tintColor = UIColor(AetherTheme.mutedIcon)
+        view.tintColor = UIColor(AetherTheme.Player.mutedIcon)
         return view
     }
 
@@ -263,8 +272,8 @@ private struct BluetoothRoutePickerViewRepresentable: UIViewRepresentable {
 struct AVRoutePickerViewRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
-        view.tintColor = UIColor(AetherTheme.mutedIcon)
-        view.activeTintColor = UIColor(AetherTheme.secondaryText)
+        view.tintColor = UIColor(AetherTheme.Player.mutedIcon)
+        view.activeTintColor = UIColor(AetherTheme.Player.secondaryText)
         return view
     }
 

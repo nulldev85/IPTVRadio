@@ -27,17 +27,18 @@ struct StationRow: View {
                 : library.freshStation(matching: station)
             playback.play(fresh, in: nil)
         } label: {
-            HStack(spacing: 12) {
-                StationArtwork(logoURL: displayedStation.logoURL, size: 52)
+            HStack(spacing: 14) {
+                StationArtwork(logoURL: displayedStation.logoURL, size: 54)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(station.name)
-                        .font(.body.weight(isCurrent ? .semibold : .regular))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(AetherTheme.primaryText)
                         .lineLimit(2)
                     if !station.groupTitle.isEmpty {
                         Text(station.groupTitle)
-                            .font(.caption)
+                            .font(.system(size: 12, weight: .medium))
+                            .tracking(0.15)
                             .foregroundStyle(AetherTheme.secondaryText)
                             .lineLimit(1)
                     }
@@ -53,13 +54,21 @@ struct StationRow: View {
                     favorites.toggle(displayedStation)
                 } label: {
                     Image(systemName: favorites.isFavorite(station) ? "star.fill" : "star")
-                        .foregroundStyle(favorites.isFavorite(station) ? AetherTheme.coral : AetherTheme.mutedIcon)
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(favorites.isFavorite(station) ? AetherTheme.accent : AetherTheme.mutedIcon)
+                        .frame(width: 34, height: 40)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(favorites.isFavorite(station) ? "Remove from favorites" : "Add to favorites")
                 .accessibilityIdentifier("station.favorite.\(station.name)")
             }
+            .padding(.vertical, 11)
             .contentShape(Rectangle())
+            .overlay(alignment: .bottom) {
+                AetherTheme.border.opacity(0.72)
+                    .frame(height: 0.5)
+                    .padding(.leading, 68)
+            }
         }
         .buttonStyle(.plain)
         .listRowBackground(Color.clear)
@@ -106,7 +115,7 @@ private struct LiveActivityBadge: View {
                 ForEach(0..<5, id: \.self) { index in
                     Capsule()
                         .fill(LinearGradient(
-                            colors: [AetherTheme.coral, AetherTheme.coral.opacity(0.65)],
+                            colors: [AetherTheme.accent, AetherTheme.accent.opacity(0.55)],
                             startPoint: .top,
                             endPoint: .bottom
                         ))
@@ -114,7 +123,6 @@ private struct LiveActivityBadge: View {
                 }
             }
             .frame(width: 23, height: 18)
-            .shadow(color: AetherTheme.coral.opacity(0.25), radius: 3)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Playing live")
@@ -134,10 +142,8 @@ private struct LiveActivityBadge: View {
 
 /// A station's channel logo.
 ///
-/// Provider logos are background-keyed once (see `LogoBackgroundKeyer`) so they
-/// sit on any theme. Nothing is drawn behind a logo that loaded: a filled
-/// rounded square behind a keyed logo just restores the box the keying removed,
-/// which is what made every logo look like it sat on a grey tile.
+/// Provider logos are background-keyed once (see `LogoBackgroundKeyer`). The
+/// dark logo well keeps white station marks legible on Aether's paper canvas.
 struct StationArtwork: View {
     let logoURL: URL?
     var size: CGFloat = 52
@@ -153,12 +159,14 @@ struct StationArtwork: View {
                     // Fit, not fill: provider logos are often wide wordmarks,
                     // and filling crops them into a square.
                     .aspectRatio(contentMode: .fit)
+                    .padding(5)
             } else if logoURL == nil || didFail {
                 placeholder
             }
             // While loading, stay empty rather than flashing a grey plate.
         }
         .frame(width: size, height: size)
+        .background(AetherTheme.logoWell, in: RoundedRectangle(cornerRadius: 12))
         .accessibilityHidden(true)
         .task(id: logoURL) {
             // Reset first. This view keeps its position across station changes
@@ -178,11 +186,9 @@ struct StationArtwork: View {
     /// Only shown when there is no logo, or it could not be loaded.
     private var placeholder: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(AetherTheme.raisedSurface)
             Image(systemName: "antenna.radiowaves.left.and.right")
                 .font(.system(size: size * 0.38))
-                .foregroundStyle(AetherTheme.mutedIcon)
+                .foregroundStyle(AetherTheme.Player.secondaryText)
         }
     }
 }
@@ -213,8 +219,8 @@ struct PlaybackArtwork: View {
 }
 
 /// Tiny in-memory artwork cache to avoid refetching logos while scrolling.
-/// Channel logos are background-keyed once so they sit cleanly on the dark
-/// (OLED) theme.
+/// Channel logos are background-keyed once and placed on a consistent dark
+/// well, so pale marks remain visible on the browsing canvas.
 actor ArtworkCache {
     static let shared = ArtworkCache()
     private let cache: NSCache<NSURL, UIImage> = {

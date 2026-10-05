@@ -26,7 +26,7 @@ struct SettingsView: View {
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Settings")
-                        .font(.largeTitle.weight(.bold))
+                        .font(AetherTheme.displayFont)
                         .foregroundStyle(AetherTheme.primaryText)
                         .padding(.horizontal, 20)
                     categoryBar
@@ -74,32 +74,30 @@ struct SettingsView: View {
     }
 
     private var categoryBar: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 6) {
             ForEach(SettingsCategory.allCases) { category in
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         selectedCategory = category
                     }
                 } label: {
-                    VStack(spacing: 10) {
-                        Text(category.rawValue)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(selectedCategory == category
-                                ? AetherTheme.primaryText : AetherTheme.mutedIcon)
-                        Capsule()
-                            .fill(selectedCategory == category ? AetherTheme.coral : .clear)
-                            .frame(height: 3)
-                            .padding(.horizontal, 8)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
+                    Text(category.rawValue)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(selectedCategory == category
+                            ? AetherTheme.surface : AetherTheme.secondaryText)
+                        .padding(.vertical, 11)
+                        .frame(maxWidth: .infinity)
+                        .background(selectedCategory == category ? AetherTheme.accent : .clear,
+                                    in: RoundedRectangle(cornerRadius: 10))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("settings.category.\(category.rawValue.lowercased())")
                 .accessibilityValue(selectedCategory == category ? "Selected" : "")
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 14)
     }
 
     private var flatControlsClearance: CGFloat {
@@ -140,7 +138,7 @@ struct SettingsView: View {
             Button("Sign Out", role: .destructive) {
                 confirmSignOut = true
             }
-            .foregroundStyle(AetherTheme.coral)
+            .foregroundStyle(AetherTheme.destructive)
             .accessibilityIdentifier("settings.signOut")
             .aetherSettingsRow()
         }
@@ -300,11 +298,11 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(AetherTheme.coral)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(AetherTheme.accent)
                     .frame(width: 28, height: 28)
                 Text(title)
-                    .font(.headline)
+                    .font(AetherTheme.sectionFont)
                     .foregroundStyle(AetherTheme.primaryText)
             }
             .padding(.bottom, 10)
@@ -312,7 +310,7 @@ struct SettingsView: View {
             content()
         }
         .foregroundStyle(AetherTheme.secondaryText)
-        .tint(AetherTheme.coral)
+        .tint(AetherTheme.accent)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -363,8 +361,7 @@ private extension View {
     }
 }
 
-/// Coral matches the Favorites stars; the thumb position and brightness show
-/// whether a setting is enabled without reverting to the system's white track.
+/// A muted green track and solid thumb make settings legible on warm paper.
 private struct AetherSettingsToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button {
@@ -376,15 +373,15 @@ private struct AetherSettingsToggleStyle: ToggleStyle {
                 configuration.label
                 Spacer(minLength: 8)
                 Capsule()
-                    .fill(AetherTheme.coral.opacity(configuration.isOn ? 0.35 : 0.17))
+                    .fill(configuration.isOn ? AetherTheme.accentSoft : AetherTheme.border.opacity(0.7))
                     .frame(width: 54, height: 30)
                     .overlay {
                         Capsule()
-                            .strokeBorder(AetherTheme.coral.opacity(0.45), lineWidth: 1)
+                            .strokeBorder(AetherTheme.accent.opacity(configuration.isOn ? 0.45 : 0.18), lineWidth: 1)
                     }
                     .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                         Circle()
-                            .fill(AetherTheme.coral.opacity(configuration.isOn ? 1 : 0.72))
+                            .fill(configuration.isOn ? AetherTheme.accent : AetherTheme.mutedIcon)
                             .frame(width: 26, height: 26)
                             .padding(2)
                     }

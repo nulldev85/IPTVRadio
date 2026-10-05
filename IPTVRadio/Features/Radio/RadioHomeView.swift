@@ -27,8 +27,8 @@ struct RadioHomeView: View {
                         NavigationLink {
                             AllStationsView(title: "SiriusXM Stations", stations: library.siriusStations)
                         } label: {
-                            Text("All (\(library.siriusStations.count))")
-                                .font(.footnote)
+                            Text("All \(library.siriusStations.count)")
+                                .font(.subheadline.weight(.semibold))
                         }
                         .accessibilityIdentifier("radio.seeAll")
                     }
@@ -52,13 +52,8 @@ struct RadioHomeView: View {
         }
         return AnyView(
             List {
-                Section {
-                    ForEach(stations) { station in
-                        StationRow(station: station)
-                    }
-                } footer: {
-                    Text("Stations whose name, category or metadata matches your SiriusXM rules.")
-                        .font(.caption2)
+                ForEach(stations) { station in
+                    StationRow(station: station)
                 }
             }
             .listStyle(.plain)

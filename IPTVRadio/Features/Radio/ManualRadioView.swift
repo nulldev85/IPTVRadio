@@ -45,7 +45,7 @@ struct ManualRadioView: View {
                             .swipeActions(edge: .trailing) {
                                 Button("Delete", role: .destructive) { delete(entry) }
                                 Button("Edit") { editor = EditorTarget(entry: entry) }
-                                    .tint(AetherTheme.mutedIcon)
+                                    .tint(AetherTheme.accent)
                             }
                             .contextMenu {
                                 Button {
@@ -117,7 +117,7 @@ struct ManualRadioView: View {
                 .font(.system(size: 42))
                 .foregroundStyle(AetherTheme.mutedIcon)
             Text("Your Radio stations")
-                .font(.title3.weight(.semibold))
+                .font(AetherTheme.sectionFont)
             Text("Add a stream link to listen here. MP3, AAC, HLS, M3U and PLS links are supported.")
                 .font(.subheadline)
                 .foregroundStyle(AetherTheme.secondaryText)
@@ -131,7 +131,7 @@ struct ManualRadioView: View {
                     .padding(.vertical, 12)
             }
             .buttonStyle(.borderedProminent)
-            .tint(AetherTheme.coral)
+            .tint(AetherTheme.accent)
             .accessibilityIdentifier("manual.addEmpty")
             .padding(.top, 8)
         }
@@ -206,7 +206,7 @@ private struct ManualStationEditorView: View {
                 if let errorMessage {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.circle")
-                            .foregroundStyle(AetherTheme.coral)
+                            .foregroundStyle(AetherTheme.destructive)
                             .accessibilityIdentifier("manual.error")
                     }
                 }
@@ -228,7 +228,7 @@ private struct ManualStationEditorView: View {
                 }
             }
         }
-        .tint(AetherTheme.coral)
+        .tint(AetherTheme.accent)
     }
 
     private func save() {
