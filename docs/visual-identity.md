@@ -21,8 +21,10 @@ the changing color. The listener can choose Light, Dark, or System in Settings.
 Large screen headings use the system serif face. Station names and controls
 stay in the system sans face for fast scanning. Rows use a thin inset rule;
 channel logos sit directly on the canvas with a small adaptive edge shadow.
-The app icon is an Æ lettermark rendered from
-`scripts/generate-aether-icon.py`.
+The app icon is a custom lowercase a built from a record rim, label groove,
+and spindle. It uses the same forest and warm paper colors as the app, with a
+subtle tonal field for depth. The opaque 1024-pixel asset is reproducibly
+rendered from `scripts/generate-aether-icon.py`.
 
 ## Player
 
