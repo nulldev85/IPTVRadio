@@ -119,6 +119,25 @@ final class ManualStationTests: XCTestCase {
         XCTAssertEqual(ManualStationStore(fileStore: files).entries.first?.logoURL, station.logoURL)
     }
 
+    func testDialStationKeepsDirectoryIdentityWithoutChangingPlaybackURL() async throws {
+        let (store, files) = makeStore()
+        let http = MockHTTP.client { _ in
+            XCTFail("A direct stream with a supplied logo needs no directory lookup")
+            return (500, Data())
+        }
+        let directoryID = "11111111-1111-1111-1111-111111111111"
+        let station = try await store.save(ManualStationInput(
+            name: "Coast Jazz",
+            streamURL: "https://radio.example/live.mp3",
+            logoURL: "https://radio.example/logo.png",
+            directoryStationID: directoryID
+        ), httpClient: http)
+        XCTAssertEqual(station.streamURL.absoluteString, "https://radio.example/live.mp3")
+        XCTAssertEqual(station.directoryStationID, directoryID)
+        XCTAssertEqual(ManualStationStore(fileStore: files).entries.first?.station.directoryStationID,
+                       directoryID)
+    }
+
     func testManualLogoOverridesDirectoryAndAmbiguousNameIsIgnored() async throws {
         let (store, _) = makeStore()
         let http = MockHTTP.client { _ in

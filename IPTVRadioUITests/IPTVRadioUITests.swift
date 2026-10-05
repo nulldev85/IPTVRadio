@@ -93,6 +93,21 @@ final class IPTVRadioUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Your Radio stations"].waitForExistence(timeout: 8))
     }
 
+    func testAetherDialOpensFromRadioWithoutChangingTabs() throws {
+        let app = launch(scenario: "UITestBrowse")
+        app.buttons["manual.dialEmpty"].tap()
+        XCTAssertTrue(app.navigationBars["Aether Dial"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.textFields["dial.place"].exists)
+        XCTAssertTrue(app.buttons["dial.search"].exists)
+        XCTAssertTrue(app.buttons["Listen to Dial Jazz"].waitForExistence(timeout: 8))
+        app.swipeUp()
+        app.buttons["Listen to Dial Jazz"].tap()
+        XCTAssertTrue(app.buttons["miniplayer.open"].waitForExistence(timeout: 8))
+        app.buttons["Add Dial Jazz to Radio"].tap()
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["station.row.Dial Jazz"].waitForExistence(timeout: 8))
+    }
+
     func testFavoritesToggleAndLibraryListing() throws {
         let app = launch(scenario: "UITestFavorites")
 

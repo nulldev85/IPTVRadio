@@ -1,11 +1,11 @@
 # Aether (iOS)
 
 A native iOS app (Swift + SwiftUI) that plays **radio/audio stations from the user's own
-legitimate IPTV subscription** via the Xtream Codes API or an imported M3U playlist.
+legitimate IPTV subscription**, manually entered streams, and public radio listings.
 
-The app is a client only: it bundles, scrapes, and redistributes **no channels** and does
-not bypass DRM, authentication, or geographic restrictions. Users must hold valid
-authorization from their provider for every stream they configure.
+The app is a client only: it bundles and redistributes **no audio** and does not
+bypass DRM, authentication, or geographic restrictions. Users must hold valid
+authorization to access any provider stream they configure.
 
 > **Naming:** `Aether` is the app's display name and icon. The Xcode project, scheme,
 > target, module and bundle identifier are still `IPTVRadio` / `com.example.IPTVRadio`
@@ -23,6 +23,8 @@ authorization from their provider for every stream they configure.
 - Radio only: video/TV categories are never shown; search by station, genre, or metadata
 - Prefers a stream's dedicated audio-only rendition when offered (better quality, far less data than video variants)
 - Favorites tab (persisted locally; recent-play history is still recorded on device)
+- Aether Dial discovery by country/state, station name, and genre; preview a publicly
+  listed station, spin to a surprise result, and save it to Radio without pasting a URL
 - Full now-playing screen, mini player, sleep timer, retry/stop controls
 - Current-song title/artist from the stream's ICY/Shoutcast title, the provider's EPG, or a
   broadcaster lookup by channel key when the stream carries nothing — with album art resolved
@@ -105,6 +107,8 @@ certificate/profile/API-key setup, and `docs/INSTALL.md` for installing the IPA.
   passwords, and credential-bearing URLs (see `IPTVRadio/Core/Logging.swift`).
 - HTTPS is the default; clear warnings appear when a provider endpoint is plain HTTP.
 - No analytics or tracking SDKs of any kind.
+- Aether Dial queries Radio Browser with the chosen place, name, and genre and registers
+  a station click when a directory stream is played. It sends no provider credentials.
 - The in-app authorization notice (login screen + Settings ▸ Privacy) states that users
   must have authorization to access the streams they configure.
 
@@ -114,6 +118,8 @@ certificate/profile/API-key setup, and `docs/INSTALL.md` for installing the IPA.
 - Song info depends on the provider: streams that send no ICY/ID3 title show the station
   name only. Artwork lookup needs both an artist and a title, so a stream that sends a
   bare title with no `Artist - Title` separator gets no album art.
+- Aether Dial depends on a public, community-maintained station directory. Its health
+  checks reduce broken results but cannot guarantee a station is playable at every moment.
 - Xtream providers vary wildly; unusual deployments may need keyword tuning in Settings.
 - A signed device IPA requires an Apple Developer account with a matching certificate
   and provisioning profile; without them CI produces the clearly-labeled unsigned

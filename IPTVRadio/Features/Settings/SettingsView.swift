@@ -524,13 +524,13 @@ struct PrivacyNoticeView: View {
 
                 Text("Authorization requirement")
                     .font(.headline)
-                Text("You must hold valid authorization from your provider to access the streams you configure in this app. This app is a client for your own subscription only. It does not bundle, scrape, redistribute, or provide access to any channels, and it does not attempt to bypass DRM, authentication, geographic restrictions, or provider limitations.")
+                Text("You must hold valid authorization to access any provider streams you configure. Aether also lets you explore publicly listed radio streams in Aether Dial. Stations are operated by third parties and may change or restrict access. The app does not bundle or redistribute their audio, or bypass DRM, authentication, geographic restrictions, or provider limitations.")
                     .font(.subheadline)
                     .foregroundStyle(AetherTheme.secondaryText)
 
                 Text("Your data")
                     .font(.headline)
-                Text("Credentials (server URL, username, password or playlist URL) are stored exclusively in the iOS Keychain. Station lists and preferences stay on your device. Nothing is uploaded anywhere by this app.")
+                Text("Credentials (server URL, username, password or playlist URL) are stored exclusively in the iOS Keychain. Station lists and preferences stay on your device. Aether Dial sends the place, genre, and station name you search for to Radio Browser, and a station ID when you listen from the directory. It does not send your provider credentials or private stream URLs there.")
                     .font(.subheadline)
                     .foregroundStyle(AetherTheme.secondaryText)
 

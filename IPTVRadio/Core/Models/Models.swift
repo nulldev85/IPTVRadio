@@ -21,6 +21,9 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
     var alternativeStreamURLs: [URL]?
     /// Xtream stream id, used to fetch song info from the provider's EPG API.
     var xtreamStreamID: String?
+    /// Radio Browser identifier for a station saved from Aether Dial. Used
+    /// only to register a directory play; never changes the stream URL.
+    var directoryStationID: String?
 
     /// All candidate URLs, primary first, de-duplicated.
     var streamCandidates: [URL] {
@@ -41,7 +44,8 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
         tvgID: String? = nil,
         source: Source,
         alternativeStreamURLs: [URL]? = nil,
-        xtreamStreamID: String? = nil
+        xtreamStreamID: String? = nil,
+        directoryStationID: String? = nil
     ) {
         self.id = id ?? StationIdentifier.make(source: source, url: streamURL, name: name)
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -52,6 +56,7 @@ struct RadioStation: Identifiable, Hashable, Codable, Sendable {
         self.source = source
         self.alternativeStreamURLs = alternativeStreamURLs
         self.xtreamStreamID = xtreamStreamID
+        self.directoryStationID = directoryStationID
     }
 }
 

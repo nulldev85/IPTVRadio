@@ -2,6 +2,7 @@ import SwiftUI
 
 /// One station row with artwork, favorite toggle and live state.
 struct StationRow: View {
+    @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var playback: PlaybackEngine
     @EnvironmentObject private var favorites: FavoritesStore
     @EnvironmentObject private var library: LibraryViewModel
@@ -26,6 +27,10 @@ struct StationRow: View {
                 ? displayedStation
                 : library.freshStation(matching: station)
             playback.play(fresh, in: nil)
+            if let directoryID = fresh.directoryStationID {
+                let service = AetherDialService(httpClient: environment.httpClient)
+                Task { await service.registerClick(stationID: directoryID) }
+            }
         } label: {
             HStack(spacing: 14) {
                 StationArtwork(logoURL: displayedStation.logoURL, size: 54)

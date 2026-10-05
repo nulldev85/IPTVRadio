@@ -6,6 +6,7 @@ struct ManualRadioView: View {
     @EnvironmentObject private var manualStations: ManualStationStore
 
     @State private var editor: EditorTarget?
+    @State private var showDial = false
     @State private var errorMessage: String?
     @State private var isReordering = false
 
@@ -68,6 +69,19 @@ struct ManualRadioView: View {
             .navigationTitle("Radio")
             .background(AetherTheme.background.ignoresSafeArea())
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showDial = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "waveform.circle")
+                            Text("Dial")
+                        }
+                        .font(.subheadline.weight(.semibold))
+                    }
+                    .accessibilityLabel("Aether Dial")
+                    .accessibilityIdentifier("manual.dial")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack {
                         if manualStations.entries.count > 1 || isReordering {
@@ -100,6 +114,12 @@ struct ManualRadioView: View {
                     .environmentObject(environment)
                     .environmentObject(manualStations)
             }
+            .sheet(isPresented: $showDial) {
+                AetherDialView()
+                    .environmentObject(environment)
+                    .environmentObject(manualStations)
+                    .environmentObject(environment.playback)
+            }
             .alert("Couldn't update Radio", isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
@@ -118,7 +138,7 @@ struct ManualRadioView: View {
                 .foregroundStyle(AetherTheme.mutedIcon)
             Text("Your Radio stations")
                 .font(AetherTheme.sectionFont)
-            Text("Add a stream link to listen here. MP3, AAC, HLS, M3U and PLS links are supported.")
+            Text("Add a stream link or find a station in Aether Dial. MP3, AAC, HLS, M3U and PLS links are supported.")
                 .font(.subheadline)
                 .foregroundStyle(AetherTheme.secondaryText)
                 .multilineTextAlignment(.center)
@@ -134,6 +154,17 @@ struct ManualRadioView: View {
             .tint(AetherTheme.accent)
             .accessibilityIdentifier("manual.addEmpty")
             .padding(.top, 8)
+            Button {
+                showDial = true
+            } label: {
+                Label("Explore Aether Dial", systemImage: "waveform.circle")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.bordered)
+            .tint(AetherTheme.accent)
+            .accessibilityIdentifier("manual.dialEmpty")
         }
         .padding(24)
         .frame(maxWidth: 420, maxHeight: .infinity)

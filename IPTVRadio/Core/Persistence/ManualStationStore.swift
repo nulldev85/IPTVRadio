@@ -4,6 +4,7 @@ struct ManualStationInput {
     var name: String
     var streamURL: String
     var logoURL: String
+    var directoryStationID: String? = nil
 }
 
 enum ManualStationError: LocalizedError {
@@ -39,6 +40,7 @@ struct ManualStationEntry: Codable, Hashable, Identifiable {
     var streamURL: URL
     var logoURL: URL?
     var playbackURLs: [URL]
+    var directoryStationID: String? = nil
 
     var station: RadioStation {
         let first = playbackURLs.first ?? streamURL
@@ -50,7 +52,8 @@ struct ManualStationEntry: Codable, Hashable, Identifiable {
             groupTitle: Self.formatDescription(for: streamURL),
             logoURL: logoURL ?? KnownManualStation.logo(for: streamURL),
             source: .manual,
-            alternativeStreamURLs: alternatives.isEmpty ? nil : alternatives
+            alternativeStreamURLs: alternatives.isEmpty ? nil : alternatives,
+            directoryStationID: directoryStationID
         )
     }
 
@@ -146,7 +149,9 @@ final class ManualStationStore: ObservableObject {
             name: name,
             streamURL: streamURL,
             logoURL: discoveredLogo,
-            playbackURLs: playbackURLs
+            playbackURLs: playbackURLs,
+            directoryStationID: input.directoryStationID.flatMap { UUID(uuidString: $0)?.uuidString }
+                ?? entries.first(where: { $0.id == id && $0.streamURL == streamURL })?.directoryStationID
         )
         var updated = entries
         if let index = updated.firstIndex(where: { $0.id == entry.id }) {

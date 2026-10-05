@@ -72,7 +72,7 @@ struct LoginView: View {
             Text("Radio for your IPTV subscription")
                 .font(AetherTheme.sectionFont)
                 .multilineTextAlignment(.center)
-            Text("Sign in with your own provider account. This app does not provide any channels itself.")
+            Text("Sign in with your provider to load its stations. You can also explore public radio in Aether Dial.")
                 .font(.subheadline)
                 .foregroundStyle(AetherTheme.secondaryText)
                 .multilineTextAlignment(.center)
@@ -145,7 +145,7 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Authorization notice", systemImage: "checkmark.shield")
                 .font(.footnote.weight(.semibold))
-            Text("You must have valid authorization from your provider to access the streams you use with this app. This app is a client for your own subscription only; it does not bundle, scrape, or redistribute channels and does not bypass DRM or access restrictions.")
+            Text("You must have valid authorization to access provider streams. Aether does not bundle or redistribute their audio and does not bypass DRM or access restrictions. Public stations in Aether Dial are operated by third parties.")
                 .font(.caption2)
                 .foregroundStyle(AetherTheme.secondaryText)
         }
