@@ -149,21 +149,35 @@ struct AetherDialView: View {
                 .contentMargins(.trailing, 22)
             }
 
-            Button {
-                Task { await search() }
-            } label: {
-                HStack(spacing: 9) {
-                    if isSearching { ProgressView().tint(AetherTheme.onAccent) }
-                    else { Image(systemName: "magnifyingglass") }
-                    Text("Explore stations")
-                        .font(.headline)
+            HStack {
+                Button {
+                    Task { await search() }
+                } label: {
+                    HStack(spacing: 10) {
+                        if isSearching {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(AetherTheme.accent)
+                        }
+                        Text(isSearching ? "Exploring…" : "Explore stations")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AetherTheme.primaryText)
+                        if !isSearching {
+                            Image(systemName: "arrow.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AetherTheme.accent)
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .frame(height: 44)
+                    .background(AetherTheme.surface.opacity(0.72), in: Capsule())
+                    .overlay(Capsule().stroke(AetherTheme.border, lineWidth: 1))
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
+                .buttonStyle(.plain)
+                .disabled(isSearching)
+                .accessibilityIdentifier("dial.search")
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(isSearching)
-            .accessibilityIdentifier("dial.search")
         }
     }
 

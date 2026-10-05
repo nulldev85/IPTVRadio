@@ -74,7 +74,7 @@ struct ManualRadioView: View {
                         showDial = true
                     } label: {
                         HStack(spacing: 5) {
-                            Image(systemName: "waveform.circle")
+                            Image(systemName: "safari")
                             Text("Dial")
                         }
                         .font(.subheadline.weight(.semibold))
@@ -157,7 +157,7 @@ struct ManualRadioView: View {
             Button {
                 showDial = true
             } label: {
-                Label("Explore Aether Dial", systemImage: "waveform.circle")
+                Label("Explore Aether Dial", systemImage: "safari")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
