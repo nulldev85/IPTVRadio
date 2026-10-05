@@ -10,9 +10,9 @@ struct IPTVRadioApp: App {
         _environment = StateObject(wrappedValue: env)
         let tabAppearance = UITabBarAppearance()
         tabAppearance.configureWithDefaultBackground()
-        tabAppearance.backgroundColor = UIColor(AetherTheme.navigationSurface).withAlphaComponent(0.94)
-        let inactive = UIColor(AetherTheme.mutedIcon)
-        let active = UIColor(AetherTheme.accent)
+        tabAppearance.backgroundColor = AetherTheme.uiNavigationSurface.withAlphaComponent(0.94)
+        let inactive = AetherTheme.uiMutedIcon
+        let active = AetherTheme.uiAccent
         for itemAppearance in [
             tabAppearance.stackedLayoutAppearance,
             tabAppearance.inlineLayoutAppearance,
@@ -31,8 +31,8 @@ struct IPTVRadioApp: App {
 
         let navigationAppearance = UINavigationBarAppearance()
         navigationAppearance.configureWithTransparentBackground()
-        navigationAppearance.titleTextAttributes = [.foregroundColor: UIColor(AetherTheme.primaryText)]
-        var largeTitleAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor(AetherTheme.primaryText)]
+        navigationAppearance.titleTextAttributes = [.foregroundColor: AetherTheme.uiPrimaryText]
+        var largeTitleAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: AetherTheme.uiPrimaryText]
         let titleFont = UIFont.systemFont(ofSize: 35, weight: .semibold)
         if let descriptor = titleFont.fontDescriptor.withDesign(.serif) {
             largeTitleAttributes[.font] = UIFont(descriptor: descriptor, size: 35)
@@ -48,7 +48,7 @@ struct IPTVRadioApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            ThemedRootView()
                 .foregroundStyle(AetherTheme.primaryText)
                 .environmentObject(environment)
                 .environmentObject(environment.playback)
@@ -60,7 +60,25 @@ struct IPTVRadioApp: App {
                 .environmentObject(environment.manualStations)
                 .environmentObject(environment.connectivity)
                 .tint(AetherTheme.accent)
-                .preferredColorScheme(.light)
+        }
+    }
+}
+
+private struct ThemedRootView: View {
+    @EnvironmentObject private var settings: SettingsStore
+
+    var body: some View {
+        RootView()
+            .preferredColorScheme(settings.appearance.colorScheme)
+    }
+}
+
+private extension SettingsStore.Appearance {
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .light: return .light
+        case .dark: return .dark
+        case .system: return nil
         }
     }
 }

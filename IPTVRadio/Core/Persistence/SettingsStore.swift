@@ -15,6 +15,7 @@ final class SettingsStore: ObservableObject {
         static let authMode = "settings.authMode"
         static let preferAudioOnlyRendition = "settings.preferAudioOnlyRendition"
         static let lookupSongArtwork = "settings.lookupSongArtwork"
+        static let appearance = "settings.appearance"
         static let liquidGlassEnabled = "settings.liquidGlassEnabled"
         static let sonosOutputControl = "settings.sonosOutputControl"
         static let bluetoothOutputControl = "settings.bluetoothOutputControl"
@@ -23,6 +24,13 @@ final class SettingsStore: ObservableObject {
     enum AuthMode: String, CaseIterable, Identifiable {
         case xtream
         case m3u
+        var id: String { rawValue }
+    }
+
+    enum Appearance: String, CaseIterable, Identifiable {
+        case light
+        case dark
+        case system
         var id: String { rawValue }
     }
 
@@ -58,6 +66,9 @@ final class SettingsStore: ObservableObject {
     @Published var lookupSongArtwork: Bool {
         didSet { defaults.set(lookupSongArtwork, forKey: Keys.lookupSongArtwork) }
     }
+    @Published var appearance: Appearance {
+        didSet { defaults.set(appearance.rawValue, forKey: Keys.appearance) }
+    }
     /// Use the system tab bar, including Liquid Glass on supported iOS versions.
     @Published var liquidGlassEnabled: Bool {
         didSet { defaults.set(liquidGlassEnabled, forKey: Keys.liquidGlassEnabled) }
@@ -84,6 +95,7 @@ final class SettingsStore: ObservableObject {
         authMode = AuthMode(rawValue: defaults.string(forKey: Keys.authMode) ?? "") ?? .xtream
         preferAudioOnlyRendition = defaults.object(forKey: Keys.preferAudioOnlyRendition) as? Bool ?? true
         lookupSongArtwork = defaults.object(forKey: Keys.lookupSongArtwork) as? Bool ?? true
+        appearance = Appearance(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .light
         liquidGlassEnabled = defaults.object(forKey: Keys.liquidGlassEnabled) as? Bool ?? true
         sonosOutputControl = defaults.object(forKey: Keys.sonosOutputControl) as? Bool ?? true
         bluetoothOutputControl = defaults.object(forKey: Keys.bluetoothOutputControl) as? Bool ?? true

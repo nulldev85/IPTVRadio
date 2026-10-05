@@ -126,7 +126,7 @@ struct LoginView: View {
         } label: {
             Group {
                 if isSigningIn {
-                    ProgressView().tint(.white)
+                    ProgressView().tint(AetherTheme.onAccent)
                 } else {
                     Text("Sign In").font(.headline)
                 }
@@ -135,7 +135,7 @@ struct LoginView: View {
             .frame(height: 44)
         }
         .background(Color.accentColor)
-        .foregroundStyle(.white)
+        .foregroundStyle(AetherTheme.onAccent)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .disabled(isSigningIn)
         .accessibilityIdentifier("login.submit")

@@ -142,8 +142,8 @@ private struct LiveActivityBadge: View {
 
 /// A station's channel logo.
 ///
-/// Provider logos are background-keyed once (see `LogoBackgroundKeyer`). The
-/// dark logo well keeps white station marks legible on Aether's paper canvas.
+/// Provider logos are background-keyed once (see `LogoBackgroundKeyer`).
+/// A fine adaptive edge shadow keeps pale marks legible without a logo tile.
 struct StationArtwork: View {
     let logoURL: URL?
     var size: CGFloat = 52
@@ -159,14 +159,13 @@ struct StationArtwork: View {
                     // Fit, not fill: provider logos are often wide wordmarks,
                     // and filling crops them into a square.
                     .aspectRatio(contentMode: .fit)
-                    .padding(5)
+                    .shadow(color: AetherTheme.logoShadow, radius: 1.2)
             } else if logoURL == nil || didFail {
                 placeholder
             }
             // While loading, stay empty rather than flashing a grey plate.
         }
         .frame(width: size, height: size)
-        .background(AetherTheme.logoWell, in: RoundedRectangle(cornerRadius: 12))
         .accessibilityHidden(true)
         .task(id: logoURL) {
             // Reset first. This view keeps its position across station changes
@@ -188,7 +187,7 @@ struct StationArtwork: View {
         ZStack {
             Image(systemName: "antenna.radiowaves.left.and.right")
                 .font(.system(size: size * 0.38))
-                .foregroundStyle(AetherTheme.Player.secondaryText)
+                .foregroundStyle(AetherTheme.mutedIcon)
         }
     }
 }
@@ -219,8 +218,8 @@ struct PlaybackArtwork: View {
 }
 
 /// Tiny in-memory artwork cache to avoid refetching logos while scrolling.
-/// Channel logos are background-keyed once and placed on a consistent dark
-/// well, so pale marks remain visible on the browsing canvas.
+/// Channel logos are background-keyed once so they sit directly on the
+/// browsing canvas.
 actor ArtworkCache {
     static let shared = ArtworkCache()
     private let cache: NSCache<NSURL, UIImage> = {

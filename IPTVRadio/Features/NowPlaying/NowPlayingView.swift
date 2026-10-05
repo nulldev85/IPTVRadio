@@ -22,18 +22,17 @@ struct NowPlayingView: View {
                 VStack(spacing: 12) {
                     Text("Nothing playing")
                         .font(.headline)
-                        .foregroundStyle(AetherTheme.Player.primaryText)
+                        .foregroundStyle(AetherTheme.primaryText)
                     Text("Pick a station to start listening.")
                         .font(.subheadline)
-                        .foregroundStyle(AetherTheme.Player.secondaryText)
+                        .foregroundStyle(AetherTheme.secondaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .foregroundStyle(AetherTheme.Player.secondaryText)
-        .preferredColorScheme(.dark)
+        .foregroundStyle(AetherTheme.primaryText)
         .presentationDragIndicator(.visible)
-        .background(AetherTheme.Player.background.ignoresSafeArea())
+        .background(AetherTheme.background.ignoresSafeArea())
     }
 
     private func content(for station: RadioStation) -> some View {
@@ -55,14 +54,14 @@ struct NowPlayingView: View {
                     VStack(spacing: 4) {
                         if let title = metadata.title {
                             Text(title)
-                                .font(.title2.weight(.semibold))
+                                .font(AetherTheme.sectionFont)
                                 .multilineTextAlignment(.center)
                                 .accessibilityIdentifier("nowplaying.songTitle")
                         }
                         if let artist = metadata.artist {
                             Text(artist)
                                 .font(.subheadline)
-                                .foregroundStyle(AetherTheme.Player.secondaryText)
+                                .foregroundStyle(AetherTheme.secondaryText)
                                 .multilineTextAlignment(.center)
                                 .accessibilityIdentifier("nowplaying.artist")
                         }
@@ -95,6 +94,7 @@ struct NowPlayingView: View {
                     .accessibilityIdentifier("nowplaying.retry")
                 }
                 .frame(maxWidth: .infinity)
+                .foregroundStyle(AetherTheme.mutedIcon)
                 .padding(.top, 20)
                 .padding(.bottom, 24)
             }
@@ -143,6 +143,7 @@ struct NowPlayingView: View {
             } label: {
                 Image(systemName: mainButtonIcon)
                     .font(.system(size: 44))
+                    .foregroundStyle(AetherTheme.accent)
                     .frame(width: 88, height: 88)
             }
             .accessibilityLabel(mainButtonLabel)
@@ -196,7 +197,7 @@ private struct NowPlayingBackdrop: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                AetherTheme.Player.background
+                AetherTheme.background
 
                 if let image = artwork ?? logo {
                     Image(uiImage: image)
@@ -206,11 +207,7 @@ private struct NowPlayingBackdrop: View {
                         .clipped()
                         .blur(radius: 38)
                         .overlay {
-                            LinearGradient(
-                                colors: [.black.opacity(0.64), .black.opacity(0.55), .black.opacity(0.84)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
+                            AetherTheme.playerVeil
                         }
                 }
             }
@@ -262,7 +259,7 @@ private struct BluetoothRoutePickerViewRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView()
         view.showsVolumeSlider = false
-        view.tintColor = UIColor(AetherTheme.Player.mutedIcon)
+        view.tintColor = AetherTheme.uiMutedIcon
         return view
     }
 
@@ -272,8 +269,8 @@ private struct BluetoothRoutePickerViewRepresentable: UIViewRepresentable {
 struct AVRoutePickerViewRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
-        view.tintColor = UIColor(AetherTheme.Player.mutedIcon)
-        view.activeTintColor = UIColor(AetherTheme.Player.secondaryText)
+        view.tintColor = AetherTheme.uiMutedIcon
+        view.activeTintColor = AetherTheme.uiAccent
         return view
     }
 
@@ -311,6 +308,8 @@ struct SleepTimerSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(AetherTheme.background.ignoresSafeArea())
             .navigationTitle("Sleep Timer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -320,5 +319,6 @@ struct SleepTimerSheet: View {
             }
         }
         .presentationDetents([.medium])
+        .tint(AetherTheme.accent)
     }
 }

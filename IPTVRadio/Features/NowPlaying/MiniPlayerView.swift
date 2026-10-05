@@ -30,12 +30,11 @@ struct MiniPlayerView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(playback.nowPlayingMetadata?.title ?? station.name)
                                     .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(playback.nowPlayingMetadata?.title == nil
-                                        ? AetherTheme.Player.primaryText : AetherTheme.Player.secondaryText)
+                                    .foregroundStyle(AetherTheme.primaryText)
                                     .lineLimit(1)
                                 Text(playback.nowPlayingMetadata?.artist ?? stateDescription)
                                     .font(.caption2)
-                                    .foregroundStyle(AetherTheme.Player.secondaryText)
+                                    .foregroundStyle(AetherTheme.secondaryText)
                                     .lineLimit(1)
                             }
 
@@ -50,7 +49,7 @@ struct MiniPlayerView: View {
                     if playback.state.isBusy {
                         ProgressView()
                             .controlSize(.small)
-                            .tint(AetherTheme.Player.secondaryText)
+                            .tint(AetherTheme.accent)
                     }
 
                     Button {
@@ -73,12 +72,10 @@ struct MiniPlayerView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .foregroundStyle(AetherTheme.Player.secondaryText)
-                // The browsing canvas is now light; keep the same dark dock
-                // appearance without letting the new canvas wash it gray.
-                .background(AetherTheme.Player.tabBar.opacity(0.96))
+                .foregroundStyle(AetherTheme.primaryText)
+                .background(AetherTheme.navigationSurface.opacity(0.96))
                 .overlay(alignment: .top) {
-                    AetherTheme.Player.border.frame(height: 1)
+                    AetherTheme.border.frame(height: 1)
                 }
                 .task(id: station.id) {
                     stationLogo = nil

@@ -66,6 +66,17 @@ final class DetectionRulesCodableTests: XCTestCase {
     }
 
     @MainActor
+    func testAppearanceKeepsExistingLightThemeUntilChangedAndPersists() {
+        let defaults = makeIsolatedDefaults()
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertEqual(store.appearance, .light)
+        store.appearance = .dark
+        XCTAssertEqual(SettingsStore(defaults: defaults).appearance, .dark)
+        store.appearance = .system
+        XCTAssertEqual(SettingsStore(defaults: defaults).appearance, .system)
+    }
+
+    @MainActor
     func testWirelessOutputControlsPersist() {
         let defaults = makeIsolatedDefaults()
         let store = SettingsStore(defaults: defaults)

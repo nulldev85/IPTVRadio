@@ -46,6 +46,13 @@ final class VinylDiscView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
+            setNeedsDisplay()
+        }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         // UIKit can resample a rotating bitmap just outside its transparent
@@ -206,7 +213,7 @@ final class VinylDiscView: UIView {
                 width: imageSize.width, height: imageSize.height
             ))
         } else {
-            context.setFillColor(UIColor(AetherTheme.topBlue).cgColor)
+            context.setFillColor(AetherTheme.uiAccent.resolvedColor(with: traitCollection).cgColor)
             context.fill(label)
         }
         let labelShading = [

@@ -84,7 +84,7 @@ struct SettingsView: View {
                     Text(category.rawValue)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(selectedCategory == category
-                            ? AetherTheme.surface : AetherTheme.secondaryText)
+                            ? AetherTheme.onAccent : AetherTheme.secondaryText)
                         .padding(.vertical, 11)
                         .frame(maxWidth: .infinity)
                         .background(selectedCategory == category ? AetherTheme.accent : .clear,
@@ -107,6 +107,20 @@ struct SettingsView: View {
 
     private var appearanceSection: some View {
         settingsGroup("Appearance", systemImage: "paintbrush.pointed") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Color mode")
+                    .font(.subheadline.weight(.medium))
+                Picker("Color mode", selection: $settings.appearance) {
+                    Text("Light").tag(SettingsStore.Appearance.light)
+                    Text("Dark").tag(SettingsStore.Appearance.dark)
+                    Text("System").tag(SettingsStore.Appearance.system)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("settings.appearance")
+            }
+            .aetherSettingsRow()
+            settingsFooter("System follows your iPhone's appearance.")
+            settingsDivider
             Toggle("Liquid Glass navigation", isOn: $settings.liquidGlassEnabled)
                 .accessibilityIdentifier("settings.liquidGlass")
                 .aetherSettingsRow()
